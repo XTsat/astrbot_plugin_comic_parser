@@ -5,7 +5,7 @@
 >
 > 适用项目：`astrbot_plugin_comic_parser`（AstrBot 插件，Python）。
 >
-> **模板版本**：v0.1.5（2026-11-03） —— 本行标记本文件对应的 `astrbot-plugin` 模板版本。回填项目内容时**不要改动本行**；只有从上游合并到新版本时才把它更新为合并到的版本。
+> **模板版本**：v0.1.7（2026-11-04） —— 本行标记本文件对应的 `astrbot-plugin` 模板版本。回填项目内容时**不要改动本行**；只有从上游合并到新版本时才把它更新为合并到的版本。
 > **来源**：本文件是 [agent-templates](https://github.com/XTsat/agent-templates) 的 `templates/astrbot-plugin/AGENTS.md` 副本，已回填本项目的功能清单、架构选型、目录结构、配置项与命令表。最新版见该仓库 `main` 分支。
 > 用户说「更新 AGENTS」时按此流程：① 打开来源仓库该模板的 `AGENTS.md`，比对头部「模板版本」与本地是否一致——一致说明已是最新，直接结束，不必拉取逐节比对 → ② 不一致才拉取来源模板最新版 → ③ 与本地逐节比对 → ④ 合并（保留本项目已回填的插件名、命令前缀、目录结构与项目特有约定）→ ⑤ 展示 diff 与改动清单，等用户确认后再落盘，并把头部「模板版本」同步改为合并到的版本。**禁止整文件覆盖**。
 
@@ -20,7 +20,7 @@
 核心能力：
 
 - **按 ID 下载整本**：一个渠道一条命令（当前 `/jm <ID 或链接>`），渠道只负责取元信息与下载图片
-- **上层统一打包加密**：任何渠道下载完都走同一套产物流程——`zip` / `pdf` / `long_img` / `none`，全局一个密码（ZIP 用 AES、PDF 用 AES-256），设置了密码却缺少加密依赖时**失败关闭**，绝不静默产出未加密文件
+- **上层统一打包，按需加密**：任何渠道下载完都走同一套产物流程——`zip` / `pdf` / `long_img` / `none`；设置全局密码才加密（ZIP 用 AES、PDF 用 AES-256），设置了密码却缺少加密依赖时**失败关闭**，绝不静默产出未加密文件
 - **准入与调度**：会话白/黑名单、同会话防抖、全局并发上限、整本超时与重试
 - **产物交付**：压缩包以文件形式发出；仅本地保存模式的目录落进数据目录并长期保留
 
@@ -31,7 +31,7 @@
 | 文件 | 必选 | 职责 |
 |------|------|------|
 | `main.py` | ✅ | 插件主体，全部后端逻辑 |
-| `metadata.yaml` | ✅ | 插件元数据（必填 `name`/`desc`/`version`/`author`；推荐 `display_name`/`repo`；可选 `support_platforms`/`tags`/`short_desc`，`astrbot_version` 只在能明确最低版本时才填） |
+| `metadata.yaml` | ✅ | 插件元数据（必填 `name`/`desc`/`version`/`author`；推荐 `display_name`/`repo`；可选 `support_platforms`/`tags`（**全量**关键词，README 头部只挑代表）/`short_desc`，`astrbot_version` 只在能明确最低版本时才填） |
 | `_conf_schema.json` | ✅ | WebUI 配置 Schema（扁平 `{key: {type, description, default, ...}}`，定义所有可配置项） |
 | `README.md` | ✅ | 中文文档（功能说明、命令表、配置说明） |
 | `CHANGELOG.md` | ✅ | 变更日志 |
@@ -107,13 +107,14 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 工具层 | `utils/` | `filename.py`（文件名清洗） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
-**渠道与上层的分工是硬约束**：渠道（`core/channels/*`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。新增渠道的固定动作共 **五处**（漏一处渠道就跑不起来）：
+**渠道与上层的分工是硬约束**：渠道（`core/channels/*`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。新增渠道的固定动作共 **六处**（漏一处渠道就跑不起来）：
 
 1. `core/channels/` 下新增一个 `BaseChannel` 子类（只实现 `normalize_id` / `fetch_meta` / `download`）
 2. 加进 `core/registry.py` 的 `CHANNEL_CLASSES`
 3. `main.py` 里加同名的 `cmd_<命令>` 薄方法（命令装饰器无法按渠道列表动态生成）
 4. `_conf_schema.json` 的 `channels.templates` 加同名模板（渠道私有配置项放这里，读配置一律走 `BaseChannel.opt_*` 系列方法，自动兜底脏值）
-5. 需要新依赖时补 `requirements.txt`，并同步 `metadata.yaml` 的 `desc`/`short_desc`、README（中英）与 CHANGELOG 文案
+5. 需要新依赖时补 `requirements.txt`，并同步 `metadata.yaml` 的 `desc`/`short_desc`/`tags`、README（中英）与 CHANGELOG 文案
+6. 实现 `default_options()`（至少含 `enable: True`）——`build_channels()` 用它兜底，内置渠道因此默认启用，老配置无需手动添加
 
 ---
 
@@ -494,6 +495,7 @@ README 的读者是**插件使用者**（服务器管理员、群成员），不
 <div align="center">
 <h1>DisplayName</h1>
 <p><strong>插件描述（desc）</strong></p>
+<!-- sub 行只放 2–4 个代表标签（每个主要能力方向各取一个），全量标签留在 metadata.yaml 的 tags -->
 <p><sub>标签1 &nbsp;&nbsp; 标签2 &nbsp;&nbsp; 标签3</sub></p>
 <p><strong>中文</strong> &nbsp;/&nbsp; <a href="README_en.md">English</a></p>
 </div>
@@ -506,6 +508,7 @@ README 的读者是**插件使用者**（服务器管理员、群成员），不
 <h1>Plugin Name</h1>
 <!-- 英文 h1 取插件名后缀首字母大写：astrbot_plugin_model_status → Model Status -->
 <p><strong>Plugin description</strong></p>
+<!-- only 2–4 representative tags here; the full tag list lives in metadata.yaml -->
 <p><sub>tag1 &nbsp;&nbsp; tag2 &nbsp;&nbsp; tag3</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
@@ -515,7 +518,7 @@ README 的读者是**插件使用者**（服务器管理员、群成员），不
 - **中文版 h1**：直接取 `metadata.yaml` 的 `display_name` 字段（如 `模型状态检测`、`跨平台消息转发`）。
 - **英文版 h1**：取插件名 `astrbot_plugin_xxx` 中的 `xxx` 部分，拆分为单词后每个首字母大写。例如 `astrbot_plugin_reread` → `Reread`；`astrbot_plugin_model_status` → `Model Status`；`astrbot_plugin_help_panel_typst` → `Help Panel Typst`。
 - **desc**：中文版用 `metadata.yaml` 的 `desc` 字段；英文版做地道翻译。
-- **标签（tags）**：取自 `metadata.yaml` 的 `tags` 字段（若有），用 `&nbsp;&nbsp;` 分隔。中文版用中文标签，英文版用英文标签。
+- **标签（tags）**：`metadata.yaml` 的 `tags` 是**全量**清单——各能力方向的关键词都列上（供市场分类与搜索），**不因为 README 头部放不下就删减**；README 头部的 `<sub>` 行**只放代表标签（2–4 个）**，按重要性排序、每个主要能力方向各取一个，只能从 `tags` 里挑（不要新增 `tags` 里没有的标签），用 `&nbsp;&nbsp;` 分隔。中文版用中文标签，英文版用英文标签。
 
 #### 7.2.3 README 四大结构
 
@@ -538,9 +541,10 @@ README 正文严格按以下 4 大板块组织，但不强制使用 `##` 标题�
 
 **配置板块怎么写（板块三）**：
 
-- 配置少就不分类：**≤ 6 项**直接一张表，不为了对称硬拆小节。
+- **配置表是备查资料，不是配置入口**：用户在 WebUI 插件详情页的设置里直接改配置、改完即时生效，很少专门翻 README 找配置项——所以阈值放低（能折叠就折叠），说明列写短，只讲「这一项控制什么」。
+- 配置少就不分类：**≤ 4 项**直接一张表，不为了对称硬拆小节。
 - 更多就按类别分组：每类一个 `###` 子标题 + 该类一张表，顺序按用户上手顺序（基础/常用在前，进阶/排障在后）；分类要与 `_conf_schema.json` 的真实结构对得上（顶层 key 与 `object` 分组），不要写出 WebUI 里根本不存在的分组。
-- 某一类本身很长（单类 > 10 行）或属于纯参考内容（逐字段明细、平台对照表、模板变量）时，把该类整表包进 `<details>` 折叠，`<summary>` 自解释（类别名 + 项数）：
+- **单类 ≥ 4 项就折叠**（不必等到单类 > 10 行），或属于纯参考内容（逐字段明细、平台对照表、模板变量）时，把该类整表包进 `<details>` 折叠，`<summary>` 自解释（类别名 + 项数）：
 
 ```markdown
 <details>
@@ -644,7 +648,8 @@ README 正文严格按以下 4 大板块组织，但不强制使用 `##` 标题�
 - [ ] 日志：`[{PLUGIN_NAME}]` 前缀，异常分类记录，无空 catch
 - [ ] CHANGELOG：`[Unreleased]` 已追加条目，**只写相对上一版的变化**、同一变化已合并为一条（无重复条目），条目面向用户（无内部实现细节、无复杂形容即可看懂），保留了他人的既有记录
 - [ ] README：涉及用户可见变更时已同步更新，且面向用户书写（无实现原理与内部细节）
-- [ ] README 配置板块：> 6 项时已按类别分组，长尾表用 `<details>` 折叠且 summary 自解释、关键配置没被藏进折叠
+- [ ] README 配置板块：> 4 项时已按类别分组，单类 ≥ 4 项已用 `<details>` 折叠且 summary 自解释，首次必填的关键配置没被藏进折叠（配置表是备查资料，宁折叠勿铺长）
+- [ ] 标签：`metadata.yaml` 的 `tags` 是全量能力关键词（未因 README 只显示代表标签而删减）；中英两份 README 头部只放 2–4 个代表标签，且都能在 `tags` 里找到
 - [ ] README 安装：未写分步「快速开始/安装」（插件市场/安装页装完即用）；版本与协议端仅在确有明确限制时才写，最低版本能明确时写进 `metadata.yaml` 的 `astrbot_version`（不在 README 重复，也不填估算值）
 - [ ] 许可证：未自行创建 `LICENSE`、README 中无许可证小节/徽章/许可证名（用户明确指定许可证时才建 `LICENSE`，仍不写进 README）
 - [ ] 版本号：日常任务不递增版本号；仅发版任务改 `metadata.yaml` 的 `version`（与 CHANGELOG 新版本段、tag 一致），并把 `@register`、README 徽章、i18n 等辅助位置同步到同一版本号
