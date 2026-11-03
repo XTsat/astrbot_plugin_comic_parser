@@ -412,6 +412,73 @@
             "default": true
           }
         }
+      },
+      "hanime1": {
+        "name": "Hanime1 漫画（hanime）",
+        "items": {
+          "enable": {
+            "type": "bool",
+            "description": "启用",
+            "default": true
+          },
+          "site_domains": {
+            "type": "text",
+            "description": "站点域名",
+            "hint": "一行一个，从上到下依次尝试；漫画区现在在 hanimeone.me，hanime1.me 上老作品仍可访问",
+            "default": "hanimeone.me\nhanime1.me"
+          },
+          "image_domains": {
+            "type": "text",
+            "description": "图床域名（一般留空）",
+            "hint": "留空＝用阅读页给出的图床地址（i / i2 / i3 会变）；只有在它也不通时才手动填，例如 i.nhentai.net",
+            "default": ""
+          },
+          "fetch_proxy": {
+            "type": "string",
+            "description": "读取代理地址",
+            "hint": "默认用公开读取服务 r.jina.ai 代取页面（图片仍直连图床）；不想让页面经过第三方就清空，清空后只直连站点",
+            "default": "https://r.jina.ai/"
+          },
+          "request_timeout": {
+            "type": "int",
+            "description": "请求超时（秒）",
+            "hint": "单次请求的超时秒数，默认 30；站点在 Cloudflare 后面偶尔慢，调太小容易误判失败",
+            "default": 30,
+            "slider": {
+              "min": 5,
+              "max": 120,
+              "step": 5
+            }
+          },
+          "max_concurrent_images": {
+            "type": "int",
+            "description": "并发图片数",
+            "hint": "同时下载的图片数量，建议 3-6；图床对高并发比较敏感",
+            "default": 5,
+            "slider": {
+              "min": 1,
+              "max": 20,
+              "step": 1
+            }
+          },
+          "retry_times": {
+            "type": "int",
+            "description": "单请求重试次数",
+            "hint": "单张图片失败后的重试次数，0 表示不重试",
+            "default": 2,
+            "slider": {
+              "min": 0,
+              "max": 10,
+              "step": 1
+            }
+          },
+          "use_proxy": {
+            "type": "bool",
+            "description": "使用代理",
+            "hint": "开启后使用上方全局代理地址（全局代理留空时等于直连）；站点被 Cloudflare 拦时通常要靠代理换出口 IP",
+            "default": true
+          }
+        }
       }
     },
     "default": [
@@ -447,6 +514,17 @@
         "request_timeout": 30,
         "retry_times": 3,
         "max_concurrent_images": 5,
+        "use_proxy": true
+      },
+      {
+        "__template_key": "hanime1",
+        "enable": true,
+        "site_domains": "hanimeone.me\nhanime1.me",
+        "image_domains": "",
+        "fetch_proxy": "https://r.jina.ai/",
+        "request_timeout": 30,
+        "max_concurrent_images": 5,
+        "retry_times": 2,
         "use_proxy": true
       }
     ]

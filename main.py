@@ -179,6 +179,14 @@ class ComicParserPlugin(Star):
         async for result in self._handle_download(event, "pica", comic_id):
             yield result
 
+    @filter.command("hanime")
+    async def cmd_hanime(
+        self, event: AstrMessageEvent, comic_id: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """下载指定 ID 的 Hanime1 漫画。用法：/hanime <ID 或链接>"""
+        async for result in self._handle_download(event, "hanime", comic_id):
+            yield result
+
     @filter.command("漫画帮助", alias={"comichelp"})
     async def cmd_help(
         self, event: AstrMessageEvent

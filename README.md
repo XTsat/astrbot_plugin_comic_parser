@@ -23,6 +23,7 @@
 | `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 JM 漫画 |
 | `/nh <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
 | `/pica <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本哔咔漫画（需在渠道配置里填哔咔账号） |
+| `/hanime <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 Hanime1 漫画 |
 | `/漫画帮助` | 全部 | 查看当前可用渠道、打包格式、密码与进度提示设置 |
 
 示例：
@@ -33,6 +34,8 @@
 /nh 123456
 /nh https://nhentai.net/g/123456/
 /pica 5f1e2d3c4b5a69788796a5b4
+/hanime 100445
+/hanime https://hanime1.me/comic/100445
 ```
 
 ## 配置
@@ -135,5 +138,23 @@
 | 单请求重试次数（`retry_times`） | int | 3 | 只有服务端错误与限流才重试，0 表示不重试 |
 | 并发图片数（`max_concurrent_images`） | int | 5 | 同时下载的图片数量；建议 3-6 |
 | 使用代理（`use_proxy`） | bool | true | 开启后走全局代理地址；多数网络环境访问哔咔需要开 |
+
+</details>
+
+### Hanime1 渠道
+
+<details>
+<summary>Hanime1 渠道配置（8 项）</summary>
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 启用（`enable`） | bool | true | 关闭后 `/hanime` 提示渠道未启用 |
+| 站点域名（`site_domains`） | text | hanimeone.me、hanime1.me | 一行一个，**从上到下依次降级**；漫画区现在在 hanimeone.me，hanime1.me 上只留老作品 |
+| 图床域名（`image_domains`） | text | 空 | **一般留空**：留空则用页面给出的图床，并在连不上时自动换备用图床；只有在都不通时才手填，例如 i.nhentai.net |
+| 读取代理地址（`fetch_proxy`） | string | https://r.jina.ai/ | 默认用公开读取服务代取页面（图片仍直连图床），装好即可抓页；不想让页面经过第三方就清空，清空后只直连站点 |
+| 请求超时（`request_timeout`） | int | 30 | 单次请求超时秒数；站点在 Cloudflare 后面偶尔慢，调太小容易误判失败 |
+| 并发图片数（`max_concurrent_images`） | int | 5 | 同时下载的图片数量；图床对高并发敏感，建议 3-8 |
+| 单请求重试次数（`retry_times`） | int | 2 | 单张图失败后的重试次数；图床偶发风控时会自动改走另一条通道再取一次 |
+| 使用代理（`use_proxy`） | bool | true | 开启后走全局代理地址（全局代理留空时等于直连）；站点被 Cloudflare 拦时通常要靠代理换出口 IP |
 
 </details>

@@ -5,8 +5,9 @@
 渠道只负责取元信息与下载图片，打包加密在上层统一处理。
 """
 
+from .hanime1 import Hanime1Channel
 from .jmcomic import JMComicChannel
 from .nhentai import NhentaiChannel
 from .pica import PicaChannel
 
-__all__ = ["JMComicChannel", "NhentaiChannel", "PicaChannel"]
+__all__ = ["Hanime1Channel", "JMComicChannel", "NhentaiChannel", "PicaChannel"]

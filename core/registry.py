@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from ..domain import PluginSettings
 from .channel import BaseChannel
+from .channels.hanime1 import Hanime1Channel
 from .channels.jmcomic import JMComicChannel
 from .channels.nhentai import NhentaiChannel
 from .channels.pica import PicaChannel
@@ -23,6 +24,7 @@ CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (
     JMComicChannel,
     NhentaiChannel,
     PicaChannel,
+    Hanime1Channel,
 )
 
 

@@ -23,6 +23,7 @@
 | `/jm <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
 | `/nh <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
 | `/pica <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
+| `/hanime <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
 Examples:
@@ -33,6 +34,8 @@ Examples:
 /nh 123456
 /nh https://nhentai.net/g/123456/
 /pica 5f1e2d3c4b5a69788796a5b4
+/hanime 100445
+/hanime https://hanime1.me/comic/100445
 ```
 
 ## Configuration
@@ -135,5 +138,23 @@ Examples:
 | Per-request retries (`retry_times`) | int | 3 | Only server errors and rate limits are retried; 0 disables retries |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; 3-6 works best |
 | Use proxy (`use_proxy`) | bool | true | Uses the global proxy; most networks need one to reach PicaACG |
+
+</details>
+
+### Hanime1 channel
+
+<details>
+<summary>Hanime1 channel settings (8)</summary>
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Enable (`enable`) | bool | true | When off, `/hanime` reports the channel as disabled |
+| Site domains (`site_domains`) | text | hanimeone.me, hanime1.me | One per line, **tried top to bottom**; the comic section now lives on hanimeone.me, hanime1.me only keeps older works |
+| Image host (`image_domains`) | text | empty | **Usually leave empty**: the host from the page is used, and unreachable ones are swapped automatically; fill it only when none work, e.g. i.nhentai.net |
+| Reader proxy (`fetch_proxy`) | string | https://r.jina.ai/ | Pages are fetched through this public reader service by default (images still come straight from the image host); clear it to talk to the site directly only |
+| Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site can be slow behind Cloudflare, too small a value causes false failures |
+| Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
+| Per-request retries (`retry_times`) | int | 2 | Retries per image; when the image host throttles, a single image is refetched through the browser-like scraper |
+| Use proxy (`use_proxy`) | bool | true | Uses the global proxy (empty means direct); a different proxy exit IP is usually what gets past Cloudflare |
 
 </details>
