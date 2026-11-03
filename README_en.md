@@ -35,6 +35,9 @@ Examples:
 
 ### Packing and delivery
 
+<details>
+<summary>Packing and delivery (7)</summary>
+
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Pack format (`pack_format`) | string | zip | One of zip / pdf / long_img / none (keep locally, do not send) |
@@ -45,7 +48,12 @@ Examples:
 | Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
 | Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
 
+</details>
+
 ### Download control
+
+<details>
+<summary>Download control (6)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -56,13 +64,20 @@ Examples:
 | Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨. Private chats and clients without reaction support fall back to text progress automatically |
 | Proxy address (`proxy`) | string | empty | Such as `http://host:port`; the channel must also enable "use proxy" |
 
+</details>
+
 ### Sessions and limits
+
+<details>
+<summary>Sessions and limits (3)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Whitelist sessions (`whitelist`) | list | empty | When non-empty, only these sessions may download; takes priority over the blacklist |
 | Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use the download commands |
 | Debounce seconds (`debounce_interval`) | int | 60 | Ignores repeated requests for the same comic within this window; 0 disables it |
+
+</details>
 
 ### Download channels
 
