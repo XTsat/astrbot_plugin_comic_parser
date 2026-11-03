@@ -171,6 +171,14 @@ class ComicParserPlugin(Star):
         async for result in self._handle_download(event, "nh", comic_id):
             yield result
 
+    @filter.command("pica")
+    async def cmd_pica(
+        self, event: AstrMessageEvent, comic_id: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """下载指定 ID 的哔咔漫画。用法：/pica <ID 或链接>"""
+        async for result in self._handle_download(event, "pica", comic_id):
+            yield result
+
     @filter.command("漫画帮助", alias={"comichelp"})
     async def cmd_help(
         self, event: AstrMessageEvent

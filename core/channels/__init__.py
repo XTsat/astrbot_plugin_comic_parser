@@ -7,5 +7,6 @@
 
 from .jmcomic import JMComicChannel
 from .nhentai import NhentaiChannel
+from .pica import PicaChannel
 
-__all__ = ["JMComicChannel", "NhentaiChannel"]
+__all__ = ["JMComicChannel", "NhentaiChannel", "PicaChannel"]

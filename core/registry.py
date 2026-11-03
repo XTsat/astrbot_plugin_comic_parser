@@ -17,8 +17,13 @@ from ..domain import PluginSettings
 from .channel import BaseChannel
 from .channels.jmcomic import JMComicChannel
 from .channels.nhentai import NhentaiChannel
+from .channels.pica import PicaChannel
 
-CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (JMComicChannel, NhentaiChannel)
+CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (
+    JMComicChannel,
+    NhentaiChannel,
+    PicaChannel,
+)
 
 
 def build_channels(settings: PluginSettings) -> dict[str, BaseChannel]:

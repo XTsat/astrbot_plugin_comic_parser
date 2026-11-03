@@ -1,0 +1,69 @@
+{
+  "name": "哔咔漫画（pica）",
+  "items": {
+    "enable": {
+      "type": "bool",
+      "description": "启用",
+      "default": true
+    },
+    "account": {
+      "type": "string",
+      "description": "哔咔账号邮箱",
+      "hint": "必填：哔咔没有匿名访问，没登录就取不到章节与图片",
+      "default": ""
+    },
+    "password": {
+      "type": "string",
+      "description": "哔咔密码",
+      "hint": "建议使用小号，密码只存在插件配置里",
+      "default": "",
+      "secret": true
+    },
+    "secret_key": {
+      "type": "string",
+      "description": "签名密钥",
+      "hint": "默认用哔咔 app 的公开密钥；只有签名算法变更时才需要改",
+      "default": "~d}$Q7$eIni=V)9\\RK/P.RM4;9[7|@/CA}b~OW!3?EV`:<>M7pddUBL5n|0/*Cn",
+      "secret": true
+    },
+    "request_timeout": {
+      "type": "int",
+      "description": "请求超时（秒）",
+      "hint": "单次请求的超时秒数；哔咔接口在部分网络下较慢，不建议低于 15",
+      "default": 30,
+      "slider": {
+        "min": 5,
+        "max": 120,
+        "step": 5
+      }
+    },
+    "retry_times": {
+      "type": "int",
+      "description": "单请求重试次数",
+      "hint": "单个请求失败后的重试次数，0 表示不重试",
+      "default": 3,
+      "slider": {
+        "min": 0,
+        "max": 10,
+        "step": 1
+      }
+    },
+    "max_concurrent_images": {
+      "type": "int",
+      "description": "并发图片数",
+      "hint": "同时下载的图片数量，建议 3-6；调太高一容易被上游限速",
+      "default": 5,
+      "slider": {
+        "min": 1,
+        "max": 20,
+        "step": 1
+      }
+    },
+    "use_proxy": {
+      "type": "bool",
+      "description": "使用代理",
+      "hint": "开启后使用全局代理地址；哔咔需要能访问境外的网络环境，多数服务器要开",
+      "default": true
+    }
+  }
+}

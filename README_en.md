@@ -8,7 +8,6 @@
 ## Features
 
 - **Download by ID**: hand over a comic ID or link and get the whole comic
-- **One command per channel**: `/jm 123456`, `/nh 123456`; each channel keeps its own command, so they never get in each other's way
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off
@@ -23,6 +22,7 @@
 |---------|------------|-------------|
 | `/jm <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
 | `/nh <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
+| `/pica <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
 Examples:
@@ -32,6 +32,7 @@ Examples:
 /jm https://18comic.vip/album/123456/
 /nh 123456
 /nh https://nhentai.net/g/123456/
+/pica 5f1e2d3c4b5a69788796a5b4
 ```
 
 ## Configuration
@@ -116,5 +117,23 @@ Examples:
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
 | Retries per image (`retry_times`) | int | 2 | Retries for a single image; when the image host pushes back, that page is re-fetched through a second path |
 | Use proxy (`use_proxy`) | bool | true | Uses the global proxy (empty means direct); most networks need one to reach nhentai |
+
+</details>
+
+### PicaACG channel
+
+<details>
+<summary>PicaACG channel settings (8)</summary>
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Enable (`enable`) | bool | true | When off, `/pica` reports the channel as disabled |
+| PicaACG account email (`account`) | string | empty | **Required**: PicaACG has no anonymous access, so episode and image lists need a login |
+| PicaACG password (`password`) | string | empty | A throwaway account is recommended; the password only lives in the plugin config |
+| Signature key (`secret_key`) | string | public app key | Only change it if the upstream signing scheme changes |
+| Request timeout (`request_timeout`) | int | 30 | Timeout per request; the API is slow on some networks, keep it at 15 or more |
+| Per-request retries (`retry_times`) | int | 3 | Only server errors and rate limits are retried; 0 disables retries |
+| Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; 3-6 works best |
+| Use proxy (`use_proxy`) | bool | true | Uses the global proxy; most networks need one to reach PicaACG |
 
 </details>
