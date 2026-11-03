@@ -67,13 +67,15 @@
 渠道按需添加，未添加的渠道不会被启用。目前提供 JM 漫画渠道。
 
 <details>
-<summary>JM 漫画渠道配置（8 项）</summary>
+<summary>JM 漫画渠道配置（10 项）</summary>
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | 启用（`enable`） | bool | true | 关闭后 `/jm` 提示渠道未启用 |
 | 客户端类型（`client_type`） | string | api | api 兼容性好；html 效率高但限制地区 |
-| 自定义域名（`client_domain`） | string | 空 | 逗号分隔的域名列表，留空自动选择 |
+| API 接口域名（`api_domains`） | text | 4 个常用接口域名 | 一行一个，**从上到下依次降级**（前一个失败换下一个）；清空则由 jmcomic 自动获取最新域名 |
+| 网页域名（`html_domains`） | text | 7 个常用网页域名 | 一行一个，从上到下依次降级；清空则由 jmcomic 自动获取最新域名 |
+| 请求超时（`request_timeout`） | int | 30 | 单次请求超时秒数；调小让坏节点更快放弃 |
 | 图片格式（`image_suffix`） | string | .jpg | 下载图片保存的扩展名 |
 | 单请求重试次数（`retry_times`） | int | 0 | 0 表示使用依赖库默认值 |
 | 并发章节数（`max_concurrent_photos`） | int | 3 | 同时下载的章节数量 |

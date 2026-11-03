@@ -18,6 +18,19 @@ from ..domain import ChannelUnavailableError, ComicMeta, DownloadError, Download
 ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 
 
+def split_option_list(raw: Any) -> list[str]:
+    """把「多行文本 / 逗号空格分隔的字符串 / list」拆成列表，保持填写顺序。
+
+    域名这类配置的顺序就是降级顺序，因此不排序、不去重。
+    """
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    if isinstance(raw, str):
+        parts = raw.replace(",", " ").replace("\r", " ").split("\n")
+        return [token for part in parts for token in part.split() if token]
+    return []
+
+
 class BaseChannel(ABC):
     """渠道基类。子类只需声明类属性并实现三个抽象方法。"""
 
@@ -61,13 +74,8 @@ class BaseChannel(ABC):
         return value.strip() if isinstance(value, str) else default
 
     def opt_list(self, key: str) -> list[str]:
-        """兼容「逗号/空格分隔的字符串」与「真正的 list」两种填法。"""
-        value = self.options.get(key)
-        if isinstance(value, list):
-            return [str(item).strip() for item in value if str(item).strip()]
-        if isinstance(value, str):
-            return [part for part in value.replace(",", " ").split() if part]
-        return []
+        """兼容「多行文本 / 逗号空格分隔的字符串」与「真正的 list」三种填法。"""
+        return split_option_list(self.options.get(key))
 
     def missing_requirement(self) -> str | None:
         """返回首个缺失的运行时依赖名；依赖齐备时返回 None。"""

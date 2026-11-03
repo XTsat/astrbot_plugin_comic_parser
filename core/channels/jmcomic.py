@@ -20,8 +20,15 @@ from typing import Any, ClassVar
 from astrbot.api import logger
 
 from ...domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
-from ...domain.constants import DOWNLOAD_LOG_INTERVAL, IMAGE_SUFFIXES, PLUGIN_NAME
-from ..channel import BaseChannel, ProgressCallback
+from ...domain.constants import (
+    DEFAULT_API_DOMAINS,
+    DEFAULT_HTML_DOMAINS,
+    DEFAULT_REQUEST_TIMEOUT,
+    DOWNLOAD_LOG_INTERVAL,
+    IMAGE_SUFFIXES,
+    PLUGIN_NAME,
+)
+from ..channel import BaseChannel, ProgressCallback, split_option_list
 
 _ALBUM_IN_TEXT = re.compile(r"/(?:album|photo)/(\d+)")
 _FIRST_DIGITS = re.compile(r"\d+")
@@ -361,6 +368,12 @@ class JMComicChannel(BaseChannel):
             failed_images=failed_images + failed_photos,
         )
 
+    def _domains(self, key: str, default: str) -> list[str]:
+        """域名清单：配置里没有这个键就用预填值；显式清空表示交给 jmcomic 自动获取。"""
+        if key not in self.options:
+            return split_option_list(default)
+        return self.opt_list(key)
+
     # ---- JmOption 构建 ----
     def _build_option(self, jmcomic: Any, base_dir: Path) -> Any:
         """把渠道配置翻译成 jmcomic 的 option。
@@ -368,6 +381,7 @@ class JMComicChannel(BaseChannel):
         目录规则固定 Bd/Aid/Pindex：用 Aid 作目录名避开标题里的非法字符，
         再带章节维度 Pindex，否则多章节本子的各章会用相同页码互相覆盖。
         """
+        impl = self.opt_str("client_type", "api")
         option_dict: dict[str, Any] = {
             "dir_rule": {"base_dir": str(base_dir), "rule": "Bd/Aid/Pindex"},
             "download": {
@@ -377,10 +391,17 @@ class JMComicChannel(BaseChannel):
                     "image": self.opt_int("max_concurrent_images", 5, minimum=1),
                 },
             },
-            "client": {"impl": self.opt_str("client_type", "api")},
+            "client": {"impl": impl},
         }
 
-        domains = self.opt_list("client_domain")
+        # 域名按填写顺序逐个降级：jmcomic 的 domain_list 顺序就是重试顺序
+        domains: dict[str, list[str]] = {}
+        api_domains = self._domains("api_domains", DEFAULT_API_DOMAINS)
+        html_domains = self._domains("html_domains", DEFAULT_HTML_DOMAINS)
+        if api_domains:
+            domains["api"] = api_domains
+        if html_domains:
+            domains["html"] = html_domains
         if domains:
             option_dict["client"]["domain"] = domains
 
@@ -388,11 +409,18 @@ class JMComicChannel(BaseChannel):
         if retry_times > 0:
             option_dict["client"]["retry_times"] = retry_times
 
+        # 单请求超时对 api / html 两种客户端都生效；配小了坏节点能更快放弃
+        meta_data: dict[str, Any] = {
+            "timeout": self.opt_int(
+                "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
+            )
+        }
         proxy = self.settings.proxy if self.opt_bool("use_proxy", False) else ""
         if proxy:
-            option_dict["client"]["postman"] = {"meta_data": {"proxies": proxy}}
+            meta_data["proxies"] = proxy
         else:
             # 显式置空：容器里常带系统代理变量，不覆盖会让请求绕到不存在的代理上
-            option_dict["client"]["postman"] = {"meta_data": {"proxies": {}}}
+            meta_data["proxies"] = {}
+        option_dict["client"]["postman"] = {"meta_data": meta_data}
 
         return jmcomic.JmModuleConfig.option_class().construct(option_dict)
