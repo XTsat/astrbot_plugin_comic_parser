@@ -32,6 +32,9 @@ IMAGE_SUFFIXES: Final = frozenset(
 PROGRESS_STYLES: Final = ("emoji", "text", "none")
 DEFAULT_PROGRESS_STYLE: Final = "emoji"
 
+# 下载日志的间隔（秒）：长任务也能在日志里看出是卡住还是在走
+DOWNLOAD_LOG_INTERVAL: Final = 15.0
+
 # 文本进度的节流：百分比步进与最小间隔（秒）双阈值，避免刷屏
 PROGRESS_STEP_PERCENT: Final = 25
 PROGRESS_MIN_INTERVAL: Final = 3.0

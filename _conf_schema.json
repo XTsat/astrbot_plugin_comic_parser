@@ -51,6 +51,12 @@
     "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
     "default": true
   },
+  "clean_temp_on_start": {
+    "type": "bool",
+    "description": "启动时清理临时目录",
+    "hint": "插件加载时清空临时目录，避免崩溃或强制重启留下的半成品一直占用磁盘；正常重载与发送完成后本来就会清理。想保留未完成的内容以便排查时可关闭",
+    "default": true
+  },
   "progress_style": {
     "type": "string",
     "description": "进度提示方式",

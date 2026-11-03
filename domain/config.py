@@ -68,6 +68,7 @@ class PluginSettings:
     filename_show_password: bool = False
     auto_delete_after_send: bool = True
     progress_style: str = DEFAULT_PROGRESS_STYLE
+    clean_temp_on_start: bool = True
     max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT
     download_retry_times: int = DEFAULT_RETRY_TIMES
@@ -98,6 +99,7 @@ class PluginSettings:
                 data.get("auto_delete_after_send"), True
             ),
             progress_style=progress_style,
+            clean_temp_on_start=_as_bool(data.get("clean_temp_on_start"), True),
             max_concurrent_tasks=_as_int(
                 data.get("max_concurrent_tasks"),
                 DEFAULT_MAX_CONCURRENT_TASKS,

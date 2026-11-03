@@ -112,19 +112,46 @@ class ComicParserPlugin(Star):
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
+        self._clean_temp_on_start()
 
         logger.info(
             f"[{PLUGIN_NAME}] 已加载渠道: {', '.join(self.channels) or '无'}；"
             f"保存目录: {self.save_root}"
         )
 
-    async def terminate(self) -> None:
-        """卸载/重载时清掉临时目录里的残留（只动临时目录，不碰用户的保存目录）。"""
-        if not self.temp_root.exists():
+    def _clean_temp_on_start(self) -> None:
+        """按配置在加载时清空临时目录。
+
+        下载线程不随插件卸载停下，异常退出（崩溃、强杀）时 terminate 也不会跑，半成品
+        会一直占着磁盘；加载这一刻不可能有下载在跑，因此是安全的清理时机。
+        """
+        if not self.settings.clean_temp_on_start or not self.temp_root.exists():
             return
+        removed = 0
         for entry in self.temp_root.iterdir():
             Packer.cleanup(entry)
-        logger.debug(f"[{PLUGIN_NAME}] 已清理临时目录: {self.temp_root}")
+            removed += 1
+        if removed:
+            logger.info(f"[{PLUGIN_NAME}] 启动清理：已删除 {removed} 个临时目录")
+
+    async def terminate(self) -> None:
+        """重载/卸载时结束进行中的下载：先取消并记下进度，再清空临时目录。
+
+        下载跑在线程池里，插件卸载并不会让它停，结果也无处投递——留着只会继续占带宽与
+        磁盘，所以这里直接取消并清掉；日志里留下「跑到哪、下了多少 MB」备查。
+        """
+        for channel in self.channels.values():
+            for summary in channel.cancel_downloads():
+                logger.info(f"[{PLUGIN_NAME}] 重载中断下载：{summary}")
+
+        if not self.temp_root.exists():
+            return
+        removed = 0
+        for entry in self.temp_root.iterdir():
+            Packer.cleanup(entry)
+            removed += 1
+        if removed:
+            logger.info(f"[{PLUGIN_NAME}] 已清理 {removed} 个临时目录")
 
     # ==================== 命令 ====================
 

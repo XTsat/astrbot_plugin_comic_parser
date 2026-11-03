@@ -41,6 +41,7 @@ Examples:
 | Show password in filename (`filename_show_password`) | bool | false | Appends `#PWpassword` to the filename, which exposes the password in chat |
 | Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
 | Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
+| Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
 
 ### Download control
 

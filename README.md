@@ -41,6 +41,7 @@
 | 文件名显示密码（`filename_show_password`） | bool | false | 开启后文件名末尾追加 `#PW密码` 提示，密码会暴露在聊天记录里 |
 | 本地保存目录（`download_dir`） | string | downloads | 仅「仅本地保存」模式使用，相对路径基于插件数据目录 |
 | 发送后删除本地文件（`auto_delete_after_send`） | bool | true | 发出后清理临时文件 |
+| 启动时清理临时目录（`clean_temp_on_start`） | bool | true | 插件加载时清空临时目录，清理崩溃/强杀留下的半成品 |
 
 ### 下载控制
 

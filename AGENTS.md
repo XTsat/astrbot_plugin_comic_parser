@@ -279,7 +279,7 @@ class MyPlugin(Star):
 | `whitelist` / `blacklist` / `debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `download_dir` | string | 仅本地保存目录 |
 | `pack_format` / `pack_password` / `filename_show_password` | string / string / bool | 打包加密（`core/packer.py`） |
-| `auto_delete_after_send` / `progress_style` | bool / string | 交付行为（`main.py`） |
+| `auto_delete_after_send` / `progress_style` / `clean_temp_on_start` | bool / string / bool | 交付行为（`main.py`） |
 | `max_concurrent_tasks` / `download_timeout` / `download_retry_times` | int | 调度（`core/task.py`） |
 | `proxy` | string | 渠道共用代理地址 |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |

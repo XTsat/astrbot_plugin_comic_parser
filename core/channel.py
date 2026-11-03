@@ -110,6 +110,13 @@ class BaseChannel(ABC):
     ) -> DownloadedComic:
         """下载整本漫画到 work_dir（或它的子目录）并返回落盘结果。"""
 
+    def cancel_downloads(self) -> list[str]:
+        """插件卸载时取消进行中的下载，返回可写进日志的状态摘要。
+
+        默认不做事；下载跑在线程里的渠道（如 JM）应覆盖它，避免重载后线程继续白跑。
+        """
+        return []
+
     def wrap_failure(self, exc: Exception) -> DownloadError:
         """把渠道内部异常翻译成面向用户的下载失败文案。"""
         return DownloadError(f"{self.display_name} 下载失败：{exc}")
