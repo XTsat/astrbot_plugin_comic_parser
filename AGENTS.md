@@ -280,7 +280,7 @@ class MyPlugin(Star):
 | `packing.filename_template` / `packing.filename_custom` | string / string | 产物文件名（`utils/filename.py`） |
 | `packing.download_dir` | string | 仅本地保存目录 |
 | `packing.auto_delete_after_send` / `packing.clean_temp_on_start` | bool / bool | 交付与清理（`main.py`） |
-| `download.progress_style` | string | 进度提示（`main.py`） |
+| `download.progress_style` / `download.show_result_summary` | string / bool | 进度与结果提示（`main.py`） |
 | `download.max_concurrent_tasks` / `download.download_timeout` / `download.download_retry_times` | int | 调度（`core/task.py`） |
 | `download.proxy` | string | 渠道共用代理地址 |
 | `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |

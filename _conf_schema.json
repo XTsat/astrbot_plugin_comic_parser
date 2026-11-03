@@ -33,20 +33,22 @@
         "type": "string",
         "description": "文件名模板",
         "hint": "决定压缩包/PDF 的文件名。带「+密码」的模板会把打包密码写进文件名（密码会出现在聊天记录与日志里）。可用占位符：{title} 标题、{id} 漫画 ID、{author} 作者、{password} 密码",
-        "default": "title_id",
+        "default": "id_title",
         "options": [
+          "id_title",
+          "id_title_pw",
           "title_id",
           "title_id_pw",
-          "id_title",
-          "id_pw",
+          "id_only",
           "title_only",
           "custom"
         ],
         "labels": [
+          "[ID]标题",
+          "[ID]标题 + 密码",
           "标题[ID]",
           "标题[ID] + 密码",
-          "ID-标题",
-          "ID + 密码",
+          "仅 ID",
           "仅标题",
           "自定义模板"
         ]
@@ -97,6 +99,12 @@
           "文本进度",
           "关闭"
         ]
+      },
+      "show_result_summary": {
+        "type": "bool",
+        "description": "发送下载完成摘要",
+        "hint": "关闭后只发文件，不再附「标题 / 作者 / 图片数 / 耗时」那段说明（仅本地保存模式仍会提示保存路径）",
+        "default": true
       },
       "max_concurrent_tasks": {
         "type": "int",

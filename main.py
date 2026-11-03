@@ -173,8 +173,9 @@ class ComicParserPlugin(Star):
         template_labels = {
             "title_id": "标题[ID]",
             "title_id_pw": "标题[ID] + 密码",
-            "id_title": "ID-标题",
-            "id_pw": "ID + 密码",
+            "id_title": "[ID]标题",
+            "id_title_pw": "[ID]标题 + 密码",
+            "id_only": "仅 ID",
             "title_only": "仅标题",
             "custom": "自定义模板",
         }
@@ -183,7 +184,7 @@ class ComicParserPlugin(Star):
             f"{describe_channels(self.channels)}\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
-            f"文件名模板：{template_labels.get(self.settings.filename_template, '标题[ID]')}\n"
+            f"文件名模板：{template_labels.get(self.settings.filename_template, '[ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
             f"用法：/<命令> <ID 或链接>，例如 /jm 123456"
         )
@@ -234,9 +235,11 @@ class ComicParserPlugin(Star):
             )
             succeeded = False
             try:
-                yield event.plain_result(
-                    f"⏳ 开始下载 {channel.display_name} {comic_id}…"
-                )
+                if not use_reaction:
+                    # 贴上了表情就等于「已开始」，不必再多一条消息
+                    yield event.plain_result(
+                        f"⏳ 开始下载 {channel.display_name} {comic_id}…"
+                    )
                 task = DownloadTask(
                     channel, self.settings, self.temp_root, self.save_root
                 )
@@ -268,21 +271,17 @@ class ComicParserPlugin(Star):
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome
     ) -> AsyncGenerator[MessageEventResult, None]:
-        summary = self._format_outcome(outcome)
         sendable = outcome.sendable_path
+        summary = self._format_outcome(outcome) if self.settings.show_result_summary else ""
 
         if sendable is None:
-            # 仅本地保存模式：不发送文件，但告诉用户落在了哪里
-            yield event.plain_result(summary)
+            # 仅本地保存模式没有文件可发，摘要关掉也要告诉用户落在哪里
+            yield event.plain_result(summary or f"已保存到本地：{outcome.source_dir}")
             return
 
-        chain = MessageChain(
-            [
-                Comp.Plain(summary),
-                Comp.File(name=sendable.name, file=str(sendable)),
-            ]
-        )
-        yield event.chain_result(chain.chain)
+        chain = [Comp.Plain(summary)] if summary else []
+        chain.append(Comp.File(name=sendable.name, file=str(sendable)))
+        yield event.chain_result(MessageChain(chain).chain)
 
     # ==================== 内部工具 ====================
 

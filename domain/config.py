@@ -76,6 +76,7 @@ class PluginSettings:
     filename_custom: str = ""
     auto_delete_after_send: bool = True
     progress_style: str = DEFAULT_PROGRESS_STYLE
+    show_result_summary: bool = True
     clean_temp_on_start: bool = True
     max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT
@@ -124,6 +125,9 @@ class PluginSettings:
                 packing.get("auto_delete_after_send"), True
             ),
             progress_style=progress_style,
+            show_result_summary=_as_bool(
+                download.get("show_result_summary"), True
+            ),
             clean_temp_on_start=_as_bool(
                 packing.get("clean_temp_on_start"), True
             ),

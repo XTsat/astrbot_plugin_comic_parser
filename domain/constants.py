@@ -50,12 +50,13 @@ DEFAULT_PACK_FORMAT: Final = "zip"
 FILENAME_TEMPLATES: Final = {
     "title_id": "{title}[{id}]",
     "title_id_pw": "{title}[{id}]({password})",
-    "id_title": "{id}-{title}",
-    "id_pw": "{id}({password})",
+    "id_title": "[{id}]{title}",
+    "id_title_pw": "[{id}]{title}({password})",
+    "id_only": "{id}",
     "title_only": "{title}",
     "custom": "",
 }
-DEFAULT_FILENAME_TEMPLATE: Final = "title_id"
+DEFAULT_FILENAME_TEMPLATE: Final = "id_title"
 # 自定义模板里可用的占位符，供提示文案复用
 FILENAME_PLACEHOLDERS: Final = ("{title}", "{id}", "{author}", "{password}")
 
