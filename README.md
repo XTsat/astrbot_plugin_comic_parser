@@ -1,7 +1,7 @@
 <div align="center">
 <h1>漫画下载器</h1>
 <p><strong>多渠道漫画下载插件：按 ID 下载整本漫画，统一打包发送，支持密码加密</strong></p>
-<p><sub>漫画下载 &nbsp;&nbsp; JM 漫画 &nbsp;&nbsp; 禁漫天堂 &nbsp;&nbsp; 多渠道</sub></p>
+<p><sub>禁漫天堂 &nbsp;&nbsp; nhentai &nbsp;&nbsp; 哔咔 &nbsp;&nbsp; Hanime1</sub></p>
 <p><strong>中文</strong> &nbsp;/&nbsp; <a href="README_en.md">English</a></p>
 </div>
 

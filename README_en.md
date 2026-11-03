@@ -1,7 +1,7 @@
 <div align="center">
 <h1>Comic Parser</h1>
 <p><strong>Multi-channel comic downloader: grab a whole comic by ID, then pack and send it in one pipeline — optional password encryption</strong></p>
-<p><sub>Comic download &nbsp;&nbsp; JM comic &nbsp;&nbsp; 18comic &nbsp;&nbsp; Multi-channel</sub></p>
+<p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; PicACG &nbsp;&nbsp; Hanime1</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 

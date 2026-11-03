@@ -2,28 +2,22 @@ name: astrbot_plugin_comic_parser
 display_name: 漫画下载器
 desc: 多渠道漫画下载插件：按 ID 下载整本漫画，统一打包发送，支持密码加密
 short_desc: 多渠道漫画下载
-version: v0.2.0
+version: v0.2.1
 author: XTsat
 repo: https://github.com/XTsat/astrbot_plugin_comic_parser
 tags:
-  - 漫画下载
-  - JM 漫画
+  - 漫画
+  - 下载
+  - 解析器
+  - 多渠道
+  - JM
+  - jmcomic
   - 禁漫天堂
   - 18comic
-  - jmcomic
-  - JM
   - nhentai
   - NH
   - 哔咔
-  - 哔咔漫画
   - PicACG
   - pica
   - Hanime1
-  - Hanime1 漫画
   - hanime1.me
-  - 多渠道
-  - comic download
-  - multi-channel
-  - nhentai download
-  - pica comic download
-  - hanime1 download
