@@ -77,6 +77,11 @@ class BaseChannel(ABC):
         """兼容「多行文本 / 逗号空格分隔的字符串」与「真正的 list」三种填法。"""
         return split_option_list(self.options.get(key))
 
+    @classmethod
+    def default_options(cls) -> dict[str, Any]:
+        """渠道没被配置过时使用的默认项（内置渠道因此开箱即启用）。"""
+        return {}
+
     def missing_requirement(self) -> str | None:
         """返回首个缺失的运行时依赖名；依赖齐备时返回 None。"""
         for module in self.requires:

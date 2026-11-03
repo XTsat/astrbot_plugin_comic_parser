@@ -180,7 +180,7 @@
   "channels": {
     "type": "template_list",
     "description": "下载渠道",
-    "hint": "按需添加渠道，没添加的渠道不会被启用；同一个渠道请勿重复添加",
+    "hint": "内置渠道默认启用，装好即可用；要停用把对应渠道的「启用」关掉",
     "templates": {
       "jmcomic": {
         "name": "JM 漫画（jmcomic）",
@@ -283,6 +283,21 @@
           }
         }
       }
-    }
+    },
+    "default": [
+      {
+        "__template_key": "jmcomic",
+        "enable": true,
+        "client_type": "api",
+        "api_domains": "www.cdnhjk.net\nwww.cdnutc.cc\nwww.cdngwc.net\nwww.cdngwc.club",
+        "html_domains": "18comic.vip\n18comic.ink\njmcomic-zzz.one\njmcomic-zzz.org\ncomic18j-moco.work\ncomic18j-nico.site\ncomic18j-ada.work",
+        "request_timeout": 30,
+        "image_suffix": ".jpg",
+        "retry_times": 5,
+        "max_concurrent_photos": 3,
+        "max_concurrent_images": 5,
+        "use_proxy": false
+      }
+    ]
   }
 }

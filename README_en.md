@@ -1,7 +1,7 @@
 <div align="center">
 <h1>Comic Parser</h1>
-<p><strong>Multi-channel comic downloader: download a whole comic by ID, then pack and encrypt it in one unified pipeline</strong></p>
-<p><sub>Comic download &nbsp;&nbsp; Encrypted packing &nbsp;&nbsp; Multi-channel</sub></p>
+<p><strong>Multi-channel comic downloader: grab a whole comic by ID, then pack and send it in one pipeline — optional password encryption</strong></p>
+<p><sub>Comic download &nbsp;&nbsp; JM comic &nbsp;&nbsp; 18comic &nbsp;&nbsp; Multi-channel</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 
@@ -66,8 +66,6 @@ Examples:
 
 ### Download channels
 
-Channels are added on demand; a channel that is not added stays disabled. The JM comic channel is available today.
-
 <details>
 <summary>JM comic channel options (10)</summary>
 
@@ -85,16 +83,3 @@ Channels are added on demand; a channel that is not added stays disabled. The JM
 | Use proxy (`use_proxy`) | bool | false | Uses the global proxy; when off, connections are explicitly direct |
 
 </details>
-
-## Other
-
-### Requirements
-
-Install the plugin from the plugin marketplace or the WebUI install page; AstrBot installs its dependencies automatically. PDF and long-image packing additionally need `pymupdf` and `Pillow`, and encrypted ZIP needs `pyzipper`.
-
-### FAQ
-
-- **"Dependency not installed" when downloading**: make sure the plugin dependencies finished installing, then reload the plugin
-- **Encryption error after setting a password**: `pyzipper` is missing; install it and reload. The plugin will never fall back to sending an unencrypted file
-- **Reactions show up in groups but not in private chats**: QQ private chats do not support emoji reactions, so the plugin falls back to text progress. Set the progress style to text to use it everywhere
-- **The sent file is empty or tiny**: the upstream resource probably failed to load; retry later, or switch the progress style to text to watch the download advance

@@ -1,11 +1,17 @@
 name: astrbot_plugin_comic_parser
 display_name: 漫画下载器
-desc: 多渠道漫画下载插件：按 ID 下载整本漫画，统一打包并加密发送
+desc: 多渠道漫画下载插件：按 ID 下载整本漫画，统一打包发送，支持密码加密
 short_desc: 多渠道漫画下载
 version: v0.1.0
 author: XTsat
 repo: https://github.com/XTsat/astrbot_plugin_comic_parser
 tags:
   - 漫画下载
-  - 加密打包
+  - JM 漫画
+  - 禁漫天堂
+  - 18comic
+  - jmcomic
+  - JM
   - 多渠道
+  - comic download
+  - multi-channel

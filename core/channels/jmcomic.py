@@ -233,6 +233,20 @@ class JMComicChannel(BaseChannel):
     display_name: ClassVar[str] = "JM 漫画"
     requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
 
+    @classmethod
+    def default_options(cls) -> dict[str, Any]:
+        """内置渠道默认启用：域名交给 jmcomic 自动获取，其余取推荐值。"""
+        return {
+            "enable": True,
+            "client_type": "api",
+            "image_suffix": ".jpg",
+            "retry_times": DEFAULT_REQUEST_RETRY_TIMES,
+            "request_timeout": DEFAULT_REQUEST_TIMEOUT,
+            "max_concurrent_photos": 3,
+            "max_concurrent_images": 5,
+            "use_proxy": False,
+        }
+
     # ---- ID 解析 ----
     def normalize_id(self, raw: str) -> str:
         text = (raw or "").strip()

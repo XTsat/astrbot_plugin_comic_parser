@@ -20,12 +20,16 @@ CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (JMComicChannel,)
 
 
 def build_channels(settings: PluginSettings) -> dict[str, BaseChannel]:
-    """按配置实例化渠道。用户没在 WebUI 添加的渠道不会出现在结果里。"""
+    """按配置实例化渠道。
+
+    内置渠道默认启用：配置里没有该渠道时用它的 `default_options()` 建实例，
+    因此新增渠道后老配置也能直接用；要停用就把对应渠道的「启用」关掉。
+    """
     channels: dict[str, BaseChannel] = {}
     for channel_cls in CHANNEL_CLASSES:
         options = settings.channel_options(channel_cls.name)
         if options is None:
-            continue
+            options = channel_cls.default_options()
         channels[channel_cls.name] = channel_cls(options, settings)
     return channels
 
