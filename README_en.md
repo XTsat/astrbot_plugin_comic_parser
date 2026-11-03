@@ -8,7 +8,7 @@
 ## Features
 
 - **Download by ID**: hand over a comic ID or link and get the whole comic
-- **One command per channel**: `/jm 123456`; each channel keeps its own command, so they never get in each other's way
+- **One command per channel**: `/jm 123456`, `/nh 123456`; each channel keeps its own command, so they never get in each other's way
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off
@@ -22,6 +22,7 @@
 | Command | Permission | Description |
 |---------|------------|-------------|
 | `/jm <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
+| `/nh <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
 Examples:
@@ -29,6 +30,8 @@ Examples:
 ```
 /jm 123456
 /jm https://18comic.vip/album/123456/
+/nh 123456
+/nh https://nhentai.net/g/123456/
 ```
 
 ## Configuration
@@ -95,6 +98,23 @@ Examples:
 | Per-request retries (`retry_times`) | int | 5 | Retries after a single failed request; a smaller value gives up on bad nodes faster |
 | Concurrent chapters (`max_concurrent_photos`) | int | 3 | Chapters downloaded in parallel |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel per chapter |
-| Use proxy (`use_proxy`) | bool | false | Uses the global proxy; when off, connections are explicitly direct |
+| Use proxy (`use_proxy`) | bool | false | Uses the global proxy (empty means direct); JM has domestic mirrors, so usually no proxy is needed |
+
+</details>
+
+### nhentai channel
+
+<details>
+<summary>nhentai channel settings (7)</summary>
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Enable (`enable`) | bool | true | When off, `/nh` reports the channel as disabled |
+| Site domains (`site_domains`) | text | nhentai.net | One per line, **tried top to bottom**; the official API and the page fallback share this list, so a mirror goes here |
+| Image domains (`image_domains`) | text | empty | Empty means the image host list is fetched from the site (recommended); fill one per line to force the first |
+| Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site is far away for most networks, so keep it generous |
+| Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
+| Retries per image (`retry_times`) | int | 2 | Retries for a single image; when the image host pushes back, that page is re-fetched through a second path |
+| Use proxy (`use_proxy`) | bool | true | Uses the global proxy (empty means direct); most networks need one to reach nhentai |
 
 </details>

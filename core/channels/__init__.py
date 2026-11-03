@@ -6,5 +6,6 @@
 """
 
 from .jmcomic import JMComicChannel
+from .nhentai import NhentaiChannel
 
-__all__ = ["JMComicChannel"]
+__all__ = ["JMComicChannel", "NhentaiChannel"]

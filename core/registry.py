@@ -16,8 +16,9 @@ from __future__ import annotations
 from ..domain import PluginSettings
 from .channel import BaseChannel
 from .channels.jmcomic import JMComicChannel
+from .channels.nhentai import NhentaiChannel
 
-CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (JMComicChannel,)
+CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (JMComicChannel, NhentaiChannel)
 
 
 def build_channels(settings: PluginSettings) -> dict[str, BaseChannel]:
