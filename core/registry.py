@@ -1,7 +1,8 @@
 """渠道注册表。
 
 新增一个下载渠道的固定动作有五处（漏一处渠道就跑不起来）：
-1. `core/channels/` 下新增一个 `BaseChannel` 子类
+1. `core/channels/<渠道名>/` 新建渠道文件夹：`channel.py` 写 `BaseChannel` 子类，
+   渠道私有模块（接入细节、进度上报等）都留在这个文件夹里，由它的 `__init__.py` 导出
 2. 把该类加进 `core/registry.py` 的 `CHANNEL_CLASSES`
 3. 在 `main.py` 里加一个同名的 `cmd_<命令>` 薄方法（命令装饰器无法动态生成）
 4. 在 `_conf_schema.json` 的 `channels.templates` 里加同名模板

@@ -16,34 +16,8 @@ DEFAULT_DOWNLOAD_TIMEOUT: Final = 1800
 DEFAULT_RETRY_TIMES: Final = 2
 DEFAULT_MAX_CONCURRENT_TASKS: Final = 1
 
-# 渠道单请求超时（秒）：与 curl_cffi 默认一致，配小了坏节点能更快放弃
-DEFAULT_REQUEST_TIMEOUT: Final = 30
-# 单请求重试次数：与 jmcomic 的 client.retry_times 默认一致，配置里直接写具体数字
-DEFAULT_REQUEST_RETRY_TIMES: Final = 5
-
-# 预填的域名清单（一行一个，从上到下依次降级）。
-# API 域名是禁漫接口域名；网页域名是 18comic 系列站点，上游会不定期更换，
-# 想跟随上游自动更新就把对应配置留空，交给 jmcomic 自己拉取。
-DEFAULT_API_DOMAINS: Final = "\n".join(
-    (
-        "www.cdnhjk.net",
-        "www.cdnutc.cc",
-        "www.cdngwc.net",
-        "www.cdngwc.club",
-    )
-)
-DEFAULT_HTML_DOMAINS: Final = "\n".join(
-    (
-        "18comic.vip",
-        "18comic.ink",
-        "jmcomic-zzz.one",
-        "jmcomic-zzz.org",
-        "comic18j-moco.work",
-        "comic18j-nico.site",
-        "comic18j-ada.work",
-    )
-)
-
+# 渠道私有常量（域名清单、单请求超时与重试默认值等）不放这里，
+# 一律跟着渠道走：`core/channels/<渠道名>/constants.py`
 PACK_FORMATS: Final = ("zip", "pdf", "long_img", "none")
 DEFAULT_PACK_FORMAT: Final = "zip"
 

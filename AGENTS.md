@@ -68,8 +68,14 @@ astrbot_plugin_comic_parser/
 │   └── filename.py              # 文件名清洗与打包基名
 └── core/                        # 业务层
     ├── channel.py               # BaseChannel 抽象（渠道只做取元信息 + 下载图片）
-    ├── registry.py              # 渠道注册表（新增渠道的五处接线见 §2.2）
-    ├── channels/jmcomic.py      # JM 漫画渠道（jmcomic 惰性 import）
+    ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
+    ├── channels/                # 每个渠道一个文件夹，渠道私有代码全在自己文件夹里
+    │   └── jmcomic/             # JM 漫画渠道
+    │       ├── __init__.py      #   只导出 JMComicChannel（上层只认这个类）
+    │       ├── channel.py       #   BaseChannel 实现：解析 ID → 元信息 → 下载
+    │       ├── option.py        #   jmcomic 惰性 import + option 构建
+    │       ├── progress.py      #   下载会话状态、进度上报、重载中断
+    │       └── constants.py     #   渠道私有常量（域名清单、请求超时/重试默认值）
     ├── packer.py                # **统一打包与加密**：zip / pdf / long_img / none
     ├── task.py                  # 单次任务编排：元信息 → 下载 → 打包
     └── guard.py                 # 白/黑名单 + 防抖
@@ -95,7 +101,7 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 - `domain/`：数据定义层（constants、config、schemas），最底层，无内部依赖
 - `utils/`：通用工具层（font、image、hash 等），禁止 import core/ 或 main
 - `core/`：核心业务层（analyzer、renderer、worker），纯 Python 逻辑
-- 新增常量 → 放 `domain/constants.py`，禁止散落硬编码
+- 新增常量 → 放 `domain/constants.py`，禁止散落硬编码（只有服务单个渠道的常量放进该渠道文件夹的 `constants.py`，见下方渠道文件夹约定）
 - 新增配置项 → 改 `domain/config.py` 的 dataclass 字段 + 兜底逻辑 + `_conf_schema.json`
 
 **本项目采用：分层多文件**。落点固定如下，新增代码按此归位，不要另开平行目录：
@@ -103,18 +109,33 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 层 | 目录 | 本项目实际内容 |
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
-| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/`（各渠道）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`guard.py`（白黑名单 + 防抖） |
+| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`guard.py`（白黑名单 + 防抖） |
 | 工具层 | `utils/` | `filename.py`（文件名清洗） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
-**渠道与上层的分工是硬约束**：渠道（`core/channels/*`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。新增渠道的固定动作共 **六处**（漏一处渠道就跑不起来）：
+**渠道与上层的分工是硬约束**：渠道（`core/channels/<渠道名>/`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。新增渠道的固定动作共 **六处**（漏一处渠道就跑不起来）：
 
-1. `core/channels/` 下新增一个 `BaseChannel` 子类（只实现 `normalize_id` / `fetch_meta` / `download`）
+1. `core/channels/<渠道名>/` 新建渠道文件夹：在 `channel.py` 里写 `BaseChannel` 子类（只实现 `normalize_id` / `fetch_meta` / `download`），渠道私有模块都留在该文件夹内，由 `__init__.py` 导出渠道类
 2. 加进 `core/registry.py` 的 `CHANNEL_CLASSES`
 3. `main.py` 里加同名的 `cmd_<命令>` 薄方法（命令装饰器无法按渠道列表动态生成）
 4. `_conf_schema.json` 的 `channels.templates` 加同名模板（渠道私有配置项放这里，读配置一律走 `BaseChannel.opt_*` 系列方法，自动兜底脏值）
 5. 需要新依赖时补 `requirements.txt`，并同步 `metadata.yaml` 的 `desc`/`short_desc`/`tags`、README（中英）与 CHANGELOG 文案
 6. 实现 `default_options()`（至少含 `enable: True`）——`build_channels()` 用它兜底，内置渠道因此默认启用，老配置无需手动添加
+
+**渠道文件夹约定（每个渠道一个文件夹，互不干扰）**：`core/channels/` 下**只放渠道文件夹，不再放单文件渠道**。以 `jmcomic/` 为模板：
+
+| 文件 | 职责 |
+|---|---|
+| `__init__.py` | 只导出渠道类（`__all__ = ["JMComicChannel"]`），上层与 `core/channels/__init__.py` 只认这个类 |
+| `channel.py` | `BaseChannel` 子类本体：ID 解析、取元信息、下载编排 |
+| `option.py` | 第三方库的接入细节（惰性 import、配置 → 库 option 的翻译） |
+| `progress.py` | 下载会话状态、进度上报、插件重载时的取消 |
+| `constants.py` | 渠道私有常量：域名清单、该站点的请求超时与重试默认值等 |
+
+- 渠道私有模块之间用包内相对 import（`from .option import ...`），跨层引用按深度写足点数（本层到 `core/` 是 `...`，到插件根 `domain/` 是 `....`）
+- **渠道之间禁止互相 import**：共用逻辑要往上提（放 `core/` 或 `utils/`），不要从 A 渠道 import B 渠道的东西
+- **常量跟着归属走**：只服务一个渠道的常量（域名清单、该站点的默认超时/重试、接口路径）写进该渠道的 `constants.py`；跨渠道共用的常量（`IMAGE_SUFFIXES`、打包格式、文件名模板等）留在 `domain/constants.py`
+- 渠道文件夹里**不要回写 `_conf_schema.json`**：私有配置项统一定义在 `channels.templates` 的同名模板里
 
 ---
 
