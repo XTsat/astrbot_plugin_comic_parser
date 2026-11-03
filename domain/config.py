@@ -13,8 +13,10 @@ from .constants import (
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_PACK_FORMAT,
+    DEFAULT_PROGRESS_STYLE,
     DEFAULT_RETRY_TIMES,
     PACK_FORMATS,
+    PROGRESS_STYLES,
 )
 
 # template_list 里每条渠道配置都带这个 key，标记它属于哪个渠道模板
@@ -65,7 +67,7 @@ class PluginSettings:
     pack_password: str = ""
     filename_show_password: bool = False
     auto_delete_after_send: bool = True
-    show_progress: bool = True
+    progress_style: str = DEFAULT_PROGRESS_STYLE
     max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT
     download_retry_times: int = DEFAULT_RETRY_TIMES
@@ -78,6 +80,9 @@ class PluginSettings:
         pack_format = _as_str(data.get("pack_format"), DEFAULT_PACK_FORMAT)
         if pack_format not in PACK_FORMATS:
             pack_format = DEFAULT_PACK_FORMAT
+        progress_style = _as_str(data.get("progress_style"), DEFAULT_PROGRESS_STYLE)
+        if progress_style not in PROGRESS_STYLES:
+            progress_style = DEFAULT_PROGRESS_STYLE
 
         return cls(
             whitelist=_as_str_list(data.get("whitelist")),
@@ -92,7 +97,7 @@ class PluginSettings:
             auto_delete_after_send=_as_bool(
                 data.get("auto_delete_after_send"), True
             ),
-            show_progress=_as_bool(data.get("show_progress"), True),
+            progress_style=progress_style,
             max_concurrent_tasks=_as_int(
                 data.get("max_concurrent_tasks"),
                 DEFAULT_MAX_CONCURRENT_TASKS,

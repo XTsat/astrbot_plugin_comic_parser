@@ -51,11 +51,13 @@
     "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
     "default": true
   },
-  "show_progress": {
-    "type": "bool",
-    "description": "发送下载进度",
-    "hint": "按 25% 步进推送下载进度，关闭可减少消息刷屏",
-    "default": true
+  "progress_style": {
+    "type": "string",
+    "description": "进度提示方式",
+    "hint": "贴表情：在命令消息上贴一个爱心 ❤️，下载完成换成 OK、失败换成 🔨，不刷屏；群聊可用，私聊或协议端不支持表情回应时自动改用文本进度。文本进度：按 25% 步进推送进度消息。关闭：不提示进度",
+    "default": "emoji",
+    "options": ["emoji", "text", "none"],
+    "labels": ["贴表情", "文本进度", "关闭"]
   },
   "max_concurrent_tasks": {
     "type": "int",

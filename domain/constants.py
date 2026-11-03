@@ -28,6 +28,19 @@ IMAGE_SUFFIXES: Final = frozenset(
     {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif"}
 )
 
-# 进度推送的节流：百分比步进与最小间隔（秒）双阈值，避免刷屏
+# 进度提示方式：贴表情（不刷屏）/ 文本进度 / 关闭
+PROGRESS_STYLES: Final = ("emoji", "text", "none")
+DEFAULT_PROGRESS_STYLE: Final = "emoji"
+
+# 文本进度的节流：百分比步进与最小间隔（秒）双阈值，避免刷屏
 PROGRESS_STEP_PERCENT: Final = 25
 PROGRESS_MIN_INTERVAL: Final = 3.0
+
+# 贴表情用的 id 与 emoji_type 成对：类型 "1" 是 QQ 系统表情编号，类型 "2" 是 emoji 的
+# Unicode 码点十进制（如 🎉 = U+1F389 = 127881）。这组 id 在群里逐条回读验证过；
+# 私聊协议端不支持表情回应，命令层会自动退回文本进度。
+PROGRESS_REACTIONS: Final = {
+    "start": ("66", "1"),  # 爱心（系统表情）
+    "done": ("124", "1"),  # OK（系统表情）
+    "fail": ("38", "1"),  # 敲打（系统表情，锤子）
+}

@@ -279,7 +279,7 @@ class MyPlugin(Star):
 | `whitelist` / `blacklist` / `debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `download_dir` | string | 仅本地保存目录 |
 | `pack_format` / `pack_password` / `filename_show_password` | string / string / bool | 打包加密（`core/packer.py`） |
-| `auto_delete_after_send` / `show_progress` | bool | 交付行为（`main.py`） |
+| `auto_delete_after_send` / `progress_style` | bool / string | 交付行为（`main.py`） |
 | `max_concurrent_tasks` / `download_timeout` / `download_retry_times` | int | 调度（`core/task.py`） |
 | `proxy` | string | 渠道共用代理地址 |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |
@@ -369,7 +369,7 @@ async def on_message(
 | 命令 | 权限 | 说明 |
 |------|------|------|
 | `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 JM 漫画 |
-| `/漫画帮助`（别名 `comichelp`） | 全部 | 查看可用渠道、打包格式与密码状态 |
+| `/漫画帮助`（别名 `comichelp`） | 全部 | 查看可用渠道、打包格式、密码与进度提示设置 |
 
 新增渠道时：命令名由渠道类的 `command` 类属性决定，并在 `main.py` 里加一个同名的 `cmd_<命令>` 薄方法（AstrBot 的命令装饰器只能静态注册，不能按渠道列表动态生成）。渠道未在 WebUI 配置里添加时，对应命令提示「渠道未启用」。
 

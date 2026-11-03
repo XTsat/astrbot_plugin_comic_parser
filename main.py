@@ -41,8 +41,62 @@ from .domain.constants import (
     PLUGIN_REPO,
     PLUGIN_VERSION,
     PROGRESS_MIN_INTERVAL,
+    PROGRESS_REACTIONS,
     PROGRESS_STEP_PERCENT,
 )
+
+# 只有 OneBot(CQHTTP) 协议端提供 set_msg_emoji_like（QQ 的「贴表情」）
+_REACTION_PLATFORMS = frozenset({"aiocqhttp"})
+_REACTION_TIMEOUT = 5.0
+
+
+async def set_progress_reaction(event: AstrMessageEvent, status: str) -> bool:
+    """在触发命令的那条消息上贴表情，把「开始/完成/失败」压成一次轻量反馈。
+
+    协议端不支持表情回应时返回 False，由调用方退回文本进度，不能因为提示失败影响下载。
+    """
+    if event.get_platform_name() not in _REACTION_PLATFORMS:
+        return False
+    # 私聊一律不支持表情回应（协议端会直接拒绝），省掉这次注定失败的请求
+    if getattr(event, "is_private_chat", lambda: False)():
+        logger.debug(f"[{PLUGIN_NAME}] 私聊不支持表情回应，改用文本进度")
+        return False
+
+    reaction = PROGRESS_REACTIONS.get(status)
+    message_id = getattr(getattr(event, "message_obj", None), "message_id", None)
+    if reaction is None or message_id is None:
+        return False
+    emoji_id, emoji_type = reaction
+
+    bot = getattr(event, "bot", None)
+    call_action = getattr(bot, "call_action", None) or getattr(
+        getattr(bot, "api", None), "call_action", None
+    )
+    if not callable(call_action):
+        logger.debug(f"[{PLUGIN_NAME}] 协议端不支持 call_action，跳过进度贴表情")
+        return False
+
+    try:
+        resp = await asyncio.wait_for(
+            call_action(
+                "set_msg_emoji_like",
+                message_id=int(message_id),
+                emoji_id=emoji_id,
+                emoji_type=emoji_type,
+                set=True,
+            ),
+            timeout=_REACTION_TIMEOUT,
+        )
+    except Exception as exc:  # 贴表情只是锦上添花
+        logger.warning(f"[{PLUGIN_NAME}] 贴表情失败，改用文本进度: {exc}")
+        return False
+
+    # 有的协议端不抛异常，只在响应里标 failed
+    if isinstance(resp, dict) and resp.get("status") == "failed":
+        wording = resp.get("wording") or resp.get("retcode")
+        logger.warning(f"[{PLUGIN_NAME}] 贴表情失败，改用文本进度: {wording}")
+        return False
+    return True
 
 
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION, PLUGIN_REPO)
@@ -88,11 +142,13 @@ class ComicParserPlugin(Star):
     ) -> AsyncGenerator[MessageEventResult, None]:
         """查看可用渠道与用法。"""
         packs = "、".join(PACK_FORMATS)
+        progress_labels = {"emoji": "贴表情", "text": "文本进度", "none": "关闭"}
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
+            f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
             f"用法：/<命令> <ID 或链接>，例如 /jm 123456"
         )
         yield event.plain_result(text)
@@ -135,30 +191,43 @@ class ComicParserPlugin(Star):
             yield event.plain_result("⏳ 前面的下载还没结束，你的请求已排队")
 
         async with self._semaphore:
-            yield event.plain_result(
-                f"⏳ 开始下载 {channel.display_name} {comic_id}…"
+            # 贴表情先贴「开始」；贴不上（私聊、协议端不支持）就本次退回文本进度
+            use_reaction = await self._react(event, "start")
+            use_text_progress = self.settings.progress_style == "text" or (
+                self.settings.progress_style == "emoji" and not use_reaction
             )
-            task = DownloadTask(
-                channel, self.settings, self.temp_root, self.save_root
-            )
+            succeeded = False
             try:
-                outcome = await task.run(raw_id, self._progress_callback(event))
-            except PluginError as exc:
-                self.guard.forget(session_id, debounce_key)
-                yield event.plain_result(f"❌ {exc}")
-                return
-            except Exception as exc:  # 兜底：任何未预期异常都不该让插件静默失联
-                self.guard.forget(session_id, debounce_key)
-                logger.error(f"[{PLUGIN_NAME}] 下载失败: {exc}")
-                yield event.plain_result("❌ 下载出现未预期错误，详情见日志")
-                return
+                yield event.plain_result(
+                    f"⏳ 开始下载 {channel.display_name} {comic_id}…"
+                )
+                task = DownloadTask(
+                    channel, self.settings, self.temp_root, self.save_root
+                )
+                try:
+                    outcome = await task.run(
+                        raw_id, self._progress_callback(event, use_text_progress)
+                    )
+                except PluginError as exc:
+                    self.guard.forget(session_id, debounce_key)
+                    yield event.plain_result(f"❌ {exc}")
+                    return
+                except Exception as exc:  # 兜底：任何未预期异常都不该让插件静默失联
+                    self.guard.forget(session_id, debounce_key)
+                    logger.error(f"[{PLUGIN_NAME}] 下载失败: {exc}")
+                    yield event.plain_result("❌ 下载出现未预期错误，详情见日志")
+                    return
 
-            try:
-                async for result in self._deliver(event, outcome):
-                    yield result
+                try:
+                    async for result in self._deliver(event, outcome):
+                        yield result
+                finally:
+                    if self.settings.auto_delete_after_send:
+                        task.cleanup(outcome)
+                succeeded = True
             finally:
-                if self.settings.auto_delete_after_send:
-                    task.cleanup(outcome)
+                if use_reaction:
+                    await self._react(event, "done" if succeeded else "fail")
 
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome
@@ -181,9 +250,17 @@ class ComicParserPlugin(Star):
 
     # ==================== 内部工具 ====================
 
-    def _progress_callback(self, event: AstrMessageEvent) -> ProgressCallback | None:
-        """按百分比步进与最小间隔双重节流，避免长任务刷屏。"""
-        if not self.settings.show_progress:
+    async def _react(self, event: AstrMessageEvent, status: str) -> bool:
+        """按配置决定是否需要贴表情；关闭进度或选了文本进度时返回 False。"""
+        if self.settings.progress_style != "emoji":
+            return False
+        return await set_progress_reaction(event, status)
+
+    def _progress_callback(
+        self, event: AstrMessageEvent, enabled: bool
+    ) -> ProgressCallback | None:
+        """文本进度：按百分比步进与最小间隔双重节流，避免长任务刷屏。"""
+        if not enabled:
             return None
 
         state = {"last_pct": -1, "last_ts": 0.0}

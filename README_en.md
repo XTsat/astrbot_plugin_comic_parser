@@ -11,7 +11,7 @@
 - **One command per channel**: `/jm 123456`; each channel keeps its own command, so they never get in each other's way
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
-- **Visible progress**: progress is reported in 25% steps and can be turned off
+- **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed); you can switch to text progress or turn it off
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
 - **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
 - **Automatic cleanup**: temporary files are deleted right after sending
@@ -21,7 +21,7 @@
 | Command | Permission | Description |
 |---------|------------|-------------|
 | `/jm <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
-| `/漫画帮助` | Everyone | Show available channels, pack format and password status |
+| `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
 Examples:
 
@@ -49,7 +49,7 @@ Examples:
 | Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up |
 | Per-comic timeout (`download_timeout`) | int | 1800 | Seconds allowed for one whole comic before it counts as failed |
 | Download retries (`download_retry_times`) | int | 2 | Retries after a failed download |
-| Send progress (`show_progress`) | bool | true | Push a progress message every 25% |
+| Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨. Private chats and clients without reaction support fall back to text progress automatically |
 | Proxy address (`proxy`) | string | empty | Such as `http://host:port`; the channel must also enable "use proxy" |
 
 ### Sessions and debounce
@@ -90,4 +90,5 @@ Install the plugin from the plugin marketplace or the WebUI install page; AstrBo
 
 - **"Dependency not installed" when downloading**: make sure the plugin dependencies finished installing, then reload the plugin
 - **Encryption error after setting a password**: `pyzipper` is missing; install it and reload. The plugin will never fall back to sending an unencrypted file
-- **The sent file is empty or tiny**: the upstream resource probably failed to load; retry later, or enable progress messages to see whether the download is advancing
+- **Reactions show up in groups but not in private chats**: QQ private chats do not support emoji reactions, so the plugin falls back to text progress. Set the progress style to text to use it everywhere
+- **The sent file is empty or tiny**: the upstream resource probably failed to load; retry later, or switch the progress style to text to watch the download advance
