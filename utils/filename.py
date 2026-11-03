@@ -11,10 +11,10 @@ from ..domain.constants import (
 
 _ILLEGAL_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 _WHITESPACE = re.compile(r"\s+")
-# 未设密码时模板里的密码段要整段消失，不能留下孤零零的 "#PW"
-_PASSWORD_SUFFIX = re.compile(r"#PW\{password\}")
+# 未设密码时模板里的密码段要整段消失，不能留下孤零零的 "()" 或 "#PW"
+_PASSWORD_SUFFIX = re.compile(r"\(\{password\}\)|#PW\{password\}")
 
-# 预留 ".zip" / 分段序号 "#PWxxx" 等后缀的空间
+# 预留 ".zip" / 分段序号 "(密码)" 等后缀的空间
 DEFAULT_NAME_LIMIT = 80
 
 

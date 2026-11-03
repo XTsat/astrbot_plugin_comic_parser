@@ -54,7 +54,7 @@
       "filename_custom": {
         "type": "string",
         "description": "自定义文件名模板",
-        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {id}-{title}；可用 {title} {id} {author} {password}，不认识的占位符会留空，密码留空时 #PW 段自动去掉",
+        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {id}-{title}；可用 {title} {id} {author} {password}，不认识的占位符会留空，密码留空时 (密码) 段自动去掉",
         "default": ""
       },
       "download_dir": {

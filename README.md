@@ -39,7 +39,7 @@
 | 打包格式（`pack_format`） | string | zip | 可选 zip / pdf / long_img（纵向长图）/ none（仅本地保存不发送） |
 | 打包密码（`pack_password`） | string | 空 | 全局加密密码，留空表示不加密 |
 | 文件名模板（`filename_template`） | string | title_id | 产物文件名格式，预置：标题[ID] / 标题[ID]+密码 / ID-标题 / ID+密码 / 仅标题 / 自定义模板。带「+密码」的模板会把密码写进文件名（会出现在聊天记录里） |
-| 自定义文件名模板（`filename_custom`） | string | 空 | 仅在模板选「自定义模板」时生效，例如 `{id}-{title}`；可用 `{title}` `{id}` `{author}` `{password}`，密码留空时 `#PW` 段自动去掉 |
+| 自定义文件名模板（`filename_custom`） | string | 空 | 仅在模板选「自定义模板」时生效，例如 `{id}-{title}`；可用 `{title}` `{id}` `{author}` `{password}`，密码留空时 `(密码)` 段自动去掉 |
 | 本地保存目录（`download_dir`） | string | downloads | 仅「仅本地保存」模式使用，相对路径基于插件数据目录 |
 | 发送后删除本地文件（`auto_delete_after_send`） | bool | true | 发出后清理临时文件 |
 | 启动时清理临时目录（`clean_temp_on_start`） | bool | true | 插件加载时清空临时目录，清理崩溃/强杀留下的半成品 |

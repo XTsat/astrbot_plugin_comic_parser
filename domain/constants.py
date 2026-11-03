@@ -20,12 +20,12 @@ PACK_FORMATS: Final = ("zip", "pdf", "long_img", "none")
 DEFAULT_PACK_FORMAT: Final = "zip"
 
 # 文件名模板：键是配置里的选项值，值是可以带占位符的模板。
-# 带 {password} 的模板才会把密码写进文件名——密码是否显示由选中的模板决定。
+# 带 {password} 的模板才会把密码写进文件名（写成英文括号，例如 标题[ID](密码)）——是否显示由模板决定。
 FILENAME_TEMPLATES: Final = {
     "title_id": "{title}[{id}]",
-    "title_id_pw": "{title}[{id}]#PW{password}",
+    "title_id_pw": "{title}[{id}]({password})",
     "id_title": "{id}-{title}",
-    "id_pw": "{id}#PW{password}",
+    "id_pw": "{id}({password})",
     "title_only": "{title}",
     "custom": "",
 }

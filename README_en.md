@@ -39,7 +39,7 @@ Examples:
 | Pack format (`pack_format`) | string | zip | One of zip / pdf / long_img / none (keep locally, do not send) |
 | Pack password (`pack_password`) | string | empty | Global encryption password; empty means no encryption |
 | Filename template (`filename_template`) | string | title_id | Naming pattern for the output file. Presets: title[id] / title[id]+password / id-title / id+password / title only / custom. Presets marked "+password" write the password into the filename (visible in chat) |
-| Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{author}` `{password}`; the `#PW` part disappears when no password is set |
+| Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{author}` `{password}`; the `(password)` part disappears when no password is set |
 | Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
 | Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
 | Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
