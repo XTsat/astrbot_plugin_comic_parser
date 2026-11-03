@@ -276,13 +276,17 @@ class MyPlugin(Star):
 
 | key | 类型 | 归属 |
 |---|---|---|
-| `whitelist` / `blacklist` / `debounce_interval` | list / list / int | 准入（`core/guard.py`） |
-| `download_dir` | string | 仅本地保存目录 |
-| `pack_format` / `pack_password` / `filename_show_password` | string / string / bool | 打包加密（`core/packer.py`） |
-| `auto_delete_after_send` / `progress_style` / `clean_temp_on_start` | bool / string / bool | 交付行为（`main.py`） |
-| `max_concurrent_tasks` / `download_timeout` / `download_retry_times` | int | 调度（`core/task.py`） |
-| `proxy` | string | 渠道共用代理地址 |
+| `packing.pack_format` / `packing.pack_password` | string / string | 打包加密（`core/packer.py`） |
+| `packing.filename_template` / `packing.filename_custom` | string / string | 产物文件名（`utils/filename.py`） |
+| `packing.download_dir` | string | 仅本地保存目录 |
+| `packing.auto_delete_after_send` / `packing.clean_temp_on_start` | bool / bool | 交付与清理（`main.py`） |
+| `download.progress_style` | string | 进度提示（`main.py`） |
+| `download.max_concurrent_tasks` / `download.download_timeout` / `download.download_retry_times` | int | 调度（`core/task.py`） |
+| `download.proxy` | string | 渠道共用代理地址 |
+| `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |
+
+顶层 key 只有 `packing` / `download` / `access` / `channels` 四个分组（前三个是 `object`，WebUI 里各成一块区域）；`domain/config.py` 读分组值时对老的扁平 key 有回退，存量配置不会失效。
 
 渠道模板里的条目会被 `domain/config.py` 收敛成 `{渠道名: 条目}`，渠道私有字段（如 `client_type`、`image_suffix`）由渠道自己用 `BaseChannel.opt_*` 读取，**不要提升成顶层配置**——否则新增渠道会不断污染顶层 schema。
 

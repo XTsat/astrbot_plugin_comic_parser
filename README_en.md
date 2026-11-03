@@ -32,13 +32,14 @@ Examples:
 
 ## Configuration
 
-### Packing and storage
+### Packing and delivery
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Pack format (`pack_format`) | string | zip | One of zip / pdf / long_img / none (keep locally, do not send) |
 | Pack password (`pack_password`) | string | empty | Global encryption password; empty means no encryption |
-| Show password in filename (`filename_show_password`) | bool | false | Appends `#PWpassword` to the filename, which exposes the password in chat |
+| Filename template (`filename_template`) | string | title_id | Naming pattern for the output file. Presets: title[id] / title[id]+password / id-title / id+password / title only / custom. Presets marked "+password" write the password into the filename (visible in chat) |
+| Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{author}` `{password}`; the `#PW` part disappears when no password is set |
 | Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
 | Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
 | Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
@@ -53,7 +54,7 @@ Examples:
 | Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨. Private chats and clients without reaction support fall back to text progress automatically |
 | Proxy address (`proxy`) | string | empty | Such as `http://host:port`; the channel must also enable "use proxy" |
 
-### Sessions and debounce
+### Sessions and limits
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|

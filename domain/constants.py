@@ -19,6 +19,20 @@ DEFAULT_MAX_CONCURRENT_TASKS: Final = 1
 PACK_FORMATS: Final = ("zip", "pdf", "long_img", "none")
 DEFAULT_PACK_FORMAT: Final = "zip"
 
+# 文件名模板：键是配置里的选项值，值是可以带占位符的模板。
+# 带 {password} 的模板才会把密码写进文件名——密码是否显示由选中的模板决定。
+FILENAME_TEMPLATES: Final = {
+    "title_id": "{title}[{id}]",
+    "title_id_pw": "{title}[{id}]#PW{password}",
+    "id_title": "{id}-{title}",
+    "id_pw": "{id}#PW{password}",
+    "title_only": "{title}",
+    "custom": "",
+}
+DEFAULT_FILENAME_TEMPLATE: Final = "title_id"
+# 自定义模板里可用的占位符，供提示文案复用
+FILENAME_PLACEHOLDERS: Final = ("{title}", "{id}", "{author}", "{password}")
+
 # 长图打包参数：统一宽度后纵向拼接，超过单段上限则分段打包
 LONG_IMG_WIDTH: Final = 1200
 LONG_IMG_MAX_STRIP_HEIGHT: Final = 12000

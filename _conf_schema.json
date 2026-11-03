@@ -1,96 +1,173 @@
 {
-  "whitelist": {
-    "type": "list",
-    "description": "白名单会话",
-    "hint": "填写会话 ID（即会话的唯一标识），留空表示不限制。白名单非空时，只有列表内的会话可以使用下载命令，优先级高于黑名单",
-    "default": []
+  "packing": {
+    "type": "object",
+    "description": "打包与交付",
+    "hint": "决定用户最终收到什么：产物形态、加密、文件名，以及发送后的清理",
+    "items": {
+      "pack_format": {
+        "type": "string",
+        "description": "打包格式",
+        "hint": "下载完成后的产物形态：zip 压缩包、pdf 文档、long_img 纵向长图（过长自动分段）、none 仅本地保存不发送",
+        "default": "zip",
+        "options": [
+          "zip",
+          "pdf",
+          "long_img",
+          "none"
+        ],
+        "labels": [
+          "ZIP 压缩包",
+          "PDF 文档",
+          "纵向长图",
+          "仅本地保存"
+        ]
+      },
+      "pack_password": {
+        "type": "string",
+        "description": "打包密码",
+        "hint": "全局统一的加密密码，留空表示不加密。ZIP 使用 AES 加密，PDF 使用 AES-256 加密；设置了密码但缺少加密依赖时会直接报错，不会静默产出未加密文件",
+        "default": "",
+        "secret": true
+      },
+      "filename_template": {
+        "type": "string",
+        "description": "文件名模板",
+        "hint": "决定压缩包/PDF 的文件名。带「+密码」的模板会把打包密码写进文件名（密码会出现在聊天记录与日志里）。可用占位符：{title} 标题、{id} 漫画 ID、{author} 作者、{password} 密码",
+        "default": "title_id",
+        "options": [
+          "title_id",
+          "title_id_pw",
+          "id_title",
+          "id_pw",
+          "title_only",
+          "custom"
+        ],
+        "labels": [
+          "标题[ID]",
+          "标题[ID] + 密码",
+          "ID-标题",
+          "ID + 密码",
+          "仅标题",
+          "自定义模板"
+        ]
+      },
+      "filename_custom": {
+        "type": "string",
+        "description": "自定义文件名模板",
+        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {id}-{title}；可用 {title} {id} {author} {password}，不认识的占位符会留空，密码留空时 #PW 段自动去掉",
+        "default": ""
+      },
+      "download_dir": {
+        "type": "string",
+        "description": "本地保存目录",
+        "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
+        "default": "downloads"
+      },
+      "auto_delete_after_send": {
+        "type": "bool",
+        "description": "发送后删除本地文件",
+        "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
+        "default": true
+      },
+      "clean_temp_on_start": {
+        "type": "bool",
+        "description": "启动时清理临时目录",
+        "hint": "插件加载时清空临时目录，避免崩溃或强制重启留下的半成品一直占用磁盘；正常重载与发送完成后本来就会清理。想保留未完成的内容以便排查时可关闭",
+        "default": true
+      }
+    }
   },
-  "blacklist": {
-    "type": "list",
-    "description": "黑名单会话",
-    "hint": "黑名单内的会话无法使用下载命令",
-    "default": []
+  "download": {
+    "type": "object",
+    "description": "下载控制",
+    "hint": "进度提示、并发上限、超时重试与网络出口",
+    "items": {
+      "progress_style": {
+        "type": "string",
+        "description": "进度提示方式",
+        "hint": "贴表情：在命令消息上贴一个爱心 ❤️，下载完成换成 OK、失败换成 🔨，不刷屏；群聊可用，私聊或协议端不支持表情回应时自动改用文本进度。文本进度：按 25% 步进推送进度消息。关闭：不提示进度",
+        "default": "emoji",
+        "options": [
+          "emoji",
+          "text",
+          "none"
+        ],
+        "labels": [
+          "贴表情",
+          "文本进度",
+          "关闭"
+        ]
+      },
+      "max_concurrent_tasks": {
+        "type": "int",
+        "description": "同时下载任务数",
+        "hint": "全局同时进行的下载任务数量上限，超出的请求排队等待",
+        "default": 1,
+        "slider": {
+          "min": 1,
+          "max": 5,
+          "step": 1
+        }
+      },
+      "download_timeout": {
+        "type": "int",
+        "description": "单本下载超时（秒）",
+        "hint": "一整本漫画从开始下载到结束的超时时间，超时即判失败并重试",
+        "default": 1800,
+        "slider": {
+          "min": 120,
+          "max": 7200,
+          "step": 60
+        }
+      },
+      "download_retry_times": {
+        "type": "int",
+        "description": "下载失败重试次数",
+        "hint": "整本下载失败后的重试次数，0 表示不重试",
+        "default": 2,
+        "slider": {
+          "min": 0,
+          "max": 5,
+          "step": 1
+        }
+      },
+      "proxy": {
+        "type": "string",
+        "description": "代理地址",
+        "hint": "形如 http://host:port 或 socks5://host:port，留空表示直连；渠道里还需勾选「使用代理」才会生效",
+        "default": ""
+      }
+    }
   },
-  "debounce_interval": {
-    "type": "int",
-    "description": "防抖秒数",
-    "hint": "同一会话在该时间内重复请求同一本漫画时直接忽略，避免刷屏与重复下载；0 表示关闭",
-    "default": 60,
-    "slider": { "min": 0, "max": 600, "step": 10 }
-  },
-  "download_dir": {
-    "type": "string",
-    "description": "本地保存目录",
-    "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
-    "default": "downloads"
-  },
-  "pack_format": {
-    "type": "string",
-    "description": "打包格式",
-    "hint": "下载完成后的产物形态：zip 压缩包、pdf 文档、long_img 纵向长图（过长自动分段）、none 仅本地保存不发送",
-    "default": "zip",
-    "options": ["zip", "pdf", "long_img", "none"],
-    "labels": ["ZIP 压缩包", "PDF 文档", "纵向长图", "仅本地保存"]
-  },
-  "pack_password": {
-    "type": "string",
-    "description": "打包密码",
-    "hint": "全局统一的加密密码，留空表示不加密。ZIP 使用 AES 加密，PDF 使用 AES-256 加密；设置了密码但缺少加密依赖时会直接报错，不会静默产出未加密文件",
-    "default": "",
-    "secret": true
-  },
-  "filename_show_password": {
-    "type": "bool",
-    "description": "文件名显示密码",
-    "hint": "开启后在文件名末尾追加 #PW密码 提示。注意：密码会出现在文件名、聊天记录与日志里",
-    "default": false
-  },
-  "auto_delete_after_send": {
-    "type": "bool",
-    "description": "发送后删除本地文件",
-    "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
-    "default": true
-  },
-  "clean_temp_on_start": {
-    "type": "bool",
-    "description": "启动时清理临时目录",
-    "hint": "插件加载时清空临时目录，避免崩溃或强制重启留下的半成品一直占用磁盘；正常重载与发送完成后本来就会清理。想保留未完成的内容以便排查时可关闭",
-    "default": true
-  },
-  "progress_style": {
-    "type": "string",
-    "description": "进度提示方式",
-    "hint": "贴表情：在命令消息上贴一个爱心 ❤️，下载完成换成 OK、失败换成 🔨，不刷屏；群聊可用，私聊或协议端不支持表情回应时自动改用文本进度。文本进度：按 25% 步进推送进度消息。关闭：不提示进度",
-    "default": "emoji",
-    "options": ["emoji", "text", "none"],
-    "labels": ["贴表情", "文本进度", "关闭"]
-  },
-  "max_concurrent_tasks": {
-    "type": "int",
-    "description": "同时下载任务数",
-    "hint": "全局同时进行的下载任务数量上限，超出的请求排队等待",
-    "default": 1,
-    "slider": { "min": 1, "max": 5, "step": 1 }
-  },
-  "download_timeout": {
-    "type": "int",
-    "description": "单本下载超时（秒）",
-    "hint": "一整本漫画从开始下载到结束的超时时间，超时即判失败并重试",
-    "default": 1800,
-    "slider": { "min": 120, "max": 7200, "step": 60 }
-  },
-  "download_retry_times": {
-    "type": "int",
-    "description": "下载失败重试次数",
-    "hint": "整本下载失败后的重试次数，0 表示不重试",
-    "default": 2,
-    "slider": { "min": 0, "max": 5, "step": 1 }
-  },
-  "proxy": {
-    "type": "string",
-    "description": "代理地址",
-    "hint": "形如 http://host:port 或 socks5://host:port，留空表示直连；渠道里还需勾选「使用代理」才会生效",
-    "default": ""
+  "access": {
+    "type": "object",
+    "description": "会话与限制",
+    "hint": "决定哪些会话能触发下载、多久内不重复下载同一本",
+    "items": {
+      "whitelist": {
+        "type": "list",
+        "description": "白名单会话",
+        "hint": "填写会话 ID（即会话的唯一标识），留空表示不限制。白名单非空时，只有列表内的会话可以使用下载命令，优先级高于黑名单",
+        "default": []
+      },
+      "blacklist": {
+        "type": "list",
+        "description": "黑名单会话",
+        "hint": "黑名单内的会话无法使用下载命令",
+        "default": []
+      },
+      "debounce_interval": {
+        "type": "int",
+        "description": "防抖秒数",
+        "hint": "同一会话在该时间内重复请求同一本漫画时直接忽略，避免刷屏与重复下载；0 表示关闭",
+        "default": 60,
+        "slider": {
+          "min": 0,
+          "max": 600,
+          "step": 10
+        }
+      }
+    }
   },
   "channels": {
     "type": "template_list",
@@ -110,8 +187,14 @@
             "description": "客户端类型",
             "hint": "api 模式兼容性好；html 模式效率高但限制地区",
             "default": "api",
-            "options": ["api", "html"],
-            "labels": ["API 接口", "网页端"]
+            "options": [
+              "api",
+              "html"
+            ],
+            "labels": [
+              "API 接口",
+              "网页端"
+            ]
           },
           "client_domain": {
             "type": "string",
@@ -124,28 +207,44 @@
             "description": "图片格式",
             "hint": "下载图片保存的扩展名",
             "default": ".jpg",
-            "options": [".jpg", ".png", ".webp"]
+            "options": [
+              ".jpg",
+              ".png",
+              ".webp"
+            ]
           },
           "retry_times": {
             "type": "int",
             "description": "单请求重试次数",
             "hint": "网络请求失败时的重试次数，0 表示使用 jmcomic 默认值",
             "default": 0,
-            "slider": { "min": 0, "max": 10, "step": 1 }
+            "slider": {
+              "min": 0,
+              "max": 10,
+              "step": 1
+            }
           },
           "max_concurrent_photos": {
             "type": "int",
             "description": "并发章节数",
             "hint": "同时下载的章节数量，建议 3-5",
             "default": 3,
-            "slider": { "min": 1, "max": 10, "step": 1 }
+            "slider": {
+              "min": 1,
+              "max": 10,
+              "step": 1
+            }
           },
           "max_concurrent_images": {
             "type": "int",
             "description": "并发图片数",
             "hint": "每个章节同时下载的图片数量，建议 5-10",
             "default": 5,
-            "slider": { "min": 1, "max": 20, "step": 1 }
+            "slider": {
+              "min": 1,
+              "max": 20,
+              "step": 1
+            }
           },
           "use_proxy": {
             "type": "bool",

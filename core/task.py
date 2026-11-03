@@ -142,8 +142,10 @@ class DownloadTask:
         base_name = build_package_name(
             title=meta.display_title,
             comic_id=meta.comic_id,
+            template=self.settings.filename_template,
+            custom_template=self.settings.filename_custom,
             password=self.settings.pack_password,
-            show_password=self.settings.filename_show_password,
+            author=meta.author,
         )
         if self.settings.pack_format == "none":
             return self._keep_local(downloaded, base_name)

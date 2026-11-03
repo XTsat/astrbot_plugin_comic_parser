@@ -4,11 +4,25 @@ from __future__ import annotations
 
 import re
 
+from ..domain.constants import (
+    DEFAULT_FILENAME_TEMPLATE,
+    FILENAME_TEMPLATES,
+)
+
 _ILLEGAL_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 _WHITESPACE = re.compile(r"\s+")
+# 未设密码时模板里的密码段要整段消失，不能留下孤零零的 "#PW"
+_PASSWORD_SUFFIX = re.compile(r"#PW\{password\}")
 
 # 预留 ".zip" / 分段序号 "#PWxxx" 等后缀的空间
 DEFAULT_NAME_LIMIT = 80
+
+
+class _SafeDict(dict[str, str]):
+    """模板里写了不认识的占位符时留空，而不是抛 KeyError。"""
+
+    def __missing__(self, key: str) -> str:
+        return ""
 
 
 def sanitize_filename(name: str, limit: int = DEFAULT_NAME_LIMIT) -> str:
@@ -22,18 +36,36 @@ def sanitize_filename(name: str, limit: int = DEFAULT_NAME_LIMIT) -> str:
     return cleaned[:limit].strip(" ._") or "comic"
 
 
+def resolve_template(template: str, custom_template: str = "") -> str:
+    """把配置里的模板选项翻译成模板字符串；未知选项回落默认模板。"""
+    if template == "custom":
+        return custom_template.strip() or FILENAME_TEMPLATES[DEFAULT_FILENAME_TEMPLATE]
+    return FILENAME_TEMPLATES.get(template) or FILENAME_TEMPLATES[
+        DEFAULT_FILENAME_TEMPLATE
+    ]
+
+
 def build_package_name(
     title: str,
     comic_id: str,
+    template: str = DEFAULT_FILENAME_TEMPLATE,
+    custom_template: str = "",
     password: str = "",
-    show_password: bool = False,
+    author: str = "",
 ) -> str:
-    """生成本次打包的基名（不含扩展名）。
+    """按模板生成本次打包的基名（不含扩展名）。
 
-    密码提示只跟随 `show_password` 开关出现：开启后把密码写进文件名，
-    方便用户在同一条聊天记录里直接看到；关闭时密码只能来自插件配置。
+    密码是否出现在文件名里由模板决定：模板带 `{password}` 才写，没设密码时该段整体去掉。
     """
-    base = f"{sanitize_filename(title)}[{comic_id}]"
-    if password and show_password:
-        base = f"{base}#PW{password}"
-    return sanitize_filename(base, limit=100)
+    pattern = resolve_template(template, custom_template)
+    if not password:
+        pattern = _PASSWORD_SUFFIX.sub("", pattern)
+    rendered = pattern.format_map(
+        _SafeDict(
+            title=title,
+            id=comic_id,
+            author=author,
+            password=password,
+        )
+    )
+    return sanitize_filename(rendered, limit=100)

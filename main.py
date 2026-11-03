@@ -170,11 +170,20 @@ class ComicParserPlugin(Star):
         """查看可用渠道与用法。"""
         packs = "、".join(PACK_FORMATS)
         progress_labels = {"emoji": "贴表情", "text": "文本进度", "none": "关闭"}
+        template_labels = {
+            "title_id": "标题[ID]",
+            "title_id_pw": "标题[ID] + 密码",
+            "id_title": "ID-标题",
+            "id_pw": "ID + 密码",
+            "title_only": "仅标题",
+            "custom": "自定义模板",
+        }
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
+            f"文件名模板：{template_labels.get(self.settings.filename_template, '标题[ID]')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
             f"用法：/<命令> <ID 或链接>，例如 /jm 123456"
         )

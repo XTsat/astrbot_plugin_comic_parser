@@ -32,13 +32,14 @@
 
 ## 配置
 
-### 打包与保存
+### 打包与交付
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | 打包格式（`pack_format`） | string | zip | 可选 zip / pdf / long_img（纵向长图）/ none（仅本地保存不发送） |
 | 打包密码（`pack_password`） | string | 空 | 全局加密密码，留空表示不加密 |
-| 文件名显示密码（`filename_show_password`） | bool | false | 开启后文件名末尾追加 `#PW密码` 提示，密码会暴露在聊天记录里 |
+| 文件名模板（`filename_template`） | string | title_id | 产物文件名格式，预置：标题[ID] / 标题[ID]+密码 / ID-标题 / ID+密码 / 仅标题 / 自定义模板。带「+密码」的模板会把密码写进文件名（会出现在聊天记录里） |
+| 自定义文件名模板（`filename_custom`） | string | 空 | 仅在模板选「自定义模板」时生效，例如 `{id}-{title}`；可用 `{title}` `{id}` `{author}` `{password}`，密码留空时 `#PW` 段自动去掉 |
 | 本地保存目录（`download_dir`） | string | downloads | 仅「仅本地保存」模式使用，相对路径基于插件数据目录 |
 | 发送后删除本地文件（`auto_delete_after_send`） | bool | true | 发出后清理临时文件 |
 | 启动时清理临时目录（`clean_temp_on_start`） | bool | true | 插件加载时清空临时目录，清理崩溃/强杀留下的半成品 |
@@ -53,7 +54,7 @@
 | 进度提示方式（`progress_style`） | string | emoji | 贴表情（默认）/ 文本进度 / 关闭；贴表情在命令消息上贴爱心 ❤️，完成换成 OK、失败换成 🔨；私聊或不支持表情回应时自动改用文本进度 |
 | 代理地址（`proxy`） | string | 空 | 形如 `http://host:port`，渠道内还需勾选「使用代理」 |
 
-### 会话与防抖
+### 会话与限制
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
