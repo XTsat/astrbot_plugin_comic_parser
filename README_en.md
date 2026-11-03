@@ -1,0 +1,69 @@
+<div align="center">
+<h1>Comic Parser</h1>
+<p><strong>Multi-channel comic downloader: download a whole comic by ID, then pack and encrypt it in one unified pipeline (no search, no rankings)</strong></p>
+<p><sub>Comic download &nbsp;&nbsp; Encrypted packing &nbsp;&nbsp; Multi-channel</sub></p>
+<p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
+</div>
+
+## Features
+
+- **Download by ID**: hand over a comic ID or link and get the whole comic — no search, rankings or subscription features
+- **One command per channel**: the channel decides the command name, so channels never get in each other's way
+- **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
+- **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
+- **Visible progress**: progress is reported in 25% steps and can be turned off
+- **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
+- **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
+- **Automatic cleanup**: temporary files are deleted right after sending
+
+## Commands
+
+| Command | Permission | Description |
+|---------|------------|-------------|
+| `/漫画帮助` | Everyone | Show available channels, pack format and password status |
+
+## Configuration
+
+### Packing and storage
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Pack format (`pack_format`) | string | zip | One of zip / pdf / long_img / none (keep locally, do not send) |
+| Pack password (`pack_password`) | string | empty | Global encryption password; empty means no encryption |
+| Show password in filename (`filename_show_password`) | bool | false | Appends `#PWpassword` to the filename, which exposes the password in chat |
+| Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
+| Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
+
+### Download control
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up |
+| Per-comic timeout (`download_timeout`) | int | 1800 | Seconds allowed for one whole comic before it counts as failed |
+| Download retries (`download_retry_times`) | int | 2 | Retries after a failed download |
+| Send progress (`show_progress`) | bool | true | Push a progress message every 25% |
+| Proxy address (`proxy`) | string | empty | Such as `http://host:port`; the channel must also enable "use proxy" |
+
+### Sessions and debounce
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Whitelist sessions (`whitelist`) | list | empty | When non-empty, only these sessions may download; takes priority over the blacklist |
+| Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use the download commands |
+| Debounce seconds (`debounce_interval`) | int | 60 | Ignores repeated requests for the same comic within this window; 0 disables it |
+
+### Download channels
+
+Channels are added on demand; a channel that is not added stays disabled. No built-in channel ships in this repository yet — the download commands appear once a channel is added.
+
+## Other
+
+### Requirements
+
+Install the plugin from the plugin marketplace or the WebUI install page; AstrBot installs its dependencies automatically. PDF and long-image packing additionally need `pymupdf` and `Pillow`, and encrypted ZIP needs `pyzipper`.
+
+### FAQ
+
+- **"Dependency not installed" when downloading**: make sure the plugin dependencies finished installing, then reload the plugin
+- **Encryption error after setting a password**: `pyzipper` is missing; install it and reload. The plugin will never fall back to sending an unencrypted file
+- **The sent file is empty or tiny**: the upstream resource probably failed to load; retry later, or enable progress messages to see whether the download is advancing

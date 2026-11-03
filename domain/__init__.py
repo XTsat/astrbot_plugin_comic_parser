@@ -1,0 +1,26 @@
+"""数据定义层：常量、配置、模型与错误。本层不依赖插件内其它模块。"""
+
+from .config import PluginSettings
+from .constants import PACK_FORMATS, PLUGIN_NAME
+from .errors import (
+    ChannelError,
+    ChannelUnavailableError,
+    DownloadError,
+    PackError,
+    PluginError,
+)
+from .models import ComicMeta, DownloadedComic, PackResult
+
+__all__ = [
+    "ChannelError",
+    "ChannelUnavailableError",
+    "ComicMeta",
+    "DownloadError",
+    "DownloadedComic",
+    "PACK_FORMATS",
+    "PLUGIN_NAME",
+    "PackError",
+    "PackResult",
+    "PluginError",
+    "PluginSettings",
+]

@@ -1,0 +1,93 @@
+{
+  "whitelist": {
+    "type": "list",
+    "description": "白名单会话",
+    "hint": "填写会话 ID（即会话的唯一标识），留空表示不限制。白名单非空时，只有列表内的会话可以使用下载命令，优先级高于黑名单",
+    "default": []
+  },
+  "blacklist": {
+    "type": "list",
+    "description": "黑名单会话",
+    "hint": "黑名单内的会话无法使用下载命令",
+    "default": []
+  },
+  "debounce_interval": {
+    "type": "int",
+    "description": "防抖秒数",
+    "hint": "同一会话在该时间内重复请求同一本漫画时直接忽略，避免刷屏与重复下载；0 表示关闭",
+    "default": 60,
+    "slider": { "min": 0, "max": 600, "step": 10 }
+  },
+  "download_dir": {
+    "type": "string",
+    "description": "本地保存目录",
+    "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
+    "default": "downloads"
+  },
+  "pack_format": {
+    "type": "string",
+    "description": "打包格式",
+    "hint": "下载完成后的产物形态：zip 压缩包、pdf 文档、long_img 纵向长图（过长自动分段）、none 仅本地保存不发送",
+    "default": "zip",
+    "options": ["zip", "pdf", "long_img", "none"],
+    "labels": ["ZIP 压缩包", "PDF 文档", "纵向长图", "仅本地保存"]
+  },
+  "pack_password": {
+    "type": "string",
+    "description": "打包密码",
+    "hint": "全局统一的加密密码，留空表示不加密。ZIP 使用 AES 加密，PDF 使用 AES-256 加密；设置了密码但缺少加密依赖时会直接报错，不会静默产出未加密文件",
+    "default": "",
+    "secret": true
+  },
+  "filename_show_password": {
+    "type": "bool",
+    "description": "文件名显示密码",
+    "hint": "开启后在文件名末尾追加 #PW密码 提示。注意：密码会出现在文件名、聊天记录与日志里",
+    "default": false
+  },
+  "auto_delete_after_send": {
+    "type": "bool",
+    "description": "发送后删除本地文件",
+    "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
+    "default": true
+  },
+  "show_progress": {
+    "type": "bool",
+    "description": "发送下载进度",
+    "hint": "按 25% 步进推送下载进度，关闭可减少消息刷屏",
+    "default": true
+  },
+  "max_concurrent_tasks": {
+    "type": "int",
+    "description": "同时下载任务数",
+    "hint": "全局同时进行的下载任务数量上限，超出的请求排队等待",
+    "default": 1,
+    "slider": { "min": 1, "max": 5, "step": 1 }
+  },
+  "download_timeout": {
+    "type": "int",
+    "description": "单本下载超时（秒）",
+    "hint": "一整本漫画从开始下载到结束的超时时间，超时即判失败并重试",
+    "default": 1800,
+    "slider": { "min": 120, "max": 7200, "step": 60 }
+  },
+  "download_retry_times": {
+    "type": "int",
+    "description": "下载失败重试次数",
+    "hint": "整本下载失败后的重试次数，0 表示不重试",
+    "default": 2,
+    "slider": { "min": 0, "max": 5, "step": 1 }
+  },
+  "proxy": {
+    "type": "string",
+    "description": "代理地址",
+    "hint": "形如 http://host:port 或 socks5://host:port，留空表示直连；渠道里还需勾选「使用代理」才会生效",
+    "default": ""
+  },
+  "channels": {
+    "type": "template_list",
+    "description": "下载渠道",
+    "hint": "按需添加渠道，没添加的渠道不会被启用；同一个渠道请勿重复添加",
+    "templates": {}
+  }
+}
