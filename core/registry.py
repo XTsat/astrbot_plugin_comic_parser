@@ -56,5 +56,8 @@ def describe_channels(channels: dict[str, BaseChannel]) -> str:
     lines = []
     for channel in channels.values():
         state = "" if channel.enabled else "（未启用）"
-        lines.append(f"/{channel.command} <ID> — {channel.display_name}{state}")
+        lines.append(
+            f"/{channel.command} <ID> — {channel.display_name}{state}"
+            f"（网络：{channel.proxy_summary()}）"
+        )
     return "\n".join(lines)

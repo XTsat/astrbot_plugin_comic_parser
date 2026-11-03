@@ -84,7 +84,8 @@ class ImageDownloader:
         tasks: list[asyncio.Task[bool]] = []
 
         async with aiohttp.ClientSession(
-            headers=self._headers, trust_env=not self._proxy
+            # 代理只从配置来：开关关掉时是真直连，不受容器环境变量影响
+            headers=self._headers, trust_env=False
         ) as client:
             for index, url in enumerate(urls, 1):
                 suffix = Path(url).suffix or ".jpg"

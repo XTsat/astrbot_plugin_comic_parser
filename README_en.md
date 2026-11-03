@@ -69,7 +69,7 @@ Examples:
 | Download retries (`download_retry_times`) | int | 2 | Retries after a failed download |
 | Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
 | Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨. Private chats and clients without reaction support fall back to text progress automatically |
-| Proxy address (`proxy`) | string | empty | Such as `http://host:port`; the channel must also enable "use proxy" |
+| Proxy address (`proxy`) | string | empty | Such as `http://host:port`; only channels with "use proxy" enabled use it. When empty, AstrBot's own `http_proxy` is reused if configured |
 
 </details>
 
@@ -102,7 +102,7 @@ Examples:
 | Per-request retries (`retry_times`) | int | 5 | Retries after a single failed request; a smaller value gives up on bad nodes faster |
 | Concurrent chapters (`max_concurrent_photos`) | int | 3 | Chapters downloaded in parallel |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel per chapter |
-| Use proxy (`use_proxy`) | bool | false | Uses the global proxy (empty means direct); JM has domestic mirrors, so usually no proxy is needed |
+| Use proxy (`use_proxy`) | bool | false | Uses the proxy chain plugin proxy → AstrBot proxy → direct; JM has domestic mirrors, so usually no proxy is needed |
 
 </details>
 
@@ -119,7 +119,7 @@ Examples:
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site is far away for most networks, so keep it generous |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
 | Retries per image (`retry_times`) | int | 2 | Retries for a single image; when the image host pushes back, that page is re-fetched through a second path |
-| Use proxy (`use_proxy`) | bool | true | Uses the global proxy (empty means direct); most networks need one to reach nhentai |
+| Use proxy (`use_proxy`) | bool | true | Uses the proxy chain plugin proxy → AstrBot proxy → direct; most networks need one to reach nhentai |
 
 </details>
 
@@ -137,7 +137,7 @@ Examples:
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; the API is slow on some networks, keep it at 15 or more |
 | Per-request retries (`retry_times`) | int | 3 | Only server errors and rate limits are retried; 0 disables retries |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; 3-6 works best |
-| Use proxy (`use_proxy`) | bool | true | Uses the global proxy; most networks need one to reach PicaACG |
+| Use proxy (`use_proxy`) | bool | true | Uses the proxy chain plugin proxy → AstrBot proxy → direct; most networks need one to reach PicaACG |
 
 </details>
 
@@ -155,6 +155,6 @@ Examples:
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site can be slow behind Cloudflare, too small a value causes false failures |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
 | Per-request retries (`retry_times`) | int | 2 | Retries per image; when the image host throttles, a single image is refetched through the browser-like scraper |
-| Use proxy (`use_proxy`) | bool | true | Uses the global proxy (empty means direct); a different proxy exit IP is usually what gets past Cloudflare |
+| Use proxy (`use_proxy`) | bool | true | Uses the proxy chain plugin proxy → AstrBot proxy → direct; a different proxy exit IP is usually what gets past Cloudflare |
 
 </details>

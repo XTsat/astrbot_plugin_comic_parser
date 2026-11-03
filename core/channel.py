@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
@@ -16,6 +17,11 @@ from ..domain import ChannelUnavailableError, ComicMeta, DownloadError, Download
 
 # 进度回调：(已完成, 总数, 单位)；总数未知时传 0
 ProgressCallback = Callable[[int, int, str], Awaitable[None]]
+
+# 代理来源：日志与提示里要能看出「这一趟走的是哪条路」
+PROXY_SOURCE_PLUGIN = "插件代理"
+PROXY_SOURCE_ASTRBOT = "AstrBot 本体代理"
+PROXY_SOURCE_DIRECT = "直连"
 
 
 def split_option_list(raw: Any) -> list[str]:
@@ -38,6 +44,8 @@ class BaseChannel(ABC):
     command: ClassVar[str]  # 聊天命令名：命令 "foo" 对应 /foo <ID>
     display_name: ClassVar[str]  # 帮助文案里的展示名
     requires: ClassVar[tuple[str, ...]] = ()  # 运行时依赖的模块名
+    # 「使用代理」开关在配置里缺失时的默认值：面向境外站点的渠道默认开启
+    default_use_proxy: ClassVar[bool] = False
 
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
         self.options: dict[str, Any] = dict(options)
@@ -81,6 +89,35 @@ class BaseChannel(ABC):
     def default_options(cls) -> dict[str, Any]:
         """渠道没被配置过时使用的默认项（内置渠道因此开箱即启用）。"""
         return {}
+
+    # ---- 代理：渠道开关 → 插件代理 → AstrBot 本体代理（环境变量） ----
+    def resolve_proxy(self, *, default_enabled: bool | None = None) -> tuple[str, str]:
+        """解析本渠道这一趟要走的代理，返回（代理串，来源）。
+
+        - 渠道「使用代理」关掉 → 直连，不看任何环境变量
+        - 插件配置了全局代理 → 用它
+        - 插件没配 → 用 AstrBot 本体代理（AstrBot 把它写在 `http_proxy`/`https_proxy`
+          环境变量里），这样本体配过代理的人不用在插件里再填一遍
+        - 都没有 → 直连
+        """
+        if default_enabled is None:
+            default_enabled = self.default_use_proxy
+        if not self.opt_bool("use_proxy", default_enabled):
+            return "", PROXY_SOURCE_DIRECT
+        if self.settings.proxy:
+            return self.settings.proxy, PROXY_SOURCE_PLUGIN
+        for key in ("https_proxy", "http_proxy", "HTTPS_PROXY", "HTTP_PROXY"):
+            value = os.environ.get(key, "").strip()
+            if value:
+                return value, PROXY_SOURCE_ASTRBOT
+        return "", PROXY_SOURCE_DIRECT
+
+    def proxy_summary(self, *, default_enabled: bool | None = None) -> str:
+        """代理的「人话」描述，供日志与用户提示用：让人一眼看出这一趟走哪条路。"""
+        proxy, source = self.resolve_proxy(default_enabled=default_enabled)
+        if not proxy:
+            return "直连（未使用代理）"
+        return f"{source} {proxy}"
 
     def missing_requirement(self) -> str | None:
         """返回首个缺失的运行时依赖名；依赖齐备时返回 None。"""

@@ -56,6 +56,7 @@ class JMComicChannel(BaseChannel):
     name: ClassVar[str] = "jmcomic"
     command: ClassVar[str] = "jm"
     display_name: ClassVar[str] = "JM 漫画"
+    default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
 
     @classmethod
@@ -161,7 +162,8 @@ class JMComicChannel(BaseChannel):
         image_workers = self.opt_int("max_concurrent_images", 5, minimum=1)
         logger.info(
             f"[{PLUGIN_NAME}] 请求下载 {comic_id}"
-            f"（并发 章节×{photo_workers} / 图片×{image_workers}）"
+            f"（并发 章节×{photo_workers} / 图片×{image_workers}，"
+            f"网络 {self.proxy_summary()}）"
         )
 
         try:

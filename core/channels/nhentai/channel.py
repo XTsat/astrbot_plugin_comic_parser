@@ -63,6 +63,7 @@ class NhentaiChannel(BaseChannel):
     name: ClassVar[str] = "nhentai"
     command: ClassVar[str] = "nh"
     display_name: ClassVar[str] = "nhentai"
+    default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
 
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
@@ -125,7 +126,8 @@ class NhentaiChannel(BaseChannel):
         session = DownloadSession(comic_id=comic_id, total=len(urls))
         register_session(session)
         logger.info(
-            f"[{PLUGIN_NAME}] 开始下载 nhentai {comic_id}：{len(urls)} 页，图床 {image_base}"
+            f"[{PLUGIN_NAME}] 开始下载 nhentai {comic_id}：{len(urls)} 页，图床 {image_base}，"
+            f"网络 {self.proxy_summary()}"
         )
         try:
             stats = await self._build_downloader().download(
@@ -247,9 +249,9 @@ class NhentaiChannel(BaseChannel):
         )
 
     def _proxy(self) -> str:
-        """渠道显式开启代理时才用全局代理地址。
+        """本渠道这一趟要走的代理（详见 `BaseChannel.resolve_proxy`）。
 
-        容器里常带系统代理变量，默认直连能避免请求绕到不存在的代理上；访问不了 nhentai 的
-        用户在渠道配置里打开「使用代理」即可。
+        顺序：渠道开关关掉 → 直连；插件配了全局代理 → 用它；没配 → 用 AstrBot 本体代理；
+        都没有 → 直连。开关关掉时不会偷偷用环境变量。
         """
-        return self.settings.proxy if self.opt_bool("use_proxy", bool(self.settings.proxy)) else ""
+        return self.resolve_proxy()[0]

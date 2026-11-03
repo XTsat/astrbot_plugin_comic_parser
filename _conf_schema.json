@@ -142,7 +142,7 @@
       "proxy": {
         "type": "string",
         "description": "代理地址",
-        "hint": "形如 http://host:port 或 socks5://host:port，留空表示直连；渠道里还需勾选「使用代理」才会生效",
+        "hint": "形如 http://host:port 或 socks5://host:port；渠道里勾选「使用代理」后才生效。留空时开启代理的渠道会自动用 AstrBot 本体的 http_proxy（如果配了），都没有则直连",
         "default": ""
       }
     }
@@ -339,7 +339,7 @@
           "use_proxy": {
             "type": "bool",
             "description": "使用代理",
-            "hint": "开启后使用上方全局代理地址（全局代理留空时等于直连）；nhentai 在多数网络环境下需要代理才能访问",
+            "hint": "按「插件代理 → AstrBot 本体代理 → 直连」取代理；nhentai 在多数网络环境下需要代理才能访问",
             "default": true
           }
         }
@@ -408,7 +408,7 @@
           "use_proxy": {
             "type": "bool",
             "description": "使用代理",
-            "hint": "开启后使用全局代理地址；哔咔需要能访问境外的网络环境，多数服务器要开",
+            "hint": "按「插件代理 → AstrBot 本体代理 → 直连」取代理；哔咔需要能访问境外的网络环境，多数服务器要开",
             "default": true
           }
         }
@@ -475,7 +475,7 @@
           "use_proxy": {
             "type": "bool",
             "description": "使用代理",
-            "hint": "开启后使用上方全局代理地址（全局代理留空时等于直连）；站点被 Cloudflare 拦时通常要靠代理换出口 IP",
+            "hint": "按「插件代理 → AstrBot 本体代理 → 直连」取代理；站点被 Cloudflare 拦时通常要靠代理换出口 IP",
             "default": true
           }
         }

@@ -69,7 +69,7 @@
 | 下载失败重试次数（`download_retry_times`） | int | 2 | 整本下载失败后的重试次数 |
 | 发送完成摘要（`show_result_summary`） | bool | true | 关闭后只发文件，不再附「标题 / 作者 / 图片数 / 耗时」说明；仅本地保存模式仍提示保存路径 |
 | 进度提示方式（`progress_style`） | string | emoji | 贴表情（默认）/ 文本进度 / 关闭；贴表情在命令消息上贴爱心 ❤️，完成换成 OK、失败换成 🔨；私聊或不支持表情回应时自动改用文本进度 |
-| 代理地址（`proxy`） | string | 空 | 形如 `http://host:port`，渠道内还需勾选「使用代理」 |
+| 代理地址（`proxy`） | string | 空 | 形如 `http://host:port`；渠道里勾选「使用代理」后才生效。留空时会自动用 AstrBot 本体的 `http_proxy`（如果配了） |
 
 </details>
 
@@ -102,7 +102,7 @@
 | 单请求重试次数（`retry_times`） | int | 5 | 单个网络请求失败后的重试次数，调小让坏节点更快放弃 |
 | 并发章节数（`max_concurrent_photos`） | int | 3 | 同时下载的章节数量 |
 | 并发图片数（`max_concurrent_images`） | int | 5 | 每章同时下载的图片数量 |
-| 使用代理（`use_proxy`） | bool | false | 开启后走全局代理地址（留空则等于直连）；JM 有国内镜像，一般不用开 |
+| 使用代理（`use_proxy`） | bool | false | 开启后按「插件代理 → AstrBot 本体代理 → 直连」取代理；JM 有国内镜像，一般不用开 |
 
 </details>
 
@@ -119,7 +119,7 @@
 | 请求超时（`request_timeout`） | int | 30 | 单次请求超时秒数；境外站点延迟高，调太小容易误判失败 |
 | 并发图片数（`max_concurrent_images`） | int | 5 | 同时下载的图片数量；图床对高并发敏感，建议 3-8 |
 | 单张图片重试次数（`retry_times`） | int | 2 | 单张图失败后的重试次数；图床偶发风控时会自动改走另一条通道再取一次 |
-| 使用代理（`use_proxy`） | bool | true | 开启后走全局代理地址（全局代理留空时等于直连）；多数网络环境访问 nhentai 需要开 |
+| 使用代理（`use_proxy`） | bool | true | 开启后按「插件代理 → AstrBot 本体代理 → 直连」取代理；多数网络环境访问 nhentai 需要开 |
 
 </details>
 
@@ -137,7 +137,7 @@
 | 请求超时（`request_timeout`） | int | 30 | 单次请求超时秒数；哔咔接口在部分网络下较慢，不建议低于 15 |
 | 单请求重试次数（`retry_times`） | int | 3 | 只有服务端错误与限流才重试，0 表示不重试 |
 | 并发图片数（`max_concurrent_images`） | int | 5 | 同时下载的图片数量；建议 3-6 |
-| 使用代理（`use_proxy`） | bool | true | 开启后走全局代理地址；多数网络环境访问哔咔需要开 |
+| 使用代理（`use_proxy`） | bool | true | 开启后按「插件代理 → AstrBot 本体代理 → 直连」取代理；多数网络环境访问哔咔需要开 |
 
 </details>
 
@@ -155,6 +155,6 @@
 | 请求超时（`request_timeout`） | int | 30 | 单次请求超时秒数；站点在 Cloudflare 后面偶尔慢，调太小容易误判失败 |
 | 并发图片数（`max_concurrent_images`） | int | 5 | 同时下载的图片数量；图床对高并发敏感，建议 3-8 |
 | 单请求重试次数（`retry_times`） | int | 2 | 单张图失败后的重试次数；图床偶发风控时会自动改走另一条通道再取一次 |
-| 使用代理（`use_proxy`） | bool | true | 开启后走全局代理地址（全局代理留空时等于直连）；站点被 Cloudflare 拦时通常要靠代理换出口 IP |
+| 使用代理（`use_proxy`） | bool | true | 开启后按「插件代理 → AstrBot 本体代理 → 直连」取代理；站点被 Cloudflare 拦时通常要靠代理换出口 IP |
 
 </details>

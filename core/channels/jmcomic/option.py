@@ -70,7 +70,8 @@ def build_option(channel: BaseChannel, jmcomic: Any, base_dir: Path) -> Any:
             "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
         )
     }
-    proxy = channel.settings.proxy if channel.opt_bool("use_proxy", False) else ""
+    # 代理按「渠道开关 → 插件代理 → AstrBot 本体代理」解析，开关关掉时是真直连
+    proxy = channel.resolve_proxy(default_enabled=False)[0]
     if proxy:
         meta_data["proxies"] = proxy
     else:

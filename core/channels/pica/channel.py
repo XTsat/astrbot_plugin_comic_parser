@@ -58,6 +58,7 @@ class PicaChannel(BaseChannel):
     name: ClassVar[str] = "pica"
     command: ClassVar[str] = "pica"
     display_name: ClassVar[str] = "哔咔漫画"
+    default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("httpx",)
 
     @classmethod
@@ -83,7 +84,7 @@ class PicaChannel(BaseChannel):
     def _new_client(self) -> PicaClient:
         return PicaClient(
             secret_key=self.opt_str("secret_key", DEFAULT_SECRET_KEY),
-            proxy=self.settings.proxy if self.opt_bool("use_proxy", True) else "",
+            proxy=self.resolve_proxy()[0],
             timeout=self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=5),
             retry_times=self.opt_int("retry_times", DEFAULT_RETRY_TIMES, minimum=0),
         )
@@ -157,7 +158,8 @@ class PicaChannel(BaseChannel):
 
             logger.info(
                 f"[{PLUGIN_NAME}] 哔咔开始下载 {comic_id}："
-                f"{len(plans)} 章节 / {total} 张图片"
+                f"{len(plans)} 章节 / {total} 张图片，"
+                f"网络 {self.proxy_summary()}"
             )
             root = work_dir / comic_id
             done, failed, bytes_total = await self._fetch_all(

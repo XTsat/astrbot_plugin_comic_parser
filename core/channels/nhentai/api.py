@@ -111,7 +111,8 @@ class NhentaiApi:
         headers = {"User-Agent": self._user_agent, "Accept": "application/json"}
         try:
             async with aiohttp.ClientSession(
-                headers=headers, trust_env=not self._proxy
+                # 代理只从配置来：开关关掉时是真直连，不受容器环境变量影响
+                headers=headers, trust_env=False
             ) as session, session.get(
                 url, proxy=self._proxy or None, timeout=self._timeout
             ) as response:
