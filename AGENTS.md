@@ -113,7 +113,7 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 2. 加进 `core/registry.py` 的 `CHANNEL_CLASSES`
 3. `main.py` 里加同名的 `cmd_<命令>` 薄方法（命令装饰器无法按渠道列表动态生成）
 4. `_conf_schema.json` 的 `channels.templates` 加同名模板（渠道私有配置项放这里，读配置一律走 `BaseChannel.opt_*` 系列方法，自动兜底脏值）
-5. 需要新依赖时补 `requirements.txt`，并同步 `metadata.yaml` 的 `help`、README（中英）与 CHANGELOG 文案
+5. 需要新依赖时补 `requirements.txt`，并同步 `metadata.yaml` 的 `desc`/`short_desc`、README（中英）与 CHANGELOG 文案
 
 ---
 
