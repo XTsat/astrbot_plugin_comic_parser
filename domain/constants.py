@@ -18,6 +18,8 @@ DEFAULT_MAX_CONCURRENT_TASKS: Final = 1
 
 # 渠道单请求超时（秒）：与 curl_cffi 默认一致，配小了坏节点能更快放弃
 DEFAULT_REQUEST_TIMEOUT: Final = 30
+# 单请求重试次数：与 jmcomic 的 client.retry_times 默认一致，配置里直接写具体数字
+DEFAULT_REQUEST_RETRY_TIMES: Final = 5
 
 # 预填的域名清单（一行一个，从上到下依次降级）。
 # API 域名是禁漫接口域名；网页域名是 18comic 系列站点，上游会不定期更换，

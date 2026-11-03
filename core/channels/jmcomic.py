@@ -22,6 +22,7 @@ from astrbot.api import logger
 from ...domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
 from ...domain.constants import (
     DEFAULT_API_DOMAINS,
+    DEFAULT_REQUEST_RETRY_TIMES,
     DEFAULT_HTML_DOMAINS,
     DEFAULT_REQUEST_TIMEOUT,
     DOWNLOAD_LOG_INTERVAL,
@@ -368,12 +369,6 @@ class JMComicChannel(BaseChannel):
             failed_images=failed_images + failed_photos,
         )
 
-    def _domains(self, key: str, default: str) -> list[str]:
-        """域名清单：配置里没有这个键就用预填值；显式清空表示交给 jmcomic 自动获取。"""
-        if key not in self.options:
-            return split_option_list(default)
-        return self.opt_list(key)
-
     # ---- JmOption 构建 ----
     def _build_option(self, jmcomic: Any, base_dir: Path) -> Any:
         """把渠道配置翻译成 jmcomic 的 option。
@@ -381,7 +376,8 @@ class JMComicChannel(BaseChannel):
         目录规则固定 Bd/Aid/Pindex：用 Aid 作目录名避开标题里的非法字符，
         再带章节维度 Pindex，否则多章节本子的各章会用相同页码互相覆盖。
         """
-        impl = self.opt_str("client_type", "api")
+        client_type = self.opt_str("client_type", "api")
+        impl = "html" if client_type.startswith("html") else "api"
         option_dict: dict[str, Any] = {
             "dir_rule": {"base_dir": str(base_dir), "rule": "Bd/Aid/Pindex"},
             "download": {
@@ -394,20 +390,17 @@ class JMComicChannel(BaseChannel):
             "client": {"impl": impl},
         }
 
-        # 域名按填写顺序逐个降级：jmcomic 的 domain_list 顺序就是重试顺序
-        domains: dict[str, list[str]] = {}
-        api_domains = self._domains("api_domains", DEFAULT_API_DOMAINS)
-        html_domains = self._domains("html_domains", DEFAULT_HTML_DOMAINS)
-        if api_domains:
-            domains["api"] = api_domains
-        if html_domains:
-            domains["html"] = html_domains
-        if domains:
-            option_dict["client"]["domain"] = domains
+        # 只有「自定义域名」的客户端类型才用下面输入的清单；其它交给 jmcomic 自动更新。
+        # 清单顺序就是 jmcomic 的重试顺序，前一个失败自动换下一个。
+        if client_type.endswith("_custom"):
+            key = "html_domains" if impl == "html" else "api_domains"
+            default_domains = DEFAULT_HTML_DOMAINS if impl == "html" else DEFAULT_API_DOMAINS
+            domains = self.opt_list(key) or split_option_list(default_domains)
+            option_dict["client"]["domain"] = {impl: domains}
 
-        retry_times = self.opt_int("retry_times", 0, minimum=0)
-        if retry_times > 0:
-            option_dict["client"]["retry_times"] = retry_times
+        option_dict["client"]["retry_times"] = self.opt_int(
+            "retry_times", DEFAULT_REQUEST_RETRY_TIMES, minimum=1
+        )
 
         # 单请求超时对 api / html 两种客户端都生效；配小了坏节点能更快放弃
         meta_data: dict[str, Any] = {

@@ -193,27 +193,31 @@
           "client_type": {
             "type": "string",
             "description": "客户端类型",
-            "hint": "api 模式兼容性好；html 模式效率高但限制地区",
+            "hint": "API 接口兼容性好；网页端效率高但限制地区",
             "default": "api",
             "options": [
               "api",
-              "html"
+              "html",
+              "api_custom",
+              "html_custom"
             ],
             "labels": [
               "API 接口",
-              "网页端"
+              "网页端",
+              "自定义 API 接口",
+              "自定义网页端"
             ]
           },
           "api_domains": {
             "type": "text",
-            "description": "API 接口域名（一行一个，按顺序降级）",
-            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个；留空则由 jmcomic 自动获取最新域名",
+            "description": "自定义 API 接口域名",
+            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个",
             "default": "www.cdnhjk.net\nwww.cdnutc.cc\nwww.cdngwc.net\nwww.cdngwc.club"
           },
           "html_domains": {
             "type": "text",
-            "description": "网页域名（一行一个，按顺序降级）",
-            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个；留空则由 jmcomic 自动获取最新域名",
+            "description": "自定义网页端域名",
+            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个",
             "default": "18comic.vip\n18comic.ink\njmcomic-zzz.one\njmcomic-zzz.org\ncomic18j-moco.work\ncomic18j-nico.site\ncomic18j-ada.work"
           },
           "request_timeout": {
@@ -241,10 +245,10 @@
           "retry_times": {
             "type": "int",
             "description": "单请求重试次数",
-            "hint": "网络请求失败时的重试次数，0 表示使用 jmcomic 默认值",
-            "default": 0,
+            "hint": "单个网络请求失败后的重试次数；调小让坏节点更快放弃，调大更适合不稳定的网络",
+            "default": 5,
             "slider": {
-              "min": 0,
+              "min": 1,
               "max": 10,
               "step": 1
             }

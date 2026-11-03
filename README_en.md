@@ -74,12 +74,12 @@ Channels are added on demand; a channel that is not added stays disabled. The JM
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Enable (`enable`) | bool | true | When off, `/jm` reports the channel as disabled |
-| Client type (`client_type`) | string | api | `api` is more compatible; `html` is faster but region-restricted |
-| API domains (`api_domains`) | text | 4 common API domains | One per line, **tried top to bottom** (next one on failure); clear it to let jmcomic fetch the latest domains |
-| Web domains (`html_domains`) | text | 7 common web domains | One per line, tried top to bottom; clear it to let jmcomic fetch the latest domains |
+| Client type (`client_type`) | string | api | API / Web / Custom API / Custom Web; `api` is more compatible, the web client is faster but region-restricted |
+| Custom API domains (`api_domains`) | text | 4 common API domains | One per line, **tried top to bottom** (next one on failure) |
+| Custom web domains (`html_domains`) | text | 7 common web domains | One per line, tried top to bottom |
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; a smaller value gives up on bad nodes faster |
 | Image format (`image_suffix`) | string | .jpg | Extension used when saving images |
-| Per-request retries (`retry_times`) | int | 0 | 0 means the library default |
+| Per-request retries (`retry_times`) | int | 5 | Retries after a single failed request; a smaller value gives up on bad nodes faster |
 | Concurrent chapters (`max_concurrent_photos`) | int | 3 | Chapters downloaded in parallel |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel per chapter |
 | Use proxy (`use_proxy`) | bool | false | Uses the global proxy; when off, connections are explicitly direct |
