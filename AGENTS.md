@@ -15,7 +15,7 @@
 
 **AstrBot 插件**是基于 `astrbot.api.star` 框架的 Python 插件，以 `Star` 子类为核心，通过装饰器注册指令组、事件监听器、过滤器，在 AstrBot 运行时中加载。
 
-**本项目**：`astrbot_plugin_comic_parser`（展示名「漫画下载器」），多渠道漫画下载插件。它和「万能解析器」类插件方向相反：**只做下载**，不做搜索、排行榜、订阅，也不解析聊天里随机出现的链接。
+**本项目**：`astrbot_plugin_comic_parser`（展示名「漫画下载器」），多渠道漫画下载插件。**只做下载**：按 ID 下载整本漫画，不解析聊天里随机出现的链接。
 
 核心能力：
 
@@ -58,7 +58,7 @@ astrbot_plugin_comic_parser/
 ├── metadata.yaml                # 插件元数据
 ├── _conf_schema.json            # 配置 Schema（含 channels 的 template_list 模板）
 ├── requirements.txt             # jmcomic / pyzipper / pymupdf / Pillow
-├── CHANGELOG.md / README.md / README_en.md
+├── CHANGELOG.md / README.md / README_en.md / logo.png
 ├── domain/                      # 数据定义层（无内部依赖）
 │   ├── constants.py             # 常量与默认值
 │   ├── config.py                # 配置 → 强类型 PluginSettings（脏值兜底）
@@ -74,8 +74,6 @@ astrbot_plugin_comic_parser/
     ├── task.py                  # 单次任务编排：元信息 → 下载 → 打包
     └── guard.py                 # 白/黑名单 + 防抖
 ```
-
-> `logo.png`（1:1 图标）暂未提交：发布前按模板要求补一张 256×256 图标再入库。
 
 运行时数据目录（`StarTools.get_data_dir()` 下）：`temp/` 放下载与待发送产物（发送后清空），`downloads/` 仅在「仅本地保存」模式下承载用户资产。
 

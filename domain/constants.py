@@ -5,7 +5,7 @@ from typing import Final
 PLUGIN_NAME: Final = "astrbot_plugin_comic_parser"
 PLUGIN_DISPLAY_NAME: Final = "漫画下载器"
 PLUGIN_DESC: Final = (
-    "多渠道漫画下载插件：按 ID 下载整本漫画，统一打包并加密发送（不含搜索与排行榜）"
+    "多渠道漫画下载插件：按 ID 下载整本漫画，统一打包并加密发送"
 )
 PLUGIN_VERSION: Final = "v0.1.0"
 PLUGIN_AUTHOR: Final = "XTsat"

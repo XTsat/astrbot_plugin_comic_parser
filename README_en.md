@@ -1,13 +1,13 @@
 <div align="center">
 <h1>Comic Parser</h1>
-<p><strong>Multi-channel comic downloader: download a whole comic by ID, then pack and encrypt it in one unified pipeline (no search, no rankings)</strong></p>
+<p><strong>Multi-channel comic downloader: download a whole comic by ID, then pack and encrypt it in one unified pipeline</strong></p>
 <p><sub>Comic download &nbsp;&nbsp; Encrypted packing &nbsp;&nbsp; Multi-channel</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 
 ## Features
 
-- **Download by ID**: hand over a comic ID or link and get the whole comic — no search, rankings or subscription features
+- **Download by ID**: hand over a comic ID or link and get the whole comic
 - **One command per channel**: `/jm 123456`; each channel keeps its own command, so they never get in each other's way
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
