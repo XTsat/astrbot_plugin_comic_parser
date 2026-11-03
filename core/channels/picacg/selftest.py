@@ -6,9 +6,9 @@
 
 用法（在插件根目录执行）：
 
-    python core/channels/pica/selftest.py          # 本地假站点，不联网
+    python core/channels/picacg/selftest.py          # 本地假站点，不联网
     PICA_ACCOUNT=邮箱 PICA_PASSWORD=密码 PICA_COMIC_ID=24位ID \
-        python core/channels/pica/selftest.py --live   # 打真实哔咔接口
+        python core/channels/picacg/selftest.py --live   # 打真实哔咔接口
 
 本地自测退出码 0 表示全部通过；`--live` 用来在能访问哔咔的网络里确认「真站也下得动」。
 """
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 # 插件根目录自己不是包（靠 AstrBot 直接加载），所以把它的父目录放进 sys.path，
-# 再按「插件目录名.core.channels.pica」导入，相对 import 的层级才对得上
+# 再按「插件目录名.core.channels.picacg」导入，相对 import 的层级才对得上
 PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 if str(PLUGIN_ROOT.parent) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT.parent))
@@ -35,7 +35,7 @@ def _install_astrbot_stub() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     api_module = types.ModuleType("astrbot.api")
-    api_module.logger = logging.getLogger("pica-selftest")
+    api_module.logger = logging.getLogger("picacg-selftest")
     astrbot_module = types.ModuleType("astrbot")
     astrbot_module.api = api_module
     sys.modules["astrbot"] = astrbot_module
@@ -58,17 +58,17 @@ import zipfile  # noqa: E402
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
 from urllib.parse import parse_qs, urlsplit  # noqa: E402
 
-pica_api = importlib.import_module(f"{PACKAGE}.core.channels.pica.api")
-pica_channel = importlib.import_module(f"{PACKAGE}.core.channels.pica.channel")
-pica_constants = importlib.import_module(f"{PACKAGE}.core.channels.pica.constants")
+picacg_api = importlib.import_module(f"{PACKAGE}.core.channels.picacg.api")
+picacg_channel = importlib.import_module(f"{PACKAGE}.core.channels.picacg.channel")
+picacg_constants = importlib.import_module(f"{PACKAGE}.core.channels.picacg.constants")
 domain_module = importlib.import_module(f"{PACKAGE}.domain")
 domain_constants = importlib.import_module(f"{PACKAGE}.domain.constants")
 
-PicaChannel = pica_channel.PicaChannel
+PicacgChannel = picacg_channel.PicacgChannel
 PluginSettings = domain_module.PluginSettings
 IMAGE_SUFFIXES = domain_constants.IMAGE_SUFFIXES
-API_KEY = pica_constants.API_KEY
-DEFAULT_SECRET_KEY = pica_constants.DEFAULT_SECRET_KEY
+API_KEY = picacg_constants.API_KEY
+DEFAULT_SECRET_KEY = picacg_constants.DEFAULT_SECRET_KEY
 
 COMIC_ID = "5f1e2d3c4b5a69788796a5b4"
 TOKEN = "mock-token"
@@ -280,14 +280,14 @@ def _start_server() -> tuple[ThreadingHTTPServer, int]:
 
 async def _run() -> int:
     server, port = _start_server()
-    pica_api.BASE_URL = f"http://127.0.0.1:{port}/"
-    work_dir = Path(tempfile.mkdtemp(prefix="pica-selftest-"))
+    picacg_api.BASE_URL = f"http://127.0.0.1:{port}/"
+    work_dir = Path(tempfile.mkdtemp(prefix="picacg-selftest-"))
     results: list[tuple[str, bool, str]] = []
 
     def check(name: str, ok: bool, detail: str = "") -> None:
         results.append((name, ok, detail))
 
-    channel = PicaChannel(
+    channel = PicacgChannel(
         {
             "enable": True,
             "account": "demo@example.com",
@@ -370,12 +370,12 @@ async def _run() -> int:
         )
 
         # ---- 图片直链拼接（三种历史前缀）----
-        plain = pica_api.image_url({"path": "ep/001.jpg", "fileServer": "http://h:1"})
+        plain = picacg_api.image_url({"path": "ep/001.jpg", "fileServer": "http://h:1"})
         check("普通路径拼 /static/", plain == "http://h:1/static/ep/001.jpg", plain)
-        tobs = pica_api.image_url({"path": "tobs/ep/001.jpg", "fileServer": ""})
+        tobs = picacg_api.image_url({"path": "tobs/ep/001.jpg", "fileServer": ""})
         check("tobs/ 前缀走 B 节点", tobs.endswith("/static/ep/001.jpg"), tobs)
         encoded = base64.b64encode(b"https://cdn.example.com/a.jpg").decode()
-        tobe = pica_api.image_url({"path": f"tobeimg/{encoded}.jpg", "fileServer": ""})
+        tobe = picacg_api.image_url({"path": f"tobeimg/{encoded}.jpg", "fileServer": ""})
         check("tobeimg/ 前缀解密出绝对地址", tobe == "https://cdn.example.com/a.jpg", tobe)
     finally:
         server.shutdown()
@@ -406,11 +406,11 @@ async def _run_live() -> int:
         return 2
 
     settings = PluginSettings.from_config({"download": {"proxy": proxy}})
-    channel = PicaChannel(
+    channel = PicacgChannel(
         {"enable": True, "account": account, "password": password},
         settings,
     )
-    work_dir = Path(tempfile.mkdtemp(prefix="pica-live-"))
+    work_dir = Path(tempfile.mkdtemp(prefix="picacg-live-"))
     try:
         print(f"→ 登录并取元信息 {comic_id} …")
         meta = await channel.fetch_meta(comic_id, work_dir)

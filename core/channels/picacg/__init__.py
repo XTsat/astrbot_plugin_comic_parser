@@ -1,6 +1,6 @@
 """哔咔（PicACG）漫画渠道。
 
-**一个渠道 = 一个文件夹**：渠道私有的全部代码都放在这里，对外只暴露 `PicaChannel`，
+**一个渠道 = 一个文件夹**：渠道私有的全部代码都放在这里，对外只暴露 `PicacgChannel`，
 上层的 `core/registry.py` / `main.py` 只认这个类，不碰本文件夹里的其它模块。
 
 - `channel.py`：`BaseChannel` 实现（解析 ID → 取元信息 → 下载图片）
@@ -12,6 +12,6 @@
 **本渠道需要哔咔账号**：没有登录态取不到章节与图片列表，账号密码填在渠道模板里。
 """
 
-from .channel import PicaChannel
+from .channel import PicacgChannel
 
-__all__ = ["PicaChannel"]
+__all__ = ["PicacgChannel"]

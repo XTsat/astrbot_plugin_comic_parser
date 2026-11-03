@@ -18,12 +18,12 @@ from .channel import BaseChannel
 from .channels.hanime1 import Hanime1Channel
 from .channels.jmcomic import JMComicChannel
 from .channels.nhentai import NhentaiChannel
-from .channels.pica import PicaChannel
+from .channels.picacg import PicacgChannel
 
 CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (
     JMComicChannel,
     NhentaiChannel,
-    PicaChannel,
+    PicacgChannel,
     Hanime1Channel,
 )
 

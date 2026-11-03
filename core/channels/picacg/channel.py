@@ -54,8 +54,8 @@ def _image_suffix(url: str) -> str:
     return suffix
 
 
-class PicaChannel(BaseChannel):
-    name: ClassVar[str] = "pica"
+class PicacgChannel(BaseChannel):
+    name: ClassVar[str] = "picacg"
     command: ClassVar[str] = "picacg"
     command_aliases: ClassVar[tuple[str, ...]] = ("pica",)
     display_name: ClassVar[str] = "哔咔漫画"

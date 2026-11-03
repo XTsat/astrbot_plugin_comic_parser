@@ -344,7 +344,7 @@
           }
         }
       },
-      "pica": {
+      "picacg": {
         "name": "哔咔漫画（pica）",
         "items": {
           "enable": {
@@ -506,7 +506,7 @@
         "use_proxy": true
       },
       {
-        "__template_key": "pica",
+        "__template_key": "picacg",
         "enable": true,
         "account": "",
         "password": "",

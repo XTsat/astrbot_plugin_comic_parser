@@ -24,6 +24,9 @@ from .constants import (
 # template_list 里每条渠道配置都带这个 key，标记它属于哪个渠道模板
 TEMPLATE_KEY = "__template_key"
 
+# 渠道内部名改过之后的老键：存量配置里仍是旧名，读的时候映射到现名，避免用户重配一遍
+LEGACY_CHANNEL_KEYS = {"pica": "picacg"}
+
 
 def _as_int(raw: Any, default: int, minimum: int | None = None) -> int:
     try:
@@ -177,5 +180,5 @@ def _parse_channels(raw: Any) -> dict[str, dict[str, Any]]:
         name = _as_str(item.get(TEMPLATE_KEY))
         if not name:
             continue
-        channels[name] = item
+        channels[LEGACY_CHANNEL_KEYS.get(name, name)] = item
     return channels
