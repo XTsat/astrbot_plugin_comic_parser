@@ -61,7 +61,8 @@ class NhentaiChannel(BaseChannel):
     """
 
     name: ClassVar[str] = "nhentai"
-    command: ClassVar[str] = "nh"
+    command: ClassVar[str] = "nhentai"
+    command_aliases: ClassVar[tuple[str, ...]] = ("nh",)
     display_name: ClassVar[str] = "nhentai"
     default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
@@ -90,7 +91,7 @@ class NhentaiChannel(BaseChannel):
     def normalize_id(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:
-            raise ChannelError(f"请提供作品 ID 或链接，例如 /{self.command} 123456")
+            raise ChannelError(f"请提供作品 ID 或链接，例如 /{self.display_command} 123456")
 
         matched = _GALLERY_IN_TEXT.search(text)
         if matched:

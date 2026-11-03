@@ -54,7 +54,8 @@ def _count_downloaded_images(downloader: Any, source_dir: Path) -> int:
 
 class JMComicChannel(BaseChannel):
     name: ClassVar[str] = "jmcomic"
-    command: ClassVar[str] = "jm"
+    command: ClassVar[str] = "jmcomic"
+    command_aliases: ClassVar[tuple[str, ...]] = ("jm",)
     display_name: ClassVar[str] = "JM 漫画"
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
@@ -77,7 +78,7 @@ class JMComicChannel(BaseChannel):
     def normalize_id(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:
-            raise ChannelError(f"请提供漫画 ID 或链接，例如 /{self.command} 123456")
+            raise ChannelError(f"请提供漫画 ID 或链接，例如 /{self.display_command} 123456")
 
         matched = _ALBUM_IN_TEXT.search(text)
         if matched:

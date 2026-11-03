@@ -155,36 +155,37 @@ class ComicParserPlugin(Star):
 
     # ==================== 命令 ====================
 
-    @filter.command("jm")
-    async def cmd_jm(
+    # 指令注册用站点全称，日常敲的缩写走别名；提示文案里展示的仍是缩写（见 cmd_help）
+    @filter.command("jmcomic", alias={"jm"})
+    async def cmd_jmcomic(
         self, event: AstrMessageEvent, comic_id: str = ""
     ) -> AsyncGenerator[MessageEventResult, None]:
         """下载指定 ID 的 JM 漫画。用法：/jm <ID 或链接>"""
-        async for result in self._handle_download(event, "jm", comic_id):
+        async for result in self._handle_download(event, "jmcomic", comic_id):
             yield result
 
-    @filter.command("nh")
-    async def cmd_nh(
+    @filter.command("nhentai", alias={"nh"})
+    async def cmd_nhentai(
         self, event: AstrMessageEvent, comic_id: str = ""
     ) -> AsyncGenerator[MessageEventResult, None]:
         """下载指定 ID 的 nhentai 作品。用法：/nh <ID 或链接>"""
-        async for result in self._handle_download(event, "nh", comic_id):
+        async for result in self._handle_download(event, "nhentai", comic_id):
             yield result
 
-    @filter.command("pica")
-    async def cmd_pica(
+    @filter.command("picacg", alias={"pica"})
+    async def cmd_picacg(
         self, event: AstrMessageEvent, comic_id: str = ""
     ) -> AsyncGenerator[MessageEventResult, None]:
         """下载指定 ID 的哔咔漫画。用法：/pica <ID 或链接>"""
-        async for result in self._handle_download(event, "pica", comic_id):
+        async for result in self._handle_download(event, "picacg", comic_id):
             yield result
 
-    @filter.command("hanime")
-    async def cmd_hanime(
+    @filter.command("hanime1", alias={"hm", "ha", "hanime"})
+    async def cmd_hanime1(
         self, event: AstrMessageEvent, comic_id: str = ""
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载指定 ID 的 Hanime1 漫画。用法：/hanime <ID 或链接>"""
-        async for result in self._handle_download(event, "hanime", comic_id):
+        """下载指定 ID 的 Hanime1 漫画。用法：/hm <ID 或链接>（别名 /ha、/hanime）"""
+        async for result in self._handle_download(event, "hanime1", comic_id):
             yield result
 
     @filter.command("漫画帮助", alias={"comichelp"})
@@ -231,9 +232,9 @@ class ComicParserPlugin(Star):
             return
 
         if not raw_id.strip():
-            yield event.plain_result(
-                f"用法：/{command} <ID 或链接>\n示例：/{command} 123456"
-            )
+            # 示例用缩写命令：用户日常敲的就是这个，全称只是注册名
+            hint = channel.display_command
+            yield event.plain_result(f"用法：/{hint} <ID 或链接>\n示例：/{hint} 123456")
             return
 
         try:

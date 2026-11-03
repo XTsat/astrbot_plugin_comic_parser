@@ -20,11 +20,13 @@
 
 | Command | Permission | Description |
 |---------|------------|-------------|
-| `/jm <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
-| `/nh <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
-| `/pica <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
-| `/hanime <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
+| `/jm <ID or link>` (full name `/jmcomic`) | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
+| `/nh <ID or link>` (full name `/nhentai`) | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
+| `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
+| `/hm <ID or link>` (full name `/hanime1`, also `/ha`, `/hanime`) | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
+
+> The short commands (`/jm`, `/nh`, `/pica`, `/hm`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
 
 Examples:
 
@@ -34,8 +36,8 @@ Examples:
 /nh 123456
 /nh https://nhentai.net/g/123456/
 /pica 5f1e2d3c4b5a69788796a5b4
-/hanime 100445
-/hanime https://hanime1.me/comic/100445
+/hm 100445
+/hm https://hanime1.me/comic/100445
 ```
 
 ## Configuration
@@ -148,7 +150,7 @@ Examples:
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| Enable (`enable`) | bool | true | When off, `/hanime` reports the channel as disabled |
+| Enable (`enable`) | bool | true | When off, `/hm` reports the channel as disabled |
 | Site domains (`site_domains`) | text | hanimeone.me, hanime1.me | One per line, **tried top to bottom**; the comic section now lives on hanimeone.me, hanime1.me only keeps older works |
 | Image host (`image_domains`) | text | empty | **Usually leave empty**: the host from the page is used, and unreachable ones are swapped automatically; fill it only when none work, e.g. i.nhentai.net |
 | Reader proxy (`fetch_proxy`) | string | https://r.jina.ai/ | Pages are fetched through this public reader service by default (images still come straight from the image host); clear it to talk to the site directly only |

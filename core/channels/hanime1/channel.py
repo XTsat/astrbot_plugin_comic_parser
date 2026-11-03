@@ -67,7 +67,9 @@ class Hanime1Channel(BaseChannel):
     """
 
     name: ClassVar[str] = "hanime1"
-    command: ClassVar[str] = "hanime"
+    command: ClassVar[str] = "hanime1"
+    # 站点简称的首字母有两种写法（ha / hm），都认；展示与计数都用第一个
+    command_aliases: ClassVar[tuple[str, ...]] = ("hm", "ha", "hanime")
     display_name: ClassVar[str] = "Hanime1 漫画"
     default_use_proxy: ClassVar[bool] = True
     # cloudscraper 不是硬依赖：配了读取代理时用 requests 也能抓页，所以只在真正需要时提示
@@ -99,7 +101,7 @@ class Hanime1Channel(BaseChannel):
         text = (raw or "").strip()
         if not text:
             raise ChannelError(
-                f"请提供作品 ID 或链接，例如 /{self.command} 100445"
+                f"请提供作品 ID 或链接，例如 /{self.display_command} 100445"
             )
         if _VIDEO_IN_TEXT.search(text):
             raise ChannelError(

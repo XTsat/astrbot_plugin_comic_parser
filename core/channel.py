@@ -41,7 +41,9 @@ class BaseChannel(ABC):
     """渠道基类。子类只需声明类属性并实现三个抽象方法。"""
 
     name: ClassVar[str]  # 内部名，与 _conf_schema.json 的模板 key 一致
-    command: ClassVar[str]  # 聊天命令名：命令 "foo" 对应 /foo <ID>
+    command: ClassVar[str]  # 注册给指令系统的全称（站点名，如 jmcomic / nhentai）
+    # 缩写别名：用户日常敲的是这些；第一个别名同时是提示文案里优先展示的命令
+    command_aliases: ClassVar[tuple[str, ...]] = ()
     display_name: ClassVar[str]  # 帮助文案里的展示名
     requires: ClassVar[tuple[str, ...]] = ()  # 运行时依赖的模块名
     # 「使用代理」开关在配置里缺失时的默认值：面向境外站点的渠道默认开启
@@ -50,6 +52,24 @@ class BaseChannel(ABC):
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
         self.options: dict[str, Any] = dict(options)
         self.settings = settings
+
+    # ---- 命令名 ----
+    @property
+    def display_command(self) -> str:
+        """提示文案里优先展示的命令：缩写别名排在前面，所以用户看到的是更短的那个。"""
+        return self.command_aliases[0] if self.command_aliases else self.command
+
+    @property
+    def command_names(self) -> tuple[str, ...]:
+        """全称在前、缩写在后，重复与空别名剔掉。
+
+        注册指令与「/命令 → 渠道」映射都用这一份清单，避免两处各写一遍导致别名只在其中一边生效。
+        """
+        names = [self.command]
+        for alias in self.command_aliases:
+            if alias and alias not in names:
+                names.append(alias)
+        return tuple(names)
 
     # ---- 配置读取：渠道私有配置项一律走这三个方法，缺失/脏值自动兜底 ----
     @property

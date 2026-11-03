@@ -79,7 +79,7 @@ astrbot_plugin_comic_parser/
     │   └── nhentai/             # nhentai 渠道
     │       ├── __init__.py      #   只导出 NhentaiChannel
     │       ├── channel.py       #   BaseChannel 实现：解析 ID → 元信息 → 下载
-    │       ├── api.py           #   官方 API v2 客户端（元信息主路径，纯 JSON）
+    │       ├── api.py          #   官方 API v2 客户端（元信息主路径，纯 JSON）
     │       ├── site.py          #   作品页解析、页面抓取兜底、图床地址拼接
     │       ├── downloader.py    #   图片并发下载、重试、图床风控兜底
     │       ├── progress.py      #   下载会话状态、进度日志、重载中断
@@ -408,6 +408,8 @@ async def on_message(
 | `/漫画帮助`（别名 `comichelp`） | 全部 | 查看可用渠道、打包格式、密码与进度提示设置 |
 
 新增渠道时：命令名由渠道类的 `command` 类属性决定，并在 `main.py` 里加一个同名的 `cmd_<命令>` 薄方法（AstrBot 的命令装饰器只能静态注册，不能按渠道列表动态生成）。渠道未在 WebUI 配置里添加时，对应命令提示「渠道未启用」。
+
+命令命名约定：`command` 填站点全称（如 `jmcomic`、`nhentai`、`picacg`、`hanime1`），缩写填 `command_aliases`（如 `jm`、`nh`、`pica`、`hm`）；**第一个别名是展示名**，帮助文案、用法提示与 README 里一律用缩写，全称只在括号里备注。`main.py` 里用 `@filter.command(全称, alias={全部缩写})`，`cmd_<全称>` 方法按全称查渠道；命令层与渠道内部报错取用户可见命令时用 `channel.display_command`，别直接用 `command`。
 
 ---
 

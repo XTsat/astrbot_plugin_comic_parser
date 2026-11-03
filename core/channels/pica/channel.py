@@ -56,7 +56,8 @@ def _image_suffix(url: str) -> str:
 
 class PicaChannel(BaseChannel):
     name: ClassVar[str] = "pica"
-    command: ClassVar[str] = "pica"
+    command: ClassVar[str] = "picacg"
+    command_aliases: ClassVar[tuple[str, ...]] = ("pica",)
     display_name: ClassVar[str] = "哔咔漫画"
     default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("httpx",)
@@ -111,7 +112,7 @@ class PicaChannel(BaseChannel):
         text = (raw or "").strip()
         if not text:
             raise ChannelError(
-                f"请提供漫画 ID 或链接，例如 /{self.command} 5f1e2d3c4b5a69788796a5b4"
+                f"请提供漫画 ID 或链接，例如 /{self.display_command} 5f1e2d3c4b5a69788796a5b4"
             )
         matched = _COMIC_ID.search(text)
         if matched:

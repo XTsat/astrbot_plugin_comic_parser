@@ -44,20 +44,26 @@ def build_channels(settings: PluginSettings) -> dict[str, BaseChannel]:
 
 
 def command_map(channels: dict[str, BaseChannel]) -> dict[str, BaseChannel]:
-    """命令名 → 渠道实例，供命令层按 `/命令` 找渠道。"""
-    return {channel.command: channel for channel in channels.values()}
+    """命令名 → 渠道实例，供命令层按 `/命令` 找渠道；别名与主命令指向同一个渠道。"""
+    mapping: dict[str, BaseChannel] = {}
+    for channel in channels.values():
+        for name in channel.command_names:
+            mapping[name] = channel
+    return mapping
 
 
 def describe_channels(channels: dict[str, BaseChannel]) -> str:
-    """帮助文案里的渠道列表。"""
+    """帮助文案里的渠道列表：行首是缩写命令，全称与其它别名收进括号，不单独占行。"""
     if not channels:
         return "（当前没有任何渠道，请先在插件配置里添加下载渠道）"
 
     lines = []
     for channel in channels.values():
         state = "" if channel.enabled else "（未启用）"
+        others = [name for name in channel.command_names if name != channel.display_command]
+        also = f"；也可用 {'、'.join(f'/{name}' for name in others)}" if others else ""
         lines.append(
-            f"/{channel.command} <ID> — {channel.display_name}{state}"
-            f"（网络：{channel.proxy_summary()}）"
+            f"/{channel.display_command} <ID> — {channel.display_name}{state}"
+            f"（网络：{channel.proxy_summary()}{also}）"
         )
     return "\n".join(lines)
