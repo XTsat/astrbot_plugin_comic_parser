@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 from astrbot.api import logger
 
 from ...domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
-from ...domain.constants import PLUGIN_NAME
+from ...domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
 from ..channel import BaseChannel, ProgressCallback
 
 _ALBUM_IN_TEXT = re.compile(r"/(?:album|photo)/(\d+)")
@@ -94,6 +94,27 @@ def _progress_downloader_class(jmcomic: Any) -> type:
 
     _PROGRESS_DOWNLOADER_CACHE["cls"] = _ProgressDownloader
     return _ProgressDownloader
+
+
+def _count_downloaded_images(downloader: Any, source_dir: Path) -> int:
+    """已成功下载的图片张数。
+
+    以 jmcomic 下载器自己的成功记录为准：它只随版本增删属性（2.7.10 里是
+    download_success_dict），没有稳定的「计数器」字段，硬读某个名字会在升级后
+    把「下载成功」误判成 0 张。记录缺失时退回数落盘文件，仍然给出可信结果。
+    """
+    success = getattr(downloader, "download_success_dict", None)
+    if isinstance(success, dict):
+        recorded = sum(
+            len(images) for photos in success.values() for images in photos.values()
+        )
+        if recorded:
+            return recorded
+    if not source_dir.exists():
+        return 0
+    return sum(
+        1 for path in source_dir.rglob("*") if path.suffix.lower() in IMAGE_SUFFIXES
+    )
 
 
 class JMComicChannel(BaseChannel):
@@ -178,10 +199,15 @@ class JMComicChannel(BaseChannel):
 
         source_dir = Path(option.dir_rule.decide_album_root_dir(album))
         failed_images = len(getattr(downloader, "download_failed_image", []) or [])
-        failed_images += len(getattr(downloader, "download_failed_photo", []) or [])
-        image_count = int(getattr(downloader, "downloaded_images", 0) or 0)
+        failed_photos = len(getattr(downloader, "download_failed_photo", []) or [])
+        image_count = _count_downloaded_images(downloader, source_dir)
 
         if image_count <= 0:
+            if failed_images or failed_photos:
+                raise DownloadError(
+                    f"图片全部下载失败（{failed_images} 张图片、{failed_photos} 个章节失败），"
+                    "请稍后重试，或在渠道配置里改用代理/自定义域名"
+                )
             raise DownloadError("没有下载到任何图片，可能本子 ID 不存在或已被下架")
 
         meta = ComicMeta(
@@ -195,7 +221,8 @@ class JMComicChannel(BaseChannel):
             meta=meta,
             source_dir=source_dir,
             image_count=image_count,
-            failed_images=failed_images,
+            # 章节级失败意味着该章图片一张都没拿到，同样计入「失败」让用户知道产物不完整
+            failed_images=failed_images + failed_photos,
         )
 
     # ---- JmOption 构建 ----
