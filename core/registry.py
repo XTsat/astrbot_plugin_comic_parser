@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from ..domain import PluginSettings
 from .channel import BaseChannel
+from .channels.jmcomic import JMComicChannel
 
-# 渠道实现放在 core/channels/，登记后才会被 build_channels 实例化
-CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = ()
+CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (JMComicChannel,)
 
 
 def build_channels(settings: PluginSettings) -> dict[str, BaseChannel]:

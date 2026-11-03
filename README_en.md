@@ -8,7 +8,7 @@
 ## Features
 
 - **Download by ID**: hand over a comic ID or link and get the whole comic — no search, rankings or subscription features
-- **One command per channel**: the channel decides the command name, so channels never get in each other's way
+- **One command per channel**: `/jm 123456`; each channel keeps its own command, so they never get in each other's way
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
 - **Visible progress**: progress is reported in 25% steps and can be turned off
@@ -20,7 +20,15 @@
 
 | Command | Permission | Description |
 |---------|------------|-------------|
+| `/jm <ID or link>` | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
 | `/漫画帮助` | Everyone | Show available channels, pack format and password status |
+
+Examples:
+
+```
+/jm 123456
+/jm https://18comic.vip/album/123456/
+```
 
 ## Configuration
 
@@ -54,7 +62,23 @@
 
 ### Download channels
 
-Channels are added on demand; a channel that is not added stays disabled. No built-in channel ships in this repository yet — the download commands appear once a channel is added.
+Channels are added on demand; a channel that is not added stays disabled. The JM comic channel is available today.
+
+<details>
+<summary>JM comic channel options (8)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable (`enable`) | bool | true | When off, `/jm` reports the channel as disabled |
+| Client type (`client_type`) | string | api | `api` is more compatible; `html` is faster but region-restricted |
+| Custom domains (`client_domain`) | string | empty | Comma-separated domain list; empty lets the library choose |
+| Image format (`image_suffix`) | string | .jpg | Extension used when saving images |
+| Per-request retries (`retry_times`) | int | 0 | 0 means the library default |
+| Concurrent chapters (`max_concurrent_photos`) | int | 3 | Chapters downloaded in parallel |
+| Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel per chapter |
+| Use proxy (`use_proxy`) | bool | false | Uses the global proxy; when off, connections are explicitly direct |
+
+</details>
 
 ## Other
 

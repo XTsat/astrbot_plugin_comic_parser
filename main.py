@@ -74,6 +74,14 @@ class ComicParserPlugin(Star):
 
     # ==================== 命令 ====================
 
+    @filter.command("jm")
+    async def cmd_jm(
+        self, event: AstrMessageEvent, comic_id: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """下载指定 ID 的 JM 漫画。用法：/jm <ID 或链接>"""
+        async for result in self._handle_download(event, "jm", comic_id):
+            yield result
+
     @filter.command("漫画帮助", alias={"comichelp"})
     async def cmd_help(
         self, event: AstrMessageEvent
@@ -85,7 +93,7 @@ class ComicParserPlugin(Star):
             f"{describe_channels(self.channels)}\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
-            f"用法：添加渠道后按 /<命令> <ID 或链接> 使用"
+            f"用法：/<命令> <ID 或链接>，例如 /jm 123456"
         )
         yield event.plain_result(text)
 

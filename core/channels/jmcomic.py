@@ -1,0 +1,235 @@
+"""JM 漫画渠道。
+
+只做「拿 ID → 取元信息 → 下载图片」，打包与加密完全交给上层，
+所以这里看不到任何 zip/pdf/密码相关逻辑。
+
+jmcomic 是可选依赖：插件启动时不 import，只有真正用到本渠道时才懒加载，
+缺失时给出可执行的提示而不是崩溃。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import re
+from pathlib import Path
+from typing import Any, ClassVar
+
+from astrbot.api import logger
+
+from ...domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
+from ...domain.constants import PLUGIN_NAME
+from ..channel import BaseChannel, ProgressCallback
+
+_ALBUM_IN_TEXT = re.compile(r"/(?:album|photo)/(\d+)")
+_FIRST_DIGITS = re.compile(r"\d+")
+
+# jmcomic 的下载器子类只能在其可用后创建，这里按库对象缓存，避免重复定义
+_PROGRESS_DOWNLOADER_CACHE: dict[str, Any] = {}
+
+
+def import_jmcomic() -> Any | None:
+    """懒加载 jmcomic；未安装时返回 None，由调用方决定提示。"""
+    try:
+        import jmcomic
+    except ImportError:
+        return None
+    return jmcomic
+
+
+def _progress_downloader_class(jmcomic: Any) -> type:
+    """构造带进度上报的下载器子类。
+
+    jmcomic 的回调是同步的（跑在线程里），上报时通过 run_coroutine_threadsafe
+    回到事件循环，命令层才能安全地发消息。
+    """
+    cached = _PROGRESS_DOWNLOADER_CACHE.get("cls")
+    if cached is not None:
+        return cached
+
+    class _ProgressDownloader(jmcomic.JmDownloader):
+        def __init__(self, option: Any, report: Any) -> None:
+            super().__init__(option)
+            self._report = report
+            self._done = 0
+            self._total = 0
+            self._unit = "图片"
+
+        def before_album(self, album: Any) -> None:
+            super().before_album(album)
+            # 多章节本子按「章节」计进度更贴近用户直觉；单章本子按图片计
+            try:
+                chapter_count = len(album)
+            except Exception:  # 上游对象异常不应影响下载
+                chapter_count = 0
+            if chapter_count > 1:
+                self._unit = "章节"
+                self._total = chapter_count
+
+        def before_photo(self, photo: Any) -> None:
+            super().before_photo(photo)
+            if self._unit != "图片" or self._total:
+                return
+            try:
+                self._total = len(photo)
+            except Exception:
+                self._total = 0
+
+        def after_photo(self, photo: Any) -> None:
+            super().after_photo(photo)
+            if self._unit == "章节":
+                self._done += 1
+                self._emit()
+
+        def after_image(self, image: Any, img_save_path: Any) -> None:
+            super().after_image(image, img_save_path)
+            if self._unit == "图片":
+                self._done += 1
+                self._emit()
+
+        def _emit(self) -> None:
+            try:
+                self._report(self._done, self._total, self._unit)
+            except Exception as exc:  # 进度只是锦上添花，不能拖垮下载
+                logger.debug(f"[{PLUGIN_NAME}] 进度上报失败（忽略）: {exc}")
+
+    _PROGRESS_DOWNLOADER_CACHE["cls"] = _ProgressDownloader
+    return _ProgressDownloader
+
+
+class JMComicChannel(BaseChannel):
+    name: ClassVar[str] = "jmcomic"
+    command: ClassVar[str] = "jm"
+    display_name: ClassVar[str] = "JM 漫画"
+    requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
+
+    # ---- ID 解析 ----
+    def normalize_id(self, raw: str) -> str:
+        text = (raw or "").strip()
+        if not text:
+            raise ChannelError(f"请提供漫画 ID 或链接，例如 /{self.command} 123456")
+
+        matched = _ALBUM_IN_TEXT.search(text)
+        if matched:
+            return matched.group(1)
+        matched = _FIRST_DIGITS.search(text)
+        if matched:
+            return matched.group(0)
+        raise ChannelError("无法从输入中识别出 JM 漫画 ID，请直接给出数字 ID")
+
+    # ---- 元信息 ----
+    async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+
+        option = await asyncio.to_thread(self._build_option, jmcomic, work_dir)
+        return await asyncio.to_thread(self._fetch_meta_sync, jmcomic, option, comic_id)
+
+    def _fetch_meta_sync(self, jmcomic: Any, option: Any, comic_id: str) -> ComicMeta:
+        client = option.new_jm_client()
+        album = client.get_album_detail(jmcomic.JmcomicText.parse_to_jm_id(comic_id))
+        return ComicMeta(
+            channel=self.name,
+            comic_id=str(album.id),
+            title=str(getattr(album, "title", "") or ""),
+            author=str(getattr(album, "author", "") or ""),
+            page_count=len(album) if hasattr(album, "__len__") else 0,
+        )
+
+    # ---- 下载 ----
+    async def download(
+        self,
+        comic_id: str,
+        work_dir: Path,
+        on_progress: ProgressCallback | None = None,
+    ) -> DownloadedComic:
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+
+        option = await asyncio.to_thread(self._build_option, jmcomic, work_dir)
+        loop = asyncio.get_running_loop()
+
+        def report(done: int, total: int, unit: str) -> None:
+            if on_progress is None:
+                return
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    on_progress(done, total, unit), loop
+                )
+                # 结果无人等待，挂个回调吞掉异常，避免 "Future exception was never retrieved"
+                future.add_done_callback(lambda f: f.cancelled() or f.exception())
+            except RuntimeError:
+                # 事件循环已关闭（插件重载中），丢弃这次进度即可
+                pass
+
+        return await asyncio.to_thread(
+            self._download_sync, jmcomic, option, comic_id, report
+        )
+
+    def _download_sync(
+        self, jmcomic: Any, option: Any, comic_id: str, report: Any
+    ) -> DownloadedComic:
+        album_id = jmcomic.JmcomicText.parse_to_jm_id(comic_id)
+        downloader = _progress_downloader_class(jmcomic)(option, report)
+
+        with downloader:
+            album = downloader.download_album(album_id)
+
+        source_dir = Path(option.dir_rule.decide_album_root_dir(album))
+        failed_images = len(getattr(downloader, "download_failed_image", []) or [])
+        failed_images += len(getattr(downloader, "download_failed_photo", []) or [])
+        image_count = int(getattr(downloader, "downloaded_images", 0) or 0)
+
+        if image_count <= 0:
+            raise DownloadError("没有下载到任何图片，可能本子 ID 不存在或已被下架")
+
+        meta = ComicMeta(
+            channel=self.name,
+            comic_id=str(album.id),
+            title=str(getattr(album, "title", "") or ""),
+            author=str(getattr(album, "author", "") or ""),
+            page_count=len(album) if hasattr(album, "__len__") else 0,
+        )
+        return DownloadedComic(
+            meta=meta,
+            source_dir=source_dir,
+            image_count=image_count,
+            failed_images=failed_images,
+        )
+
+    # ---- JmOption 构建 ----
+    def _build_option(self, jmcomic: Any, base_dir: Path) -> Any:
+        """把渠道配置翻译成 jmcomic 的 option。
+
+        目录规则固定 Bd/Aid/Pindex：用 Aid 作目录名避开标题里的非法字符，
+        再带章节维度 Pindex，否则多章节本子的各章会用相同页码互相覆盖。
+        """
+        option_dict: dict[str, Any] = {
+            "dir_rule": {"base_dir": str(base_dir), "rule": "Bd/Aid/Pindex"},
+            "download": {
+                "image": {"suffix": self.opt_str("image_suffix", ".jpg")},
+                "threading": {
+                    "photo": self.opt_int("max_concurrent_photos", 3, minimum=1),
+                    "image": self.opt_int("max_concurrent_images", 5, minimum=1),
+                },
+            },
+            "client": {"impl": self.opt_str("client_type", "api")},
+        }
+
+        domains = self.opt_list("client_domain")
+        if domains:
+            option_dict["client"]["domain"] = domains
+
+        retry_times = self.opt_int("retry_times", 0, minimum=0)
+        if retry_times > 0:
+            option_dict["client"]["retry_times"] = retry_times
+
+        proxy = self.settings.proxy if self.opt_bool("use_proxy", False) else ""
+        if proxy:
+            option_dict["client"]["postman"] = {"meta_data": {"proxies": proxy}}
+        else:
+            # 显式置空：容器里常带系统代理变量，不覆盖会让请求绕到不存在的代理上
+            option_dict["client"]["postman"] = {"meta_data": {"proxies": {}}}
+
+        return jmcomic.JmModuleConfig.option_class().construct(option_dict)

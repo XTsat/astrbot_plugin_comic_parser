@@ -88,6 +88,65 @@
     "type": "template_list",
     "description": "下载渠道",
     "hint": "按需添加渠道，没添加的渠道不会被启用；同一个渠道请勿重复添加",
-    "templates": {}
+    "templates": {
+      "jmcomic": {
+        "name": "JM 漫画（jmcomic）",
+        "items": {
+          "enable": {
+            "type": "bool",
+            "description": "启用",
+            "default": true
+          },
+          "client_type": {
+            "type": "string",
+            "description": "客户端类型",
+            "hint": "api 模式兼容性好；html 模式效率高但限制地区",
+            "default": "api",
+            "options": ["api", "html"],
+            "labels": ["API 接口", "网页端"]
+          },
+          "client_domain": {
+            "type": "string",
+            "description": "自定义域名",
+            "hint": "逗号分隔的域名列表，留空由 jmcomic 自动选择；默认域名不可达时可手动指定",
+            "default": ""
+          },
+          "image_suffix": {
+            "type": "string",
+            "description": "图片格式",
+            "hint": "下载图片保存的扩展名",
+            "default": ".jpg",
+            "options": [".jpg", ".png", ".webp"]
+          },
+          "retry_times": {
+            "type": "int",
+            "description": "单请求重试次数",
+            "hint": "网络请求失败时的重试次数，0 表示使用 jmcomic 默认值",
+            "default": 0,
+            "slider": { "min": 0, "max": 10, "step": 1 }
+          },
+          "max_concurrent_photos": {
+            "type": "int",
+            "description": "并发章节数",
+            "hint": "同时下载的章节数量，建议 3-5",
+            "default": 3,
+            "slider": { "min": 1, "max": 10, "step": 1 }
+          },
+          "max_concurrent_images": {
+            "type": "int",
+            "description": "并发图片数",
+            "hint": "每个章节同时下载的图片数量，建议 5-10",
+            "default": 5,
+            "slider": { "min": 1, "max": 20, "step": 1 }
+          },
+          "use_proxy": {
+            "type": "bool",
+            "description": "使用代理",
+            "hint": "开启后使用上方全局代理地址；关闭时显式直连，避免容器里的系统代理干扰",
+            "default": false
+          }
+        }
+      }
+    }
   }
 }
