@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover - 运行环境决定
 
 try:  # 长图拼接依赖
     from PIL import Image
+    from PIL import Image as PILImage
 
     PIL_AVAILABLE = True
 except ImportError:  # pragma: no cover - 运行环境决定
@@ -134,8 +136,7 @@ class Packer:
         try:
             # 让 pymupdf 自己把图片转成单页 PDF 再合并，省掉 PIL 依赖与手工尺寸换算
             for image in images:
-                with fitz.open(str(image)) as image_doc:
-                    page_pdf = image_doc.convert_to_pdf()
+                page_pdf = self._image_to_pdf_bytes(image)
                 with fitz.open("pdf", page_pdf) as page_doc:
                     doc.insert_pdf(page_doc)
 
@@ -152,6 +153,25 @@ class Packer:
             doc.close()
 
         return PackResult(True, out_path, "pdf", bool(self.password))
+
+    def _image_to_pdf_bytes(self, image: Path) -> bytes:
+        """把一张图片转成单页 PDF 的字节流。
+
+        pymupdf 对 webp/avif 这类格式的支持取决于编译进版本里的解码器，缺解码器时
+        `fitz.open` 会直接抛 `FileDataError`（整本打包失败）。这里退回 Pillow：先转成
+        JPEG 再交给 pymupdf，代价是多一次内存里的转码。
+        """
+        try:
+            with fitz.open(str(image)) as image_doc:
+                return image_doc.convert_to_pdf()
+        except (RuntimeError, ValueError, OSError):
+            if not PIL_AVAILABLE:
+                raise
+            buffer = io.BytesIO()
+            with PILImage.open(image) as raw:
+                raw.convert("RGB").save(buffer, format="JPEG", quality=92)
+            with fitz.open(stream=buffer.getvalue(), filetype="jpg") as image_doc:
+                return image_doc.convert_to_pdf()
 
     def _pack_long_img(
         self, source_dir: Path, base_name: str, output_dir: Path
