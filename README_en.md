@@ -16,6 +16,7 @@
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
 - **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
 - **Automatic cleanup**: temporary files are deleted right after sending
+- **Straight into group files**: turn on "upload to group files" and the finished file lands in the current group's files (optionally in a folder — if the group lacks that folder, the bot creates it when it has the rights and otherwise uses the group file root). QQ already posts a file message for it, so the bot does not send it again in the chat; only when the upload fails does it send the file directly
 
 ## Commands
 
@@ -59,7 +60,7 @@ Examples:
 ### Packing and delivery
 
 <details>
-<summary>Packing and delivery (7)</summary>
+<summary>Packing and delivery (10)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -68,6 +69,9 @@ Examples:
 | Filename template (`filename_template`) | string | id_title | Naming pattern for the output file. Presets: [id]title / [id]title+password / title[id] / title[id]+password / ID only / title only / custom (the first four bracket the ID). Presets marked "+password" write the password into the filename (visible in chat) |
 | Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{author}` `{password}`; the `(password)` part disappears when no password is set |
 | Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
+| Upload to group files after download (`upload_to_group_file`) | bool | false | Files downloaded in a group are uploaded to that group's files and no longer sent again in the chat; private chats are skipped and a failed upload falls back to sending the file; OneBot (aiocqhttp, e.g. NapCat) only |
+| Group file folder (`group_file_folder`) | string | 漫画 | If the group has a folder with this name the file goes inside it (case-insensitive); when it is missing the next option decides; empty means always the group file root |
+| Create the group file folder when missing (`group_file_create_folder`) | bool | true | Lets the bot create the target folder before uploading (it must be a group admin or owner); if that fails the file simply goes to the root without an error, and turning this off means only existing folders or the root are used |
 | Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
 | Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
 
@@ -190,3 +194,11 @@ Examples:
 | Use proxy (`use_proxy`) | bool | false | Uses the proxy chain plugin proxy → AstrBot proxy → direct; the site is reachable directly from mainland China in our tests, turn this on if it times out or is blocked |
 
 </details>
+
+## Others
+
+### Troubleshooting
+
+**Why did I still receive the file in the chat with "upload to group files" turned on?** Two cases fall back to sending the file directly: the upload failed this time (the reason is shown in the message), or the download did not happen in a group / the protocol backend has no group file support. A failed upload is usually an environment problem — when the plugin and the protocol backend do not share the same machine or the same mounted directory, the backend cannot read the plugin's temp path; a bot account without upload permission also fails.
+
+**Why did the file end up in the group file root instead of the configured folder?** That happens when the group has no such folder and the bot could not create it: creating a group file folder requires the bot to be a group admin or owner, so a regular member cannot do it, and the plugin still uploads to the root instead of wasting the download. Make the bot an admin, or create the folder yourself in the group files.

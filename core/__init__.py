@@ -4,6 +4,7 @@
 """
 
 from .channel import BaseChannel
+from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .packer import Packer
 from .registry import (
@@ -20,6 +21,8 @@ __all__ = [
     "BaseChannel",
     "DownloadOutcome",
     "DownloadTask",
+    "GroupFileResult",
+    "GroupFileUploader",
     "Packer",
     "build_channels",
     "command_map",

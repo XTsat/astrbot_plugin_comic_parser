@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import astrbot.api.message_components as Comp
 from astrbot.api import AstrBotConfig, logger
@@ -25,6 +26,8 @@ from .core import (
     AccessGuard,
     DownloadOutcome,
     DownloadTask,
+    GroupFileResult,
+    GroupFileUploader,
     build_channels,
     command_map,
     describe_channels,
@@ -47,9 +50,30 @@ from .domain.constants import (
     PROGRESS_STEP_PERCENT,
 )
 
-# 只有 OneBot(CQHTTP) 协议端提供 set_msg_emoji_like（QQ 的「贴表情」）
-_REACTION_PLATFORMS = frozenset({"aiocqhttp"})
+# 贴表情（set_msg_emoji_like）与群文件上传（upload_group_file）都只有 OneBot(CQHTTP) 协议端提供
+_ONEBOT_PLATFORMS = frozenset({"aiocqhttp"})
 _REACTION_TIMEOUT = 5.0
+
+
+def _event_call_action(
+    event: AstrMessageEvent,
+) -> Callable[..., Awaitable[Any]] | None:
+    """取协议端的 call_action；拿不到（非 OneBot 平台、反向 ws 未连接）时返回 None。"""
+    bot = getattr(event, "bot", None)
+    call_action = getattr(bot, "call_action", None) or getattr(
+        getattr(bot, "api", None), "call_action", None
+    )
+    return call_action if callable(call_action) else None
+
+
+def _event_group_id(event: AstrMessageEvent) -> str:
+    """消息发生的群号；私聊返回空串。"""
+    try:
+        value = event.get_group_id()
+    except Exception as exc:  # 群文件是加分项，取不到群号就当私聊处理
+        logger.debug(f"[{PLUGIN_NAME}] 取群号失败（忽略）: {exc}")
+        return ""
+    return str(value) if value else ""
 
 
 async def set_progress_reaction(event: AstrMessageEvent, status: str) -> bool:
@@ -57,7 +81,7 @@ async def set_progress_reaction(event: AstrMessageEvent, status: str) -> bool:
 
     协议端不支持表情回应时返回 False，由调用方退回文本进度，不能因为提示失败影响下载。
     """
-    if event.get_platform_name() not in _REACTION_PLATFORMS:
+    if event.get_platform_name() not in _ONEBOT_PLATFORMS:
         return False
     # 私聊一律不支持表情回应（协议端会直接拒绝），省掉这次注定失败的请求
     if getattr(event, "is_private_chat", lambda: False)():
@@ -70,10 +94,7 @@ async def set_progress_reaction(event: AstrMessageEvent, status: str) -> bool:
         return False
     emoji_id, emoji_type = reaction
 
-    bot = getattr(event, "bot", None)
-    call_action = getattr(bot, "call_action", None) or getattr(
-        getattr(bot, "api", None), "call_action", None
-    )
+    call_action = _event_call_action(event)
     if not callable(call_action):
         logger.debug(f"[{PLUGIN_NAME}] 协议端不支持 call_action，跳过进度贴表情")
         return False
@@ -111,6 +132,7 @@ class ComicParserPlugin(Star):
         self.save_root = self._resolve_save_dir()
         self.temp_root = self._resolve_temp_dir()
         self.guard = AccessGuard(self.settings)
+        self.group_files = GroupFileUploader()
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
@@ -223,6 +245,20 @@ class ComicParserPlugin(Star):
             "title_only": "仅标题",
             "custom": "自定义模板",
         }
+        if self.settings.upload_to_group_file:
+            folder = self.settings.group_file_folder
+            fallback = (
+                "没有就新建"
+                if self.settings.group_file_create_folder
+                else "没有就传根目录"
+            )
+            group_file_desc = (
+                f"下载完成后传进「{folder}」（{fallback}）"
+                if folder
+                else "下载完成后传进群文件根目录"
+            )
+        else:
+            group_file_desc = "关闭"
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
@@ -232,6 +268,7 @@ class ComicParserPlugin(Star):
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
             f"文件名模板：{template_labels.get(self.settings.filename_template, '[ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
+            f"群文件：{group_file_desc}\n"
             f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>\n"
             f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
         )
@@ -360,9 +397,51 @@ class ComicParserPlugin(Star):
             yield event.plain_result(summary or f"已保存到本地：{outcome.source_dir}")
             return
 
-        chain = [Comp.Plain(summary)] if summary else []
+        upload = await self._upload_group_file(event, sendable)
+
+        if upload is not None and upload.ok:
+            # 群里已经出现这条文件消息了，不再补一句「已存入群文件」；只剩可选的下载摘要
+            if summary:
+                yield event.plain_result(summary)
+            return
+
+        lines = [summary] if summary else []
+        if upload is not None:
+            lines.append(f"⚠️ 群文件没传上去（{upload.error}），改为直接发文件")
+        chain = [Comp.Plain("\n".join(lines))] if lines else []
         chain.append(Comp.File(name=sendable.name, file=str(sendable)))
         yield event.chain_result(MessageChain(chain).chain)
+
+    async def _upload_group_file(
+        self, event: AstrMessageEvent, path: Path
+    ) -> GroupFileResult | None:
+        """按配置把成品传进当前群的群文件；返回 None 表示这次不适用（关闭 / 私聊 / 协议端不支持）。"""
+        if not self.settings.upload_to_group_file:
+            return None
+        if event.get_platform_name() not in _ONEBOT_PLATFORMS:
+            logger.info(f"[{PLUGIN_NAME}] 当前协议端不支持群文件上传，跳过")
+            return None
+        group_id = _event_group_id(event)
+        if not group_id:
+            logger.debug(f"[{PLUGIN_NAME}] 私聊没有群文件，跳过上传")
+            return None
+        call_action = _event_call_action(event)
+        if call_action is None:
+            logger.info(f"[{PLUGIN_NAME}] 协议端没有 call_action，跳过群文件上传")
+            return None
+
+        result = await self.group_files.upload(
+            call_action,
+            group_id,
+            path,
+            self.settings.group_file_folder,
+            self.settings.group_file_create_folder,
+        )
+        if result.ok:
+            logger.info(
+                f"[{PLUGIN_NAME}] 已上传群文件：{result.location} / {path.name}"
+            )
+        return result
 
     # ==================== 内部工具 ====================
 

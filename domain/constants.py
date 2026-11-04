@@ -45,6 +45,12 @@ IMAGE_SUFFIXES: Final = frozenset(
     {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif"}
 )
 
+# 群文件上传：列目录要快（用户就等在命令里），上传则要给慢网络留够时间——
+# 一本漫画打出来几十 MB，协议端还要转存进 QQ，卡在中间会让用户以为插件没反应
+GROUP_FILE_LIST_TIMEOUT: Final = 20.0
+GROUP_FILE_UPLOAD_TIMEOUT: Final = 600.0
+DEFAULT_GROUP_FILE_FOLDER: Final = "漫画"
+
 # 进度提示方式：贴表情（不刷屏）/ 文本进度 / 关闭
 PROGRESS_STYLES: Final = ("emoji", "text", "none")
 DEFAULT_PROGRESS_STYLE: Final = "emoji"

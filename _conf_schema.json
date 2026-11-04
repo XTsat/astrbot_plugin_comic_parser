@@ -65,6 +65,24 @@
         "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
         "default": "downloads"
       },
+      "upload_to_group_file": {
+        "type": "bool",
+        "description": "下载后上传到群文件",
+        "hint": "开启后在群里下载完成的文件会自动传进当前群的群文件，群里本来就会出现这条文件消息，因此聊天里不再重复发一遍。私聊下载不适用；上传失败会改为直接在聊天里发文件。目前仅支持 OneBot(aiocqhttp) 协议端",
+        "default": false
+      },
+      "group_file_folder": {
+        "type": "string",
+        "description": "群文件目标文件夹",
+        "hint": "想让文件落进群文件里的哪个文件夹，例如「漫画」。群里有同名文件夹就传进去（忽略大小写）；没有时看下一项「自动新建群文件夹」；留空表示总是传群文件根目录",
+        "default": "漫画"
+      },
+      "group_file_create_folder": {
+        "type": "bool",
+        "description": "自动新建群文件夹",
+        "hint": "群文件里没有目标文件夹时，让机器人自己建一个再传进去（机器人需要是群管理员或群主）。建不成就照旧传群文件根目录，不会报错；关闭后一律只传已有的文件夹或根目录",
+        "default": true
+      },
       "auto_delete_after_send": {
         "type": "bool",
         "description": "发送后删除本地文件",

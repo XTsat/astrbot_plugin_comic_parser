@@ -88,6 +88,7 @@ astrbot_plugin_comic_parser/
     │       └── schema.json      #   本渠道配置模板副本（以 _conf_schema.json 为准）
     ├── packer.py                # **统一打包与加密**：zip / pdf / long_img / none
     ├── task.py                  # 单次任务编排：元信息 → 下载 → 打包
+    ├── group_file.py            # 群文件交付：找群文件夹 → 传文件 → 成败与落点
     └── guard.py                 # 白/黑名单 + 防抖
 ```
 
@@ -119,7 +120,7 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 层 | 目录 | 本项目实际内容 |
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
-| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`guard.py`（白黑名单 + 防抖） |
+| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖） |
 | 工具层 | `utils/` | `filename.py`（文件名清洗）、`link.py`（链接拆主机名/路径、域名归属） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
@@ -312,6 +313,7 @@ class MyPlugin(Star):
 | `packing.filename_template` / `packing.filename_custom` | string / string | 产物文件名（`utils/filename.py`） |
 | `packing.download_dir` | string | 仅本地保存目录 |
 | `packing.auto_delete_after_send` / `packing.clean_temp_on_start` | bool / bool | 交付与清理（`main.py`） |
+| `packing.upload_to_group_file` / `packing.group_file_folder` / `packing.group_file_create_folder` | bool / string / bool | 群文件交付（`core/group_file.py`） |
 | `download.progress_style` / `download.show_result_summary` | string / bool | 进度与结果提示（`main.py`） |
 | `download.max_concurrent_tasks` / `download.download_timeout` / `download.download_retry_times` | int | 调度（`core/task.py`） |
 | `download.proxy` | string | 渠道共用代理地址 |

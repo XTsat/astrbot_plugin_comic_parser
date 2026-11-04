@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from .constants import (
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_FILENAME_TEMPLATE,
+    DEFAULT_GROUP_FILE_FOLDER,
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_PACK_FORMAT,
     DEFAULT_PROGRESS_STYLE,
@@ -78,6 +79,9 @@ class PluginSettings:
     filename_template: str = DEFAULT_FILENAME_TEMPLATE
     filename_custom: str = ""
     auto_delete_after_send: bool = True
+    upload_to_group_file: bool = False
+    group_file_folder: str = DEFAULT_GROUP_FILE_FOLDER
+    group_file_create_folder: bool = True
     progress_style: str = DEFAULT_PROGRESS_STYLE
     show_result_summary: bool = True
     clean_temp_on_start: bool = True
@@ -126,6 +130,15 @@ class PluginSettings:
             filename_custom=_as_str(packing.get("filename_custom")),
             auto_delete_after_send=_as_bool(
                 packing.get("auto_delete_after_send"), True
+            ),
+            upload_to_group_file=_as_bool(
+                packing.get("upload_to_group_file"), False
+            ),
+            group_file_folder=_as_str(
+                packing.get("group_file_folder"), DEFAULT_GROUP_FILE_FOLDER
+            ),
+            group_file_create_folder=_as_bool(
+                packing.get("group_file_create_folder"), True
             ),
             progress_style=progress_style,
             show_result_summary=_as_bool(
