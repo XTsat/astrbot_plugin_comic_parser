@@ -24,7 +24,7 @@ from ....domain import (
     PluginSettings,
 )
 from ....domain.constants import PLUGIN_NAME
-from ....utils import sanitize_filename
+from ....utils import host_matches, sanitize_filename, split_link
 from ...channel import BaseChannel, ProgressCallback
 from .api import PicaClient, image_url
 from .constants import (
@@ -32,6 +32,7 @@ from .constants import (
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_RETRY_TIMES,
     DEFAULT_SECRET_KEY,
+    WEB_COMIC_DOMAINS,
 )
 
 # 哔咔的漫画 ID 是 Mongo ObjectId：24 位十六进制
@@ -59,6 +60,7 @@ class PicacgChannel(BaseChannel):
     command: ClassVar[str] = "picacg"
     command_aliases: ClassVar[tuple[str, ...]] = ("pica",)
     display_name: ClassVar[str] = "哔咔漫画"
+    link_example: ClassVar[str] = "https://manhuapica.com/comic/5f1e2d3c4b5a69788796a5b4"
     default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("httpx",)
 
@@ -108,6 +110,14 @@ class PicacgChannel(BaseChannel):
             await client.aclose()
 
     # ---- ID 解析 ----
+    def match_link(self, text: str) -> str | None:
+        # 哔咔的网页作品页也是 `/comic/<id>`，与 Hanime1 同形，只能靠域名区分
+        host, path = split_link(text)
+        if not host_matches(host, WEB_COMIC_DOMAINS):
+            return None
+        matched = _COMIC_ID.search(path)
+        return matched.group(0).lower() if matched else None
+
     def normalize_id(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:

@@ -23,6 +23,7 @@ from ....domain import (
     PluginSettings,
 )
 from ....domain.constants import PLUGIN_NAME
+from ....utils import host_matches, split_link
 from ...channel import BaseChannel, ProgressCallback, split_option_list
 from .constants import (
     DEFAULT_FETCH_PROXY,
@@ -71,6 +72,7 @@ class Hanime1Channel(BaseChannel):
     # 站点简称的首字母有两种写法（ha / hm），都认；展示与计数都用第一个
     command_aliases: ClassVar[tuple[str, ...]] = ("hm", "ha", "hanime")
     display_name: ClassVar[str] = "Hanime1 漫画"
+    link_example: ClassVar[str] = "https://hanime1.me/comic/100445"
     default_use_proxy: ClassVar[bool] = True
     # cloudscraper 不是硬依赖：配了读取代理时用 requests 也能抓页，所以只在真正需要时提示
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
@@ -97,6 +99,16 @@ class Hanime1Channel(BaseChannel):
         }
 
     # ---- ID 解析 ----
+    def match_link(self, text: str) -> str | None:
+        # `/comic/<id>` 是通用路径，别的站点（如哔咔网页版）也用同一个形状，
+        # 所以这里必须先认域名，否则会把人家的链接抢过来
+        host, path = split_link(text)
+        domains = self.opt_list("site_domains") or split_option_list(DEFAULT_SITE_DOMAINS)
+        if not host_matches(host, domains):
+            return None
+        matched = _COMIC_IN_TEXT.search(path)
+        return matched.group(1) if matched else None
+
     def normalize_id(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:

@@ -1,12 +1,13 @@
 <div align="center">
 <h1>Comic Parser</h1>
-<p><strong>Multi-channel comic downloader: grab a whole comic by ID, then pack and send it in one pipeline — optional password encryption</strong></p>
+<p><strong>Multi-channel comic downloader: paste a work link or an ID to grab a whole comic, then pack and send it in one pipeline — optional password encryption</strong></p>
 <p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; PicACG &nbsp;&nbsp; WNACG</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 
 ## Features
 
+- **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: hand over a comic ID or link and get the whole comic
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
@@ -20,6 +21,7 @@
 
 | Command | Permission | Description |
 |---------|------------|-------------|
+| `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded (works for every channel below) |
 | `/jm <ID or link>` (full name `/jmcomic`) | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
 | `/nh <ID or link>` (full name `/nhentai`) | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
 | `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
@@ -27,11 +29,17 @@
 | `/ssmh <ID or link>` (full name `/wnacg`, also `/wn`) | Everyone (subject to whitelist/blacklist) | Download a whole WNACG (Shenshi Manhua) gallery |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
+> When you just want one comic, pasting its link into `/comic` is the quickest way; when you only have an ID (or the link is not a work page), use the matching channel command.
 > The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
 
 Examples:
 
 ```
+/comic https://18comic.vip/album/123456/
+/comic https://nhentai.net/g/123456/
+/comic https://manhuapica.com/comic/5f1e2d3c4b5a69788796a5b4
+/comic https://hanime1.me/comic/100445
+/comic https://www.wnacg.site/photos-index-aid-401500.html
 /jm 123456
 /jm https://18comic.vip/album/123456/
 /nh 123456
@@ -42,6 +50,8 @@ Examples:
 /ssmh 401500
 /ssmh https://www.wnacg.site/photos-index-aid-401500.html
 ```
+
+> `/comic` only accepts full links (a work page address with a domain): a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead.
 
 ## Configuration
 

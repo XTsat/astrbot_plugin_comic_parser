@@ -23,6 +23,7 @@ from ....domain import (
     PluginSettings,
 )
 from ....domain.constants import PLUGIN_NAME
+from ....utils import split_link
 from ...channel import BaseChannel, ProgressCallback, split_option_list
 from .api import GalleryNotFound, NhentaiApi
 from .constants import (
@@ -64,6 +65,7 @@ class NhentaiChannel(BaseChannel):
     command: ClassVar[str] = "nhentai"
     command_aliases: ClassVar[tuple[str, ...]] = ("nh",)
     display_name: ClassVar[str] = "nhentai"
+    link_example: ClassVar[str] = "https://nhentai.net/g/123456/"
     default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
 
@@ -88,6 +90,12 @@ class NhentaiChannel(BaseChannel):
         }
 
     # ---- ID 解析 ----
+    def match_link(self, text: str) -> str | None:
+        # `/g/<id>` 是 nhentai 独有的作品路径（镜像站结构一致），不必再认域名
+        _, path = split_link(text)
+        matched = _GALLERY_IN_TEXT.search(path)
+        return matched.group(1) if matched else None
+
     def normalize_id(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:

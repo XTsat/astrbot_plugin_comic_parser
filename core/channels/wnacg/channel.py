@@ -28,6 +28,7 @@ from ....domain import (
     PluginSettings,
 )
 from ....domain.constants import PLUGIN_NAME
+from ....utils import split_link
 from ...channel import BaseChannel, ProgressCallback
 from .constants import (
     DEFAULT_IMAGE_CONCURRENCY,
@@ -65,6 +66,7 @@ class WnacgChannel(BaseChannel):
     command: ClassVar[str] = "wnacg"
     command_aliases: ClassVar[tuple[str, ...]] = ("ssmh", "wn")
     display_name: ClassVar[str] = "紳士漫畫"
+    link_example: ClassVar[str] = "https://www.wnacg.site/photos-index-aid-401500.html"
     # 大陆线路实测可直连，默认直连；超时或被墙时由用户自己打开「使用代理」
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
@@ -87,6 +89,11 @@ class WnacgChannel(BaseChannel):
         }
 
     # ---- ID 解析 ----
+    def match_link(self, text: str) -> str | None:
+        # `/photos-…-aid-<id>.html` 是本站独有的相册路径形状，镜像域名换掉也不影响识别
+        _, path = split_link(text)
+        return normalize_url_id(path) if path else None
+
     def normalize_id(self, raw: str) -> str:
         """站内链接取 aid（合辑子相册链接取 sid），纯数字直接当相册 ID。"""
         text = (raw or "").strip()

@@ -6,7 +6,13 @@
 from .channel import BaseChannel
 from .guard import AccessGuard
 from .packer import Packer
-from .registry import build_channels, command_map, describe_channels
+from .registry import (
+    build_channels,
+    command_map,
+    describe_channels,
+    describe_links,
+    resolve_link,
+)
 from .task import DownloadOutcome, DownloadTask
 
 __all__ = [
@@ -18,4 +24,6 @@ __all__ = [
     "build_channels",
     "command_map",
     "describe_channels",
+    "describe_links",
+    "resolve_link",
 ]

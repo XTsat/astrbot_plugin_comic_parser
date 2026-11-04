@@ -28,6 +28,8 @@ from .core import (
     build_channels,
     command_map,
     describe_channels,
+    describe_links,
+    resolve_link,
 )
 from .core.channel import ProgressCallback
 from .core.packer import Packer
@@ -155,6 +157,15 @@ class ComicParserPlugin(Star):
 
     # ==================== 命令 ====================
 
+    # 推荐入口：整条作品链接自带站点，不用记命令；各渠道命令保留给「只有 ID」的场景
+    @filter.command("comic")
+    async def cmd_comic(
+        self, event: AstrMessageEvent, link: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """下载链接指向的整本漫画，自动识别站点。用法：/comic <作品链接>"""
+        async for result in self._handle_comic(event, link):
+            yield result
+
     # 指令注册用站点全称，日常敲的缩写走别名；提示文案里展示的仍是缩写（见 cmd_help）
     @filter.command("jmcomic", alias={"jm"})
     async def cmd_jmcomic(
@@ -215,15 +226,44 @@ class ComicParserPlugin(Star):
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
+            f"🔗 贴完整链接直接下：/comic <作品链接>\n"
+            f"{describe_links(self.channels)}\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
             f"文件名模板：{template_labels.get(self.settings.filename_template, '[ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
-            f"用法：/<命令> <ID 或链接>，例如 /jm 123456"
+            f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>（例如 /jm 123456）"
         )
         yield event.plain_result(text)
 
     # ==================== 下载流程 ====================
+
+    async def _handle_comic(
+        self, event: AstrMessageEvent, link: str
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """把完整链接路由到对应渠道；认不出站点时列出各渠道的链接示例。
+
+        只认完整链接：裸 ID 无法判断站点，分享文本里的站点名也不可靠，那些走各渠道命令。
+        """
+        text = (link or "").strip()
+        if not text:
+            yield event.plain_result(
+                f"用法：/comic <作品链接>\n{describe_links(self.channels)}"
+            )
+            return
+
+        resolved = resolve_link(self.channels, text)
+        if resolved is None:
+            yield event.plain_result(
+                "❌ 认不出这条链接属于哪个站点：请贴作品页的完整链接，"
+                "或直接用对应渠道的命令（见 /漫画帮助）\n"
+                f"{describe_links(self.channels)}"
+            )
+            return
+
+        channel, _ = resolved
+        async for result in self._handle_download(event, channel.command, text):
+            yield result
 
     async def _handle_download(
         self, event: AstrMessageEvent, command: str, raw_id: str

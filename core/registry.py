@@ -1,7 +1,8 @@
 """渠道注册表。
 
 新增一个下载渠道的固定动作有六处（漏一处渠道就跑不起来）：
-1. `core/channels/<渠道名>/` 新建渠道文件夹：`channel.py` 写 `BaseChannel` 子类，
+1. `core/channels/<渠道名>/` 新建渠道文件夹：`channel.py` 写 `BaseChannel` 子类
+   （实现 `normalize_id` / `match_link` / `fetch_meta` / `download`），
    渠道私有模块（接入细节、进度上报等）都留在这个文件夹里，由它的 `__init__.py` 导出
 2. 把该类加进 `core/registry.py` 的 `CHANNEL_CLASSES`
 3. 在 `main.py` 里加一个同名的 `cmd_<命令>` 薄方法（命令装饰器无法动态生成）
@@ -66,7 +67,32 @@ def describe_channels(channels: dict[str, BaseChannel]) -> str:
         others = [name for name in channel.command_names if name != channel.display_command]
         also = f"；也可用 {'、'.join(f'/{name}' for name in others)}" if others else ""
         lines.append(
-            f"/{channel.display_command} <ID> — {channel.display_name}{state}"
+            f"/{channel.display_command} <ID 或链接> — {channel.display_name}{state}"
             f"（网络：{channel.proxy_summary()}{also}）"
         )
     return "\n".join(lines)
+
+
+def resolve_link(
+    channels: dict[str, BaseChannel], text: str
+) -> tuple[BaseChannel, str] | None:
+    """按完整作品链接找到渠道，返回 (渠道, 作品 ID)；认不出站点时返回 None。
+
+    未启用的渠道也参与识别：命中未启用站点时能提示「渠道未启用」，
+    比笼统的「认不出这条链接」更能指出问题所在。
+    """
+    for channel in channels.values():
+        comic_id = channel.match_link(text)
+        if comic_id:
+            return channel, comic_id
+    return None
+
+
+def describe_links(channels: dict[str, BaseChannel]) -> str:
+    """帮助文案里的链接示例：一行一个渠道，用户照着贴自己的作品页链接。"""
+    lines = [
+        f"{channel.display_name}：{channel.link_example}"
+        for channel in channels.values()
+        if channel.link_example
+    ]
+    return "\n".join(lines) if lines else "（当前没有支持链接直下的渠道）"

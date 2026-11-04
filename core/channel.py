@@ -38,13 +38,14 @@ def split_option_list(raw: Any) -> list[str]:
 
 
 class BaseChannel(ABC):
-    """渠道基类。子类只需声明类属性并实现三个抽象方法。"""
+    """渠道基类。子类只需声明类属性并实现四个抽象方法。"""
 
     name: ClassVar[str]  # 内部名，与 _conf_schema.json 的模板 key 一致
     command: ClassVar[str]  # 注册给指令系统的全称（站点名，如 jmcomic / nhentai）
     # 缩写别名：用户日常敲的是这些；第一个别名同时是提示文案里优先展示的命令
     command_aliases: ClassVar[tuple[str, ...]] = ()
     display_name: ClassVar[str]  # 帮助文案里的展示名
+    link_example: ClassVar[str] = ""  # 完整链接示例，`/comic` 的用法提示直接引用它
     requires: ClassVar[tuple[str, ...]] = ()  # 运行时依赖的模块名
     # 「使用代理」开关在配置里缺失时的默认值：面向境外站点的渠道默认开启
     default_use_proxy: ClassVar[bool] = False
@@ -168,6 +169,15 @@ class BaseChannel(ABC):
     @abstractmethod
     def normalize_id(self, raw: str) -> str:
         """把用户输入（纯 ID / 链接 / 分享文本）收敛成本渠道的漫画 ID。"""
+
+    @abstractmethod
+    def match_link(self, text: str) -> str | None:
+        """从完整作品链接里取出本渠道的作品 ID；不是本渠道的链接时返回 None。
+
+        `/comic` 靠它把链接路由到渠道，所以只认带主机名的 http(s) 地址：
+        裸 ID、站名式的分享文本一律不认，那些走各渠道自己的命令。
+        没有网页作品页的渠道直接 `return None`——不做这个判断就无法参与链接路由。
+        """
 
     @abstractmethod
     async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:

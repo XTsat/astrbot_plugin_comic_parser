@@ -15,11 +15,11 @@
 
 **AstrBot 插件**是基于 `astrbot.api.star` 框架的 Python 插件，以 `Star` 子类为核心，通过装饰器注册指令组、事件监听器、过滤器，在 AstrBot 运行时中加载。
 
-**本项目**：`astrbot_plugin_comic_parser`（展示名「漫画下载器」），多渠道漫画下载插件。**只做下载**：按 ID 下载整本漫画，不解析聊天里随机出现的链接。
+**本项目**：`astrbot_plugin_comic_parser`（展示名「漫画下载器」），多渠道漫画下载插件。**只做下载**：按 ID 或作品链接下载整本漫画，不被动解析聊天里随机出现的链接。
 
 核心能力：
 
-- **按 ID 下载整本**：一个渠道一条命令（当前 `/jm <ID 或链接>`、`/nh <ID 或链接>`），渠道只负责取元信息与下载图片
+- **按 ID / 链接下载整本**：一个渠道一条命令（`/jm <ID 或链接>`、`/nh <ID 或链接>`…），另有 `/comic <作品链接>` 按链接自动路由到渠道；渠道只负责取元信息与下载图片
 - **上层统一打包，按需加密**：任何渠道下载完都走同一套产物流程——`zip` / `pdf` / `long_img` / `none`；设置全局密码才加密（ZIP 用 AES、PDF 用 AES-256），设置了密码却缺少加密依赖时**失败关闭**，绝不静默产出未加密文件
 - **准入与调度**：会话白/黑名单、同会话防抖、全局并发上限、整本超时与重试
 - **产物交付**：压缩包以文件形式发出；仅本地保存模式的目录落进数据目录并长期保留
@@ -65,7 +65,8 @@ astrbot_plugin_comic_parser/
 │   ├── models.py                # ComicMeta / DownloadedComic / PackResult
 │   └── errors.py                # PluginError 族（消息面向用户）
 ├── utils/                       # 通用工具层
-│   └── filename.py              # 文件名清洗与打包基名
+│   ├── filename.py              # 文件名清洗与打包基名
+│   └── link.py                  # 作品链接拆主机名/路径、域名归属判断
 └── core/                        # 业务层
     ├── channel.py               # BaseChannel 抽象（渠道只做取元信息 + 下载图片）
     ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
@@ -119,12 +120,12 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
 | 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`guard.py`（白黑名单 + 防抖） |
-| 工具层 | `utils/` | `filename.py`（文件名清洗） |
+| 工具层 | `utils/` | `filename.py`（文件名清洗）、`link.py`（链接拆主机名/路径、域名归属） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
 **渠道与上层的分工是硬约束**：渠道（`core/channels/<渠道名>/`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。新增渠道的固定动作共 **六处**（漏一处渠道就跑不起来）：
 
-1. `core/channels/<渠道名>/` 新建渠道文件夹：在 `channel.py` 里写 `BaseChannel` 子类（只实现 `normalize_id` / `fetch_meta` / `download`），渠道私有模块都留在该文件夹内，由 `__init__.py` 导出渠道类
+1. `core/channels/<渠道名>/` 新建渠道文件夹：在 `channel.py` 里写 `BaseChannel` 子类（只实现 `normalize_id` / `match_link` / `fetch_meta` / `download`），渠道私有模块都留在该文件夹内，由 `__init__.py` 导出渠道类
 2. 加进 `core/registry.py` 的 `CHANNEL_CLASSES`
 3. `main.py` 里加同名的 `cmd_<命令>` 薄方法（命令装饰器无法按渠道列表动态生成）
 4. `_conf_schema.json` 的 `channels.templates` 加同名模板（渠道私有配置项放这里，读配置一律走 `BaseChannel.opt_*` 系列方法，自动兜底脏值）
@@ -403,6 +404,7 @@ async def on_message(
 
 | 命令 | 权限 | 说明 |
 |------|------|------|
+| `/comic <作品链接>` | 全部（受白名单/黑名单约束） | 按链接自动识别站点并下载整本 |
 | `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 JM 漫画 |
 | `/nh <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
 | `/漫画帮助`（别名 `comichelp`） | 全部 | 查看可用渠道、打包格式、密码与进度提示设置 |

@@ -1,12 +1,13 @@
 <div align="center">
 <h1>漫画下载器</h1>
-<p><strong>多渠道漫画下载插件：按 ID 下载整本漫画，统一打包发送，支持密码加密</strong></p>
+<p><strong>多渠道漫画下载插件：贴作品链接或给 ID 下载整本漫画，统一打包发送，支持密码加密</strong></p>
 <p><sub>禁漫天堂 &nbsp;&nbsp; nhentai &nbsp;&nbsp; 哔咔 &nbsp;&nbsp; 紳士漫畫</sub></p>
 <p><strong>中文</strong> &nbsp;/&nbsp; <a href="README_en.md">English</a></p>
 </div>
 
 ## 功能
 
+- **贴链接就能下**：`/comic <作品链接>` 自动识别站点并下载整本，不用记每个平台各自的命令
 - **按 ID 直接下载**：给出漫画 ID 或链接即可下载整本
 - **统一打包**：下载完成后统一打包为 ZIP 压缩包、PDF 文档或纵向长图，也可以只保存到本地不发送
 - **统一加密**：全局只有一个打包密码，ZIP 用 AES 加密、PDF 用 AES-256 加密；设置了密码但没有安装加密依赖时会直接报错，不会悄悄发出未加密的文件
@@ -20,6 +21,7 @@
 
 | 指令 | 权限 | 说明 |
 |------|------|------|
+| `/comic <作品链接>` | 全部（受白名单/黑名单约束） | 贴作品页的完整链接，自动识别站点并下载整本（支持下面所有渠道） |
 | `/jm <ID 或链接>`（全称 `/jmcomic`） | 全部（受白名单/黑名单约束） | 下载整本 JM 漫画 |
 | `/nh <ID 或链接>`（全称 `/nhentai`） | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
 | `/pica <ID 或链接>`（全称 `/picacg`） | 全部（受白名单/黑名单约束） | 下载整本哔咔漫画（需在渠道配置里填哔咔账号） |
@@ -27,11 +29,17 @@
 | `/ssmh <ID 或链接>`（全称 `/wnacg`，也可 `/wn`） | 全部（受白名单/黑名单约束） | 下载整本紳士漫畫作品 |
 | `/漫画帮助` | 全部 | 查看当前可用渠道、打包格式、密码与进度提示设置 |
 
+> 只想下某一本时，贴链接给 `/comic` 最省事；只知道 ID（或链接不是作品页）时，用对应渠道的命令。
 > 缩写（`/jm`、`/nh`、`/pica`、`/hm`、`/ssmh`）是日常用法，插件提示里展示的也是缩写；站点全称同样可以敲，两种写法效果一样。
 
 示例：
 
 ```
+/comic https://18comic.vip/album/123456/
+/comic https://nhentai.net/g/123456/
+/comic https://manhuapica.com/comic/5f1e2d3c4b5a69788796a5b4
+/comic https://hanime1.me/comic/100445
+/comic https://www.wnacg.site/photos-index-aid-401500.html
 /jm 123456
 /jm https://18comic.vip/album/123456/
 /nh 123456
@@ -42,6 +50,8 @@
 /ssmh 401500
 /ssmh https://www.wnacg.site/photos-index-aid-401500.html
 ```
+
+> `/comic` 只认完整链接（带域名的作品页地址）：裸 ID 和哔咔 App 的 `pica://` 分享内容无法判断站点，请改用上面对应的渠道命令。
 
 ## 配置
 

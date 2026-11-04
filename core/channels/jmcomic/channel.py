@@ -15,6 +15,7 @@ from astrbot.api import logger
 
 from ....domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
+from ....utils import split_link
 from ...channel import BaseChannel, ProgressCallback
 from .constants import DEFAULT_REQUEST_RETRY_TIMES, DEFAULT_REQUEST_TIMEOUT
 from .option import build_option, import_jmcomic
@@ -57,6 +58,7 @@ class JMComicChannel(BaseChannel):
     command: ClassVar[str] = "jmcomic"
     command_aliases: ClassVar[tuple[str, ...]] = ("jm",)
     display_name: ClassVar[str] = "JM 漫画"
+    link_example: ClassVar[str] = "https://18comic.vip/album/123456"
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
 
@@ -75,6 +77,12 @@ class JMComicChannel(BaseChannel):
         }
 
     # ---- ID 解析 ----
+    def match_link(self, text: str) -> str | None:
+        # 域名跟着上游镜像天天换，所以只认路径特征：锁死域名反而认不出用户实际拿到的镜像站
+        _, path = split_link(text)
+        matched = _ALBUM_IN_TEXT.search(path)
+        return matched.group(1) if matched else None
+
     def normalize_id(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:

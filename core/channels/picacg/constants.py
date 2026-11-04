@@ -27,6 +27,11 @@ APP_UUID: Final = "defaultUuid"
 ACCEPT: Final = "application/vnd.picacomic.com.v1+json"
 USER_AGENT: Final = "okhttp/3.8.1"
 
+# ---- 网页作品页 ----
+# 哔咔是纯 App 站，分享内容一般是 `pica://` 深链；带作品页的 http(s) 链接只在下面这个域名出现过。
+# `/comic` 只认这种链接（其余分享形式请用 `/pica <ID>`），因为深链与纯 ID 无法从链接本身判断站点
+WEB_COMIC_DOMAINS: Final = ("manhuapica.com",)
+
 # ---- 图片节点 ----
 IMAGE_SERVER_DEFAULT: Final = "https://storage1.picacomic.com"
 IMAGE_SERVER_BS: Final = "https://storage-b.picacomic.com"
