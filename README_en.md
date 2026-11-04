@@ -30,6 +30,7 @@
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
 > When you just want one comic, pasting its link into `/comic` is the quickest way; when you only have an ID (or the link is not a work page), use the matching channel command.
+> Channel commands do not pin the site either: a nhentai link after `/jm` downloads that nhentai gallery, and the download summary states which site was actually used.
 > The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
 
 Examples:

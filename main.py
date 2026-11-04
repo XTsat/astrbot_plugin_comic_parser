@@ -232,7 +232,8 @@ class ComicParserPlugin(Star):
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
             f"文件名模板：{template_labels.get(self.settings.filename_template, '[ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
-            f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>（例如 /jm 123456）"
+            f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>\n"
+            f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
         )
         yield event.plain_result(text)
 
@@ -279,15 +280,22 @@ class ComicParserPlugin(Star):
             yield event.plain_result(denied)
             return
 
-        if not raw_id.strip():
+        text = raw_id.strip()
+        if not text:
             # 示例用缩写命令：用户日常敲的就是这个，全称只是注册名
             hint = channel.display_command
             yield event.plain_result(f"用法：/{hint} <ID 或链接>\n示例：/{hint} 123456")
             return
 
+        # 链接自带站点，命令只是入口别名：命令与链接指向的渠道不一致时，以链接为准。
+        # 否则 `/jm <nhentai 链接>` 会从链接里抠出一串数字当成 JM 的本子 ID，下到另一本
+        resolved = resolve_link(self.channels, text)
+        if resolved is not None:
+            channel = resolved[0]
+
         try:
             channel.ensure_available()
-            comic_id = channel.normalize_id(raw_id)
+            comic_id = channel.normalize_id(text)
         except PluginError as exc:
             yield event.plain_result(f"❌ {exc}")
             return
@@ -395,7 +403,10 @@ class ComicParserPlugin(Star):
         return on_progress
 
     def _format_outcome(self, outcome: DownloadOutcome) -> str:
-        lines = [f"✅ {outcome.meta.display_title}"]
+        # 摘要里写明实际走的渠道：命令名只是入口，贴别的站点链接会把它带到对应站点
+        channel = self.channels.get(outcome.meta.channel)
+        label = channel.display_name if channel else outcome.meta.channel
+        lines = [f"✅ {label} · {outcome.meta.display_title}"]
         if outcome.meta.author:
             lines.append(f"作者：{outcome.meta.author}")
         count_line = f"图片：{outcome.image_count} 张"
