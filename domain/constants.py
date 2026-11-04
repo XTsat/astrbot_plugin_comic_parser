@@ -16,6 +16,12 @@ DEFAULT_DOWNLOAD_TIMEOUT: Final = 1800
 DEFAULT_RETRY_TIMES: Final = 2
 DEFAULT_MAX_CONCURRENT_TASKS: Final = 1
 
+# 分段下载（秒）：一次请求最多连续下这么久，到点停下并保留断点，重新发命令接着下。
+# 必须小于单本超时才有意义——比它大时按老规矩走硬超时，否则两个值打架行为不可预期。
+DEFAULT_SEGMENT_TIMEOUT: Final = 900
+# 断点保留时长（秒）：过期就在下次下载前清掉，避免改过配置的旧半成品一直占盘；0 表示不留断点
+DEFAULT_RESUME_TTL: Final = 7200
+
 # 下载前测速（探测）：候选域名/图床同时探测、按实测速度排序，镜像「连得上但极慢」时才不干等。
 # 四项都可调（配置分组 probe），默认值取「够用、不用调」的档位。
 DEFAULT_PROBE_ENABLED: Final = True
@@ -65,6 +71,13 @@ DEFAULT_GROUP_FILE_FOLDER: Final = "漫画"
 # 进度提示方式：贴表情（不刷屏）/ 文本进度 / 关闭
 PROGRESS_STYLES: Final = ("emoji", "text", "none")
 DEFAULT_PROGRESS_STYLE: Final = "emoji"
+
+# 手动取消：`/comic stop`（中英文常见写法都认），`全部` 仅管理员可用（取消所有会话的下载）
+STOP_WORDS: Final = frozenset({"stop", "cancel", "取消", "停止", "中止"})
+STOP_ALL_WORDS: Final = frozenset({"all", "全部", "所有"})
+
+# 取消与超时的巡检间隔（秒）：线程池里的下载只认取消令牌，得靠这个循环把它收掉
+CANCEL_POLL_INTERVAL: Final = 0.5
 
 # 进度心跳的间隔（秒）：与「下完一张图/一章」无关，到点就写一条进度日志，
 # 慢网络下一章拖几分钟也不会出现「日志一片空白，像卡死了」

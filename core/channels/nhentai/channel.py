@@ -24,7 +24,7 @@ from ....domain import (
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
-from ...channel import BaseChannel, ProgressCallback, split_option_list
+from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat
 from ...domain_race import ProbeFn, http_probe
 from .api import GalleryNotFound, NhentaiApi
@@ -125,6 +125,7 @@ class NhentaiChannel(BaseChannel):
         comic_id: str,
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
+        cancel: CancelToken | None = None,
     ) -> DownloadedComic:
         parsed = self._parsed.pop(comic_id, None)
         if parsed is None:
@@ -137,7 +138,7 @@ class NhentaiChannel(BaseChannel):
         if not urls:
             raise DownloadError("没有解析到任何图片地址，站点结构可能已变化")
 
-        session = DownloadSession(comic_id=comic_id, total=len(urls))
+        session = DownloadSession(comic_id=comic_id, total=len(urls), cancel=cancel)
         register_session(session)
         logger.info(
             f"[{PLUGIN_NAME}] 开始下载 nhentai {comic_id}：{len(urls)} 页，图床 {image_base}，"

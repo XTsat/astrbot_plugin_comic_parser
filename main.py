@@ -36,10 +36,10 @@ from .core import (
     describe_links,
     resolve_link,
 )
-from .core.channel import ProgressCallback
+from .core.channel import CancelToken, ProgressCallback
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
 from .core.packer import Packer
-from .domain import PluginError, PluginSettings
+from .domain import DownloadCancelled, DownloadPaused, PluginError, PluginSettings
 from .domain.constants import (
     PACK_FORMATS,
     PLUGIN_AUTHOR,
@@ -52,6 +52,8 @@ from .domain.constants import (
     PROGRESS_REACTIONS,
     PROGRESS_STALL_INTERVAL,
     PROGRESS_STEP_PERCENT,
+    STOP_ALL_WORDS,
+    STOP_WORDS,
 )
 from .utils import format_size
 
@@ -62,10 +64,16 @@ _REACTION_TIMEOUT = 5.0
 
 @dataclass(slots=True)
 class _RunningTask:
-    """正在跑的下载在命令层的镜像：排队提示靠它说清「前面那本下到哪了」。"""
+    """正在跑（或正在排队）的下载在命令层的镜像。
+
+    排队提示靠它说清「前面那本下到哪了」，`/comic stop` 靠它找到该取消谁。
+    """
 
     label: str
+    session_id: str
+    cancel: CancelToken
     state: ProgressState | None = field(default=None)
+    cancelled: bool = False
 
 
 def _event_call_action(
@@ -279,6 +287,11 @@ class ComicParserPlugin(Star):
             )
         else:
             group_file_desc = "关闭"
+        if self.settings.segment_timeout > 0:
+            minutes = max(1, round(self.settings.segment_timeout / 60))
+            resume_desc = f"每 {minutes} 分钟先暂停，再发同一条命令接着下"
+        else:
+            resume_desc = "不分段，一次下完"
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
@@ -288,8 +301,10 @@ class ComicParserPlugin(Star):
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
             f"文件名模板：{template_labels.get(self.settings.filename_template, '[ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
+            f"下载分段：{resume_desc}\n"
             f"群文件：{group_file_desc}\n"
             f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>\n"
+            f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
             f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
         )
         yield event.plain_result(text)
@@ -304,6 +319,12 @@ class ComicParserPlugin(Star):
         只认完整链接：裸 ID 无法判断站点，分享文本里的站点名也不可靠，那些走各渠道命令。
         """
         text = (link or "").strip()
+        if text.lower() in STOP_WORDS or text.lower() in STOP_ALL_WORDS:
+            async for result in self._handle_stop(
+                event, include_all=text.lower() in STOP_ALL_WORDS
+            ):
+                yield result
+            return
         if not text:
             yield event.plain_result(
                 f"用法：/comic <作品链接>\n{describe_links(self.channels)}"
@@ -338,6 +359,12 @@ class ComicParserPlugin(Star):
             return
 
         text = raw_id.strip()
+        if text.lower() in STOP_WORDS or text.lower() in STOP_ALL_WORDS:
+            async for result in self._handle_stop(
+                event, include_all=text.lower() in STOP_ALL_WORDS
+            ):
+                yield result
+            return
         if not text:
             # 示例用缩写命令：用户日常敲的就是这个，全称只是注册名
             hint = channel.display_command
@@ -362,13 +389,23 @@ class ComicParserPlugin(Star):
             yield event.plain_result("⏳ 这个本子刚刚请求过，请稍后再试")
             return
 
-        slot = self._begin_running(f"{channel.display_name} {comic_id}")
+        # 先登记再抢锁：排队期间也要能被 /comic stop 取消
+        slot, cancel_token = self._begin_running(
+            session_id, f"{channel.display_name} {comic_id}"
+        )
+        # ok / fail / paused：暂停与取消都不是失败，表情就停在「下载中」，别贴个锤子吓人
         result_state = "fail"
         try:
             if self._semaphore.locked():
                 yield event.plain_result(self._queue_notice())
 
             async with self._semaphore:
+                running = self._running.get(slot)
+                if running is not None and running.cancelled:
+                    yield event.plain_result(
+                        f"⏹ 已取消排队的请求：{channel.display_name} {comic_id}"
+                    )
+                    return
                 # 贴表情先贴「开始」；贴不上（私聊、协议端不支持）就本次退回文本进度
                 use_reaction = await self._react(event, "start")
                 use_text_progress = self.settings.progress_style == "text" or (
@@ -386,7 +423,14 @@ class ComicParserPlugin(Star):
                     outcome = await task.run(
                         raw_id,
                         self._progress_callback(event, use_text_progress, slot),
+                        cancel_token,
                     )
+                except (DownloadPaused, DownloadCancelled) as exc:
+                    # 到点暂停 / 手动取消：断点留着，允许马上再发一次接着下
+                    result_state = "paused"
+                    self.guard.forget(session_id, debounce_key)
+                    yield event.plain_result(str(exc))
+                    return
                 except PluginError as exc:
                     self.guard.forget(session_id, debounce_key)
                     yield event.plain_result(f"❌ {exc}")
@@ -516,13 +560,61 @@ class ComicParserPlugin(Star):
 
     # ---- 任务登记：排队提示要说清「前面在跑什么、跑到哪」 ----
 
-    def _begin_running(self, label: str) -> int:
+    def _begin_running(self, session_id: str, label: str) -> tuple[int, CancelToken]:
         self._task_seq += 1
-        self._running[self._task_seq] = _RunningTask(label=label)
-        return self._task_seq
+        token = CancelToken()
+        self._running[self._task_seq] = _RunningTask(
+            label=label, session_id=session_id, cancel=token
+        )
+        return self._task_seq, token
 
     def _end_running(self, slot: int) -> None:
         self._running.pop(slot, None)
+
+    async def _handle_stop(
+        self, event: AstrMessageEvent, *, include_all: bool
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """手动取消：默认只取消本会话自己的下载，管理员可以用 `全部` 一次收掉所有会话。
+
+        取消与「到点暂停」等价——已经下好的图片留在断点里，重发同一条命令就能接着下。
+        """
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        is_admin = bool(getattr(event, "is_admin", None) and event.is_admin())
+        if include_all and not is_admin:
+            yield event.plain_result("❌ 只有管理员可以取消所有会话的下载；你自己的用 /comic stop")
+            return
+
+        targets = [
+            running
+            for running in self._running.values()
+            if include_all or running.session_id == session_id
+        ]
+        if not targets:
+            others = len(self._running)
+            if others:
+                yield event.plain_result(
+                    f"ℹ️ 你这里没有在跑的下载；另有 {others} 个其他会话的下载正在进行"
+                    "（/comic stop 只管自己的，管理员可用 /comic stop 全部）"
+                )
+            else:
+                yield event.plain_result("ℹ️ 现在没有下载在跑")
+            return
+
+        lines = ["⏹ 已通知停止："]
+        for running in targets:
+            running.cancelled = True
+            running.cancel.cancel()
+            state = running.state
+            if state is None:
+                lines.append(f" · {running.label}：正在取漫画信息…")
+            else:
+                lines.append(
+                    f" · {running.label}：{state.headline}"
+                    f" · {format_size(state.bytes_downloaded)}"
+                    f" · 已用 {state.elapsed:.0f}s"
+                )
+        lines.append("已下好的图片会保留，停稳后会再回一条；重新发同一条命令可以接着下")
+        yield event.plain_result("\n".join(lines))
 
     def _queue_notice(self) -> str:
         """排队提示：带上前面那一本的实时进度，用户才知道要等多久。"""
@@ -539,6 +631,7 @@ class ComicParserPlugin(Star):
             )
         minutes = max(1, round(self.settings.download_timeout / 60))
         lines.append(f"⏱ 单本上限 {minutes} 分钟，前一个任务结束后自动开始")
+        lines.append("⏹ 想取消：发 /comic stop（排队中的请求也会一起取消）")
         return "\n".join(lines)
 
     def _format_outcome(self, outcome: DownloadOutcome) -> str:

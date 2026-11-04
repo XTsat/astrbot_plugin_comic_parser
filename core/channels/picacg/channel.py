@@ -25,7 +25,7 @@ from ....domain import (
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, sanitize_filename, split_link
-from ...channel import BaseChannel, ProgressCallback
+from ...channel import BaseChannel, CancelToken, ProgressCallback
 from ...progress import ProgressHeartbeat, ProgressState, emit
 from .api import PicaClient, image_url
 from .constants import (
@@ -155,6 +155,7 @@ class PicacgChannel(BaseChannel):
         comic_id: str,
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
+        cancel: CancelToken | None = None,
     ) -> DownloadedComic:
         started = time.monotonic()
         async with self._session() as client:
@@ -175,7 +176,7 @@ class PicacgChannel(BaseChannel):
             )
             root = work_dir / comic_id
             done, failed, bytes_total = await self._fetch_all(
-                client, root, plans, total, on_progress
+                client, root, plans, total, on_progress, cancel
             )
 
         elapsed = max(time.monotonic() - started, 0.001)
@@ -221,6 +222,7 @@ class PicacgChannel(BaseChannel):
         plans: list[tuple[str, list[str]]],
         total: int,
         on_progress: ProgressCallback | None,
+        cancel: CancelToken | None = None,
     ) -> tuple[int, int, int]:
         """按章节逐批并发下载图片，返回（成功张数、失败张数、落盘字节数）。"""
         semaphore = asyncio.Semaphore(
@@ -231,6 +233,10 @@ class PicacgChannel(BaseChannel):
         async def fetch_one(url: str, dest: Path) -> None:
             try:
                 async with semaphore:
+                    if dest.is_file() and dest.stat().st_size > 0:
+                        # 断点续跑：这一页上次已经下好，直接算完成
+                        await progress.skip(dest.stat().st_size)
+                        return
                     size = await client.download_image(url, dest)
             except (ChannelError, OSError) as exc:
                 logger.warning(f"[{PLUGIN_NAME}] 哔咔图片下载失败: {url} · {exc}")
@@ -242,6 +248,9 @@ class PicacgChannel(BaseChannel):
         heartbeat.start()
         try:
             for dir_name, urls in plans:
+                if cancel is not None and cancel.cancelled:
+                    logger.info(f"[{PLUGIN_NAME}] 哔咔下载被要求停手，提前收工")
+                    break
                 episode_dir = root / dir_name
                 tasks = [
                     asyncio.create_task(
@@ -285,6 +294,13 @@ class _Progress:
         )
 
     async def ok(self, size: int) -> None:
+        async with self._lock:
+            self.done += 1
+            self.bytes_total += size
+        await self._emit()
+
+    async def skip(self, size: int) -> None:
+        """断点续跑时已经落盘的那一页：计入完成，不再重下。"""
         async with self._lock:
             self.done += 1
             self.bytes_total += size

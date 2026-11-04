@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass, field
 
 from ....utils import format_size
+from ...channel import CancelToken
 from ...progress import ProgressState
 
 
@@ -25,9 +26,15 @@ class DownloadSession:
     unit: str = "图片"
     done: int = 0
     bytes_downloaded: int = 0
-    # 插件重载时 terminate() 置位
+    # 插件重载时 terminate() 置位；cancel 是本次任务自己的取消信号（到点暂停/放弃）
     stop: bool = False
+    cancel: CancelToken | None = None
     started: float = field(default_factory=time.monotonic)
+
+    @property
+    def stopped(self) -> bool:
+        """该收工了吗：插件重载与「本次任务到点/放弃」任一成立都要停。"""
+        return self.stop or (self.cancel is not None and self.cancel.cancelled)
 
     def elapsed(self) -> float:
         return max(time.monotonic() - self.started, 0.001)

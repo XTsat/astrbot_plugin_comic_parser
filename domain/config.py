@@ -20,7 +20,9 @@ from .constants import (
     DEFAULT_PROBE_MIN_SPEED,
     DEFAULT_PROBE_TIMEOUT,
     DEFAULT_PROGRESS_STYLE,
+    DEFAULT_RESUME_TTL,
     DEFAULT_RETRY_TIMES,
+    DEFAULT_SEGMENT_TIMEOUT,
     FILENAME_TEMPLATES,
     PACK_FORMATS,
     PROGRESS_STYLES,
@@ -92,6 +94,8 @@ class PluginSettings:
     max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT
     download_retry_times: int = DEFAULT_RETRY_TIMES
+    segment_timeout: int = DEFAULT_SEGMENT_TIMEOUT
+    resume_ttl: int = DEFAULT_RESUME_TTL
     # 下载前测速（探测）：独立成一组，四项都可调
     probe_enabled: bool = DEFAULT_PROBE_ENABLED
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
@@ -171,6 +175,12 @@ class PluginSettings:
                 download.get("download_retry_times"),
                 DEFAULT_RETRY_TIMES,
                 minimum=0,
+            ),
+            segment_timeout=_as_int(
+                download.get("segment_timeout"), DEFAULT_SEGMENT_TIMEOUT, minimum=0
+            ),
+            resume_ttl=_as_int(
+                download.get("resume_ttl"), DEFAULT_RESUME_TTL, minimum=0
             ),
             # 「下载前测速」搬进 probe 分组；老配置的 download.domain_race 继续认，
             # 否则升级后用户原本关掉的测速会悄悄变回开启

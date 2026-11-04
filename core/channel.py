@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
@@ -34,6 +35,25 @@ from .progress import ProgressState
 
 # 进度回调：每次都交一份完整快照，命令层据此决定要不要往聊天里发
 ProgressCallback = Callable[[ProgressState], Awaitable[None]]
+
+
+class CancelToken:
+    """一次任务独享的取消信号。
+
+    跑在线程池里的下载（JM 用 jmcomic）不会被 asyncio 取消打断：整本超时后线程还在
+    默默下完、白占带宽，结果也无处投递。任务层放弃这次下载时置位令牌，渠道在自己的
+    检查点收工——和「插件重载时取消」用的是同一套机制，只是范围缩到这一次任务。
+    """
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+
+    def cancel(self) -> None:
+        self.event.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.event.is_set()
 
 
 # 代理来源：日志与提示里要能看出「这一趟走的是哪条路」，取值本身就是对用户展示的文案
@@ -258,8 +278,13 @@ class BaseChannel(ABC):
         comic_id: str,
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
+        cancel: CancelToken | None = None,
     ) -> DownloadedComic:
-        """下载整本漫画到 work_dir（或它的子目录）并返回落盘结果。"""
+        """下载整本漫画到 work_dir（或它的子目录）并返回落盘结果。
+
+        ``cancel`` 是本次任务的取消信号：任务超时或被放弃时置位，下载应在下一个检查点
+        停手（线程池里的渠道尤其需要，asyncio 取消打不断它们）。
+        """
 
     def cancel_downloads(self) -> list[str]:
         """插件卸载时取消进行中的下载，返回可写进日志的状态摘要。

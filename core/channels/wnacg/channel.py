@@ -29,7 +29,7 @@ from ....domain import (
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
-from ...channel import BaseChannel, ProgressCallback
+from ...channel import BaseChannel, CancelToken, ProgressCallback
 from ...progress import ProgressHeartbeat
 from .constants import (
     DEFAULT_IMAGE_CONCURRENCY,
@@ -122,9 +122,10 @@ class WnacgChannel(BaseChannel):
         comic_id: str,
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
+        cancel: CancelToken | None = None,
     ) -> DownloadedComic:
         album = self._albums.pop(comic_id, None)
-        session = DownloadSession(comic_id=comic_id)
+        session = DownloadSession(comic_id=comic_id, cancel=cancel)
         register_session(session)
         totals = DownloadStats()
         galleries_parsed = 0
@@ -144,7 +145,7 @@ class WnacgChannel(BaseChannel):
                 )
 
                 for index, (gallery_id, chapter_name) in enumerate(targets, 1):
-                    if session.stop:
+                    if session.stopped:
                         logger.warning(f"[{PLUGIN_NAME}] wnacg {comic_id} 收到中断，提前收工")
                         break
 

@@ -16,7 +16,7 @@ from astrbot.api import logger
 
 from ....domain import ChannelError
 from ....domain.constants import PLUGIN_NAME
-from ....utils import write_image_atomically
+from ....utils import find_existing_image, write_image_atomically
 from ...progress import emit
 from .constants import MIN_IMAGE_BYTES
 from ...channel import ProgressCallback
@@ -128,6 +128,17 @@ class ImageDownloader:
         on_progress: ImageProgressCallback | None,
     ) -> bool:
         async with semaphore:
+            # 断点续跑：这一页上次已经下好（非空文件）就不再重下，重发一次命令只补缺的
+            existing = find_existing_image(target)
+            if existing is not None:
+                session.done += 1
+                try:
+                    session.bytes_downloaded += existing.stat().st_size
+                except OSError:
+                    pass
+                await emit(on_progress, session.state())
+                return True
+
             ok = await self._fetch_with_retry(client, url, target, session)
 
             session.done += 1
@@ -143,7 +154,7 @@ class ImageDownloader:
     ) -> bool:
         challenged = False
         for attempt in range(self._retry_times + 1):
-            if session.stop:
+            if session.stopped:
                 return False
             try:
                 async with client.get(

@@ -23,3 +23,19 @@ class DownloadError(PluginError):
 
 class PackError(PluginError):
     """打包/加密失败。"""
+
+
+class DownloadPaused(PluginError):
+    """下载到点先停下，**不是失败**：断点已保留，重新发一次命令会接着下。
+
+    使用它的前提是掉头就走、不重试、也不清临时目录——这三件事都在任务层统一处理。
+    """
+
+    def __init__(self, message: str, *, saved: int = 0, total: int = 0) -> None:
+        super().__init__(message)
+        self.saved = saved
+        self.total = total
+
+
+class DownloadCancelled(PluginError):
+    """用户手动取消（`/comic stop`）：与到点暂停一样保留断点，重发命令即可接着下。"""

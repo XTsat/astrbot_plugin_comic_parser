@@ -24,7 +24,7 @@ from ....domain import (
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
-from ...channel import BaseChannel, ProgressCallback, split_option_list
+from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat
 from ...domain_race import ProbeFn, http_probe
 from .constants import (
@@ -144,6 +144,7 @@ class Hanime1Channel(BaseChannel):
         comic_id: str,
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
+        cancel: CancelToken | None = None,
     ) -> DownloadedComic:
         parsed = self._parsed.pop(comic_id, None)
         if parsed is None:
@@ -159,7 +160,7 @@ class Hanime1Channel(BaseChannel):
                 "没有解析到任何图片地址，站点结构可能已变化；请在插件日志里确认抓取是否成功"
             )
 
-        session = DownloadSession(comic_id=comic_id, total=len(urls))
+        session = DownloadSession(comic_id=comic_id, total=len(urls), cancel=cancel)
         register_session(session)
         logger.info(
             f"[{PLUGIN_NAME}] 开始下载 {self.display_name} {comic_id}："

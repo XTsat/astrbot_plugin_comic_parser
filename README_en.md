@@ -12,6 +12,7 @@
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages")
+- **Pause at the deadline, resume next time**: a request that runs too long stops first and keeps the images it already fetched; send the same command again and it continues from there without refetching those pages. Breakpoints expire after the configured time
 - **Optional result block**: the summary sent with the file (title / author / image count / elapsed) can be turned off
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic. Probe timeout, slow-node threshold and cache lifetime are configurable, and the whole thing can be switched off
@@ -29,6 +30,7 @@
 | `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
 | `/hm <ID or link>` (full name `/hanime1`, also `/ha`, `/hanime`) | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
 | `/ssmh <ID or link>` (full name `/wnacg`, also `/wn`) | Everyone (subject to whitelist/blacklist) | Download a whole WNACG (Shenshi Manhua) gallery |
+| `/comic stop` (also `/jm stop`, `/nh stop`, …) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so sending the same command again resumes. Admins can use `/comic stop all` to cancel every session's downloads |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
 > When you just want one comic, pasting its link into `/comic` is the quickest way; when you only have an ID (or the link is not a work page), use the matching channel command.
@@ -81,13 +83,15 @@ Examples:
 ### Download control
 
 <details>
-<summary>Download control (6)</summary>
+<summary>Download control (8)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up and the queue notice shows the running download's live progress |
 | Per-comic timeout (`download_timeout`) | int | 1800 | Seconds allowed for one download attempt before it counts as failed |
 | Download retries (`download_retry_times`) | int | 2 | Retries after a failed download |
+| Continuous download per request (`segment_timeout`) | int | 900 | How long one request may keep downloading before it pauses and keeps the breakpoint; sending the same command again resumes. 0 disables segments |
+| Breakpoint lifetime (`resume_ttl`) | int | 7200 | How long the fetched images are kept after a pause; a new request within that window resumes, 0 keeps nothing |
 | Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
 | Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨. Private chats and clients without reaction support fall back to text progress automatically |
 | Proxy address (`proxy`) | string | empty | Such as `http://host:port`; only channels with "use proxy" enabled use it. When empty, AstrBot's own `http_proxy` is reused if configured |
@@ -215,5 +219,7 @@ Examples:
 ### Troubleshooting
 
 **Why did I still receive the file in the chat with "upload to group files" turned on?** Two cases fall back to sending the file directly: the upload failed this time (the reason is shown in the message), or the download did not happen in a group / the protocol backend has no group file support. A failed upload is usually an environment problem — when the plugin and the protocol backend do not share the same machine or the same mounted directory, the backend cannot read the plugin's temp path; a bot account without upload permission also fails.
+
+**The download stopped halfway and the message says "send it again to continue" — what does that mean?** A request that keeps downloading too long (continuous download per request, 15 minutes by default) pauses first and keeps the images in the temporary directory, so nothing is packed or sent this time; send the same command again and it resumes, without refetching the pages already saved, then packs and delivers as usual. The images expire after the breakpoint lifetime (2 hours by default), and a request after that starts from scratch; if "clean temp on startup" is on, reloading the plugin clears breakpoints too.
 
 **Why did the file end up in the group file root instead of the configured folder?** That happens when the group has no such folder and the bot could not create it: creating a group file folder requires the bot to be a group admin or owner, so a regular member cannot do it, and the plugin still uploads to the root instead of wasting the download. Make the bot an admin, or create the folder yourself in the group files.

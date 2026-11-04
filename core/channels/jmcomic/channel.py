@@ -16,7 +16,7 @@ from astrbot.api import logger
 from ....domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
 from ....utils import format_size, split_link
-from ...channel import BaseChannel, ProgressCallback, split_option_list
+from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat, ProgressState
 from .constants import (
     DEFAULT_API_DOMAINS,
@@ -179,6 +179,7 @@ class JMComicChannel(BaseChannel):
         comic_id: str,
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
+        cancel: CancelToken | None = None,
     ) -> DownloadedComic:
         jmcomic = import_jmcomic()
         if jmcomic is None:
@@ -202,6 +203,9 @@ class JMComicChannel(BaseChannel):
                 pass
 
         session = DownloadSession(album_id=comic_id)
+        if cancel is not None:
+            # 任务到点暂停/放弃时靠它叫停线程池里的下载
+            session.stop = cancel.event
         register_session(session)
         try:
             async with ProgressHeartbeat(session.state, on_tick=on_progress):
