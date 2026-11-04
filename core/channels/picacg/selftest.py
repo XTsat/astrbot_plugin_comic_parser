@@ -63,6 +63,8 @@ picacg_channel = importlib.import_module(f"{PACKAGE}.core.channels.picacg.channe
 picacg_constants = importlib.import_module(f"{PACKAGE}.core.channels.picacg.constants")
 domain_module = importlib.import_module(f"{PACKAGE}.domain")
 domain_constants = importlib.import_module(f"{PACKAGE}.domain.constants")
+progress_module = importlib.import_module(f"{PACKAGE}.core.progress")
+ProgressState = progress_module.ProgressState
 
 PicacgChannel = picacg_channel.PicacgChannel
 PluginSettings = domain_module.PluginSettings
@@ -298,10 +300,10 @@ async def _run() -> int:
         },
         PluginSettings(),
     )
-    progress: list[tuple[int, int, str]] = []
+    progress: list[ProgressState] = []
 
-    async def on_progress(done: int, total: int, unit: str) -> None:
-        progress.append((done, total, unit))
+    async def on_progress(state: ProgressState) -> None:
+        progress.append(state)
 
     try:
         # ---- ID 解析 ----
@@ -332,7 +334,7 @@ async def _run() -> int:
         check("章节目录按 order 前缀命名（打包不乱序）",
               sorted(p.name for p in comic.source_dir.iterdir())[:1] == ["001_第一话_序章"],
               str(sorted(p.name for p in comic.source_dir.iterdir())))
-        check("进度回调拿到正确总数", progress and progress[-1][1] == EXPECTED_IMAGES,
+        check("进度回调拿到正确总数", progress and progress[-1].total == EXPECTED_IMAGES,
               f"最后一次 {progress[-1] if progress else None}")
         check("章节列表翻页取全（2 页 → 3 章）",
               len(list(comic.source_dir.iterdir())) == 3,

@@ -10,12 +10,15 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .constants import (
-    DEFAULT_DOMAIN_RACE,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_GROUP_FILE_FOLDER,
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_PACK_FORMAT,
+    DEFAULT_PROBE_CACHE_TTL,
+    DEFAULT_PROBE_ENABLED,
+    DEFAULT_PROBE_MIN_SPEED,
+    DEFAULT_PROBE_TIMEOUT,
     DEFAULT_PROGRESS_STYLE,
     DEFAULT_RETRY_TIMES,
     FILENAME_TEMPLATES,
@@ -80,7 +83,7 @@ class PluginSettings:
     filename_template: str = DEFAULT_FILENAME_TEMPLATE
     filename_custom: str = ""
     auto_delete_after_send: bool = True
-    upload_to_group_file: bool = False
+    upload_to_group_file: bool = True
     group_file_folder: str = DEFAULT_GROUP_FILE_FOLDER
     group_file_create_folder: bool = True
     progress_style: str = DEFAULT_PROGRESS_STYLE
@@ -89,7 +92,11 @@ class PluginSettings:
     max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT
     download_retry_times: int = DEFAULT_RETRY_TIMES
-    domain_race: bool = DEFAULT_DOMAIN_RACE
+    # 下载前测速（探测）：独立成一组，四项都可调
+    probe_enabled: bool = DEFAULT_PROBE_ENABLED
+    probe_timeout: int = DEFAULT_PROBE_TIMEOUT
+    probe_min_speed: int = DEFAULT_PROBE_MIN_SPEED
+    probe_cache_ttl: int = DEFAULT_PROBE_CACHE_TTL
     proxy: str = ""
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -99,6 +106,7 @@ class PluginSettings:
         packing = _section(data, "packing")
         download = _section(data, "download")
         access = _section(data, "access")
+        probe = _section(data, "probe")
 
         pack_format = _as_str(
             packing.get("pack_format"), DEFAULT_PACK_FORMAT
@@ -134,7 +142,7 @@ class PluginSettings:
                 packing.get("auto_delete_after_send"), True
             ),
             upload_to_group_file=_as_bool(
-                packing.get("upload_to_group_file"), False
+                packing.get("upload_to_group_file"), True
             ),
             group_file_folder=_as_str(
                 packing.get("group_file_folder"), DEFAULT_GROUP_FILE_FOLDER
@@ -164,7 +172,21 @@ class PluginSettings:
                 DEFAULT_RETRY_TIMES,
                 minimum=0,
             ),
-            domain_race=_as_bool(download.get("domain_race"), DEFAULT_DOMAIN_RACE),
+            # 「下载前测速」搬进 probe 分组；老配置的 download.domain_race 继续认，
+            # 否则升级后用户原本关掉的测速会悄悄变回开启
+            probe_enabled=_as_bool(
+                probe.get("enable"),
+                _as_bool(download.get("domain_race"), DEFAULT_PROBE_ENABLED),
+            ),
+            probe_timeout=_as_int(
+                probe.get("timeout"), DEFAULT_PROBE_TIMEOUT, minimum=1
+            ),
+            probe_min_speed=_as_int(
+                probe.get("min_speed"), DEFAULT_PROBE_MIN_SPEED, minimum=0
+            ),
+            probe_cache_ttl=_as_int(
+                probe.get("cache_ttl"), DEFAULT_PROBE_CACHE_TTL, minimum=0
+            ),
             proxy=_as_str(download.get("proxy")),
             channels=_parse_channels(data.get("channels")),
         )

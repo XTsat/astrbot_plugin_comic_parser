@@ -11,13 +11,13 @@
 - **Download by ID**: hand over a comic ID or link and get the whole comic
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
-- **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off
+- **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages")
 - **Optional result block**: the summary sent with the file (title / author / image count / elapsed) can be turned off
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
-- **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic
-- **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
+- **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic. Probe timeout, slow-node threshold and cache lifetime are configurable, and the whole thing can be switched off
+- **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host; while waiting you are told what the running download is doing and how far it got
 - **Automatic cleanup**: temporary files are deleted right after sending
-- **Straight into group files**: turn on "upload to group files" and the finished file lands in the current group's files (optionally in a folder — if the group lacks that folder, the bot creates it when it has the rights and otherwise uses the group file root). QQ already posts a file message for it, so the bot does not send it again in the chat; only when the upload fails does it send the file directly
+- **Straight into group files**: on by default, the finished file lands in the current group's files (optionally in a folder — if the group lacks that folder, the bot creates it when it has the rights and otherwise uses the group file root). QQ already posts a file message for it, so the bot does not send it again in the chat; only when the upload fails does it send the file directly
 
 ## Commands
 
@@ -70,7 +70,7 @@ Examples:
 | Filename template (`filename_template`) | string | id_title | Naming pattern for the output file. Presets: [id]title / [id]title+password / title[id] / title[id]+password / ID only / title only / custom (the first four bracket the ID). Presets marked "+password" write the password into the filename (visible in chat) |
 | Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{author}` `{password}`; the `(password)` part disappears when no password is set |
 | Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
-| Upload to group files after download (`upload_to_group_file`) | bool | false | Files downloaded in a group are uploaded to that group's files and no longer sent again in the chat; private chats are skipped and a failed upload falls back to sending the file; OneBot (aiocqhttp, e.g. NapCat) only |
+| Upload to group files after download (`upload_to_group_file`) | bool | true | Files downloaded in a group go straight into the group's files and are not sent again in the chat; a failed upload falls back to sending the file; group chats on OneBot (aiocqhttp, e.g. NapCat) only |
 | Group file folder (`group_file_folder`) | string | 漫画 | If the group has a folder with this name the file goes inside it (case-insensitive); when it is missing the next option decides; empty means always the group file root |
 | Create the group file folder when missing (`group_file_create_folder`) | bool | true | Lets the bot create the target folder before uploading (it must be a group admin or owner); if that fails the file simply goes to the root without an error, and turning this off means only existing folders or the root are used |
 | Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
@@ -81,17 +81,30 @@ Examples:
 ### Download control
 
 <details>
-<summary>Download control (7)</summary>
+<summary>Download control (6)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up |
-| Per-comic timeout (`download_timeout`) | int | 1800 | Seconds allowed for one whole comic before it counts as failed |
+| Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up and the queue notice shows the running download's live progress |
+| Per-comic timeout (`download_timeout`) | int | 1800 | Seconds allowed for one download attempt before it counts as failed |
 | Download retries (`download_retry_times`) | int | 2 | Retries after a failed download |
 | Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
 | Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨. Private chats and clients without reaction support fall back to text progress automatically |
 | Proxy address (`proxy`) | string | empty | Such as `http://host:port`; only channels with "use proxy" enabled use it. When empty, AstrBot's own `http_proxy` is reused if configured |
-| Race domains before download (`domain_race`) | bool | true | Probes every candidate domain / image host at once (response time plus a small download sample) and starts from the fastest; rankings are cached for 10 minutes so it is not measured on every comic. When off, candidates are used in the order you typed them |
+
+</details>
+
+### Probe before download
+
+<details>
+<summary>Probe before download (4)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable probing (`enable`) | bool | true | Probes every candidate domain / image host at once (response time plus a small download sample) and starts from the fastest; when off, candidates are used in the order you typed them |
+| Probe timeout per candidate (`timeout`) | int | 10 | Probes run concurrently and a candidate that misses the deadline counts as slow. Too short kills "slow but usable" sites (cross-border links often need more than 5 seconds); too long wastes time |
+| Slow node threshold (`min_speed`) | int | 150 | Candidates measured below this speed (KB/s) are ranked last but never dropped; 0 ranks by response time only |
+| Ranking cache lifetime (`cache_ttl`) | int | 600 | Ranks are reused for the same candidate set within this window instead of being re-measured on every comic; 0 re-measures every time |
 
 </details>
 
@@ -117,8 +130,8 @@ Examples:
 |--------|------|---------|-------------|
 | Enable (`enable`) | bool | true | When off, `/jm` reports the channel as disabled |
 | Client type (`client_type`) | string | api | API / Web / Custom API / Custom Web; `api` is more compatible, the web client is faster but region-restricted |
-| Custom API domains (`api_domains`) | text | 4 common API domains | One per line, next one is tried on failure; with "race domains before download" on, the fastest is tested and put first |
-| Custom web domains (`html_domains`) | text | 7 common web domains | One per line, next one is tried on failure; with "race domains before download" on, the fastest is tested and put first |
+| Custom API domains (`api_domains`) | text | 4 common API domains | One per line, next one is tried on failure; with "probe before download" on, the fastest one is tried first |
+| Custom web domains (`html_domains`) | text | 7 common web domains | One per line, next one is tried on failure; with "probe before download" on, the fastest one is tried first |
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; a smaller value gives up on bad nodes faster |
 | Image format (`image_suffix`) | string | .jpg | Extension used when saving images |
 | Per-request retries (`retry_times`) | int | 5 | Retries after a single failed request; a smaller value gives up on bad nodes faster |
@@ -136,7 +149,7 @@ Examples:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | Enable (`enable`) | bool | true | When off, `/nh` reports the channel as disabled |
-| Site domains (`site_domains`) | text | nhentai.net | One per line, next one is tried on failure; with "race domains before download" on, the fastest site goes first. The official API and the page fallback share this list, so a mirror goes here |
+| Site domains (`site_domains`) | text | nhentai.net | One per line, next one is tried on failure; with "probe before download" on, the fastest site goes first. The official API and the page fallback share this list, so a mirror goes here |
 | Image domains (`image_domains`) | text | empty | Empty means the image host list is fetched from the site (recommended); you may also fill one per line. With several candidates the fastest measured one is used — this is what the whole download's speed depends on |
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site is far away for most networks, so keep it generous |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
@@ -171,7 +184,7 @@ Examples:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | Enable (`enable`) | bool | true | When off, `/hm` reports the channel as disabled |
-| Site domains (`site_domains`) | text | hanimeone.me, hanime1.me | One per line, next one is tried on failure; with "race domains before download" on, they are probed directly and the fastest goes first. The comic section now lives on hanimeone.me, hanime1.me only keeps older works |
+| Site domains (`site_domains`) | text | hanimeone.me, hanime1.me | One per line, next one is tried on failure; with "probe before download" on, they are probed directly and the fastest goes first. The comic section now lives on hanimeone.me, hanime1.me only keeps older works |
 | Image host (`image_domains`) | text | empty | **Usually leave empty**: the host from the page is used, unreachable ones are swapped automatically, and with several candidates the fastest measured one wins; fill it only when none work, e.g. i.nhentai.net |
 | Reader proxy (`fetch_proxy`) | string | https://r.jina.ai/ | Pages are fetched through this public reader service by default (images still come straight from the image host); clear it to talk to the site directly only |
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site can be slow behind Cloudflare, too small a value causes false failures |

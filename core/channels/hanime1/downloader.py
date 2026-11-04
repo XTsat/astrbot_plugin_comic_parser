@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,7 +16,10 @@ from astrbot.api import logger
 
 from ....domain import ChannelError
 from ....domain.constants import PLUGIN_NAME
+from ....utils import write_image_atomically
+from ...progress import emit
 from .constants import MIN_IMAGE_BYTES
+from ...channel import ProgressCallback
 from .progress import DownloadSession
 from .site import PageScraper
 
@@ -32,7 +34,7 @@ else:
 # 图床返回这几种状态说明请求被风控挡下，而不是「这张图不存在」
 _CHALLENGE_STATUS = frozenset({403, 429, 503})
 
-ImageProgressCallback = Callable[[int, int, str], Awaitable[None]]
+ImageProgressCallback = ProgressCallback
 
 
 @dataclass(slots=True)
@@ -129,12 +131,7 @@ class ImageDownloader:
             ok = await self._fetch_with_retry(client, url, target, session)
 
             session.done += 1
-            session.log_progress()
-            if on_progress is not None:
-                try:
-                    await on_progress(session.done, session.total, session.unit)
-                except Exception as exc:  # 进度只是锦上添花，不能拖垮下载
-                    logger.debug(f"[{PLUGIN_NAME}] 进度上报失败（忽略）: {exc}")
+            await emit(on_progress, session.state())
             return ok
 
     async def _fetch_with_retry(
@@ -160,7 +157,7 @@ class ImageDownloader:
                                 f"[{PLUGIN_NAME}] 图片内容异常（仅 {len(payload)} 字节），跳过：{url}"
                             )
                             return False
-                        await asyncio.to_thread(target.write_bytes, payload)
+                        await asyncio.to_thread(write_image_atomically, target, payload)
                         session.bytes_downloaded += len(payload)
                         return True
                     if response.status == 404:
@@ -196,6 +193,6 @@ class ImageDownloader:
             return False
         if not payload:
             return False
-        await asyncio.to_thread(target.write_bytes, payload)
+        await asyncio.to_thread(write_image_atomically, target, payload)
         session.bytes_downloaded += len(payload)
         return True

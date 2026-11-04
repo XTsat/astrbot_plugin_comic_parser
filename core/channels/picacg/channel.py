@@ -26,6 +26,7 @@ from ....domain import (
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, sanitize_filename, split_link
 from ...channel import BaseChannel, ProgressCallback
+from ...progress import ProgressHeartbeat, ProgressState, emit
 from .api import PicaClient, image_url
 from .constants import (
     DEFAULT_MAX_CONCURRENT_IMAGES,
@@ -237,18 +238,25 @@ class PicacgChannel(BaseChannel):
                 return
             await progress.ok(size)
 
-        for dir_name, urls in plans:
-            episode_dir = root / dir_name
-            tasks = [
-                asyncio.create_task(fetch_one(url, episode_dir / f"{index:04d}{_image_suffix(url)}"))
-                for index, url in enumerate(urls, start=1)
-            ]
-            try:
-                await asyncio.gather(*tasks)
-            except asyncio.CancelledError:
-                for task in tasks:
-                    task.cancel()
-                raise
+        heartbeat = ProgressHeartbeat(progress.state, on_tick=on_progress)
+        heartbeat.start()
+        try:
+            for dir_name, urls in plans:
+                episode_dir = root / dir_name
+                tasks = [
+                    asyncio.create_task(
+                        fetch_one(url, episode_dir / f"{index:04d}{_image_suffix(url)}")
+                    )
+                    for index, url in enumerate(urls, start=1)
+                ]
+                try:
+                    await asyncio.gather(*tasks)
+                except asyncio.CancelledError:
+                    for task in tasks:
+                        task.cancel()
+                    raise
+        finally:
+            await heartbeat.stop()
         return progress.done, progress.failed, progress.bytes_total
 
 
@@ -261,25 +269,31 @@ class _Progress:
         self.done = 0
         self.failed = 0
         self.bytes_total = 0
+        self.started = time.monotonic()
         self._lock = asyncio.Lock()
+
+    def state(self) -> ProgressState:
+        """进度快照：心跳与聊天进度共用，缺了它「一分钟没动静」就没人汇报。"""
+        return ProgressState(
+            comic_id="",  # 命令层不靠这个字段认本子，排队提示用的是自己的登记表
+            unit="图片",
+            done=self.done,
+            total=self.total,
+            bytes_downloaded=self.bytes_total,
+            elapsed=max(time.monotonic() - self.started, 0.001),
+            failed=self.failed,
+        )
 
     async def ok(self, size: int) -> None:
         async with self._lock:
             self.done += 1
             self.bytes_total += size
-            done = self.done
-        await self._emit(done)
+        await self._emit()
 
     async def fail(self) -> None:
         async with self._lock:
             self.failed += 1
-            done = self.done
-        await self._emit(done)
+        await self._emit()
 
-    async def _emit(self, done: int) -> None:
-        if self.on_progress is None:
-            return
-        try:
-            await self.on_progress(done, self.total, "图片")
-        except Exception as exc:  # 进度只是锦上添花，不能拖垮下载
-            logger.debug(f"[{PLUGIN_NAME}] 哔咔进度上报失败（忽略）: {exc}")
+    async def _emit(self) -> None:
+        await emit(self.on_progress, self.state())

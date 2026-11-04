@@ -1,7 +1,10 @@
 """下载会话状态与进度日志。
 
-Hanime1 渠道全程跑在事件循环里（抓页在线程池、下载是 aiohttp），所以这里用一个普通标记位
-就够：插件重载时 terminate() 在同一个循环上置位，下一次落图前的检查就能收工。
+Hanime1 渠道全程跑在事件循环里（抓页在线程池、下载是 aiohttp），所以这里用一个普通
+标记位就够：插件重载时 terminate() 在同一个循环上置位，下一次落图前的检查就能收工。
+
+进度日志由共享心跳（`core/progress.py`）按固定间隔产出——不依赖「下完一张图」才写，
+所以慢网络下也不会出现几分钟一条日志都没有的空白；这里只提供快照与「是否该停手」。
 """
 
 from __future__ import annotations
@@ -9,53 +12,40 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from astrbot.api import logger
-
-from ....domain.constants import DOWNLOAD_LOG_INTERVAL, PLUGIN_NAME
-
-
-def format_size(num_bytes: int) -> str:
-    """体积展示：不足 1 MB 用 KB，避免小本子一律显示 0.0 MB。"""
-    if num_bytes < 1048576:
-        return f"{num_bytes / 1024:.0f} KB"
-    return f"{num_bytes / 1048576:.1f} MB"
+from ....utils import format_size
+from ...progress import ProgressState
 
 
 @dataclass(slots=True)
 class DownloadSession:
-    """一次下载的实时状态：定时进度日志与「重载中断」时都靠它汇报。"""
+    """一次下载的实时状态：进度快照、暂停/重载中断判定与中断汇报共用。"""
 
     comic_id: str
     total: int = 0
     unit: str = "图片"
     done: int = 0
     bytes_downloaded: int = 0
+    # 插件重载时 terminate() 置位
     stop: bool = False
     started: float = field(default_factory=time.monotonic)
-    last_log_at: float = 0.0  # 0 表示还没打过进度日志
 
     def elapsed(self) -> float:
         return max(time.monotonic() - self.started, 0.001)
 
-    def summary(self) -> str:
-        total = f"/{self.total}" if self.total else ""
-        return (
-            f"{self.comic_id}：{self.done}{total} {self.unit} · "
-            f"{format_size(self.bytes_downloaded)} · 已用 {self.elapsed():.0f}s"
+    def state(self) -> ProgressState:
+        return ProgressState(
+            comic_id=self.comic_id,
+            unit=self.unit,
+            done=self.done,
+            total=self.total,
+            bytes_downloaded=self.bytes_downloaded,
+            elapsed=self.elapsed(),
         )
 
-    def log_progress(self) -> None:
-        """按固定间隔写一条进度日志：张数 + 已下载体积 + 速度，慢下载一眼能看出来。"""
-        now = time.monotonic()
-        if now - self.last_log_at < DOWNLOAD_LOG_INTERVAL:
-            return
-        self.last_log_at = now
-        elapsed = self.elapsed()
-        total = f"/{self.total}" if self.total else ""
-        logger.info(
-            f"[{PLUGIN_NAME}] 下载进度 {self.comic_id} {self.done}{total} {self.unit} · "
-            f"{format_size(self.bytes_downloaded)}（已用 {elapsed:.0f}s，"
-            f"均 {self.done / elapsed * 60:.1f} {self.unit}/分）"
+    def summary(self) -> str:
+        return (
+            f"{self.comic_id}：{self.state().counter} · "
+            f"{format_size(self.bytes_downloaded)} · 已用 {self.elapsed():.0f}s"
         )
 
 

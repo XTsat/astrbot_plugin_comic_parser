@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from .core import (
     DownloadTask,
     GroupFileResult,
     GroupFileUploader,
+    ProgressState,
     build_channels,
     command_map,
     describe_channels,
@@ -48,12 +50,22 @@ from .domain.constants import (
     PLUGIN_VERSION,
     PROGRESS_MIN_INTERVAL,
     PROGRESS_REACTIONS,
+    PROGRESS_STALL_INTERVAL,
     PROGRESS_STEP_PERCENT,
 )
+from .utils import format_size
 
 # 贴表情（set_msg_emoji_like）与群文件上传（upload_group_file）都只有 OneBot(CQHTTP) 协议端提供
 _ONEBOT_PLATFORMS = frozenset({"aiocqhttp"})
 _REACTION_TIMEOUT = 5.0
+
+
+@dataclass(slots=True)
+class _RunningTask:
+    """正在跑的下载在命令层的镜像：排队提示靠它说清「前面那本下到哪了」。"""
+
+    label: str
+    state: ProgressState | None = field(default=None)
 
 
 def _event_call_action(
@@ -137,6 +149,9 @@ class ComicParserPlugin(Star):
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
+        # 正在跑的任务：排队提示与「前面下到哪」都读它
+        self._running: dict[int, _RunningTask] = {}
+        self._task_seq = 0
         # 测速排名是上个配置周期的结论：配置改过（域名清单、代理、阈值）就该重新测
         DOMAIN_RACE_CACHE.clear()
         self._clean_temp_on_start()
@@ -170,6 +185,8 @@ class ComicParserPlugin(Star):
         for channel in self.channels.values():
             for summary in channel.cancel_downloads():
                 logger.info(f"[{PLUGIN_NAME}] 重载中断下载：{summary}")
+
+        self._running.clear()
 
         if not self.temp_root.exists():
             return
@@ -345,17 +362,18 @@ class ComicParserPlugin(Star):
             yield event.plain_result("⏳ 这个本子刚刚请求过，请稍后再试")
             return
 
-        if self._semaphore.locked():
-            yield event.plain_result("⏳ 前面的下载还没结束，你的请求已排队")
+        slot = self._begin_running(f"{channel.display_name} {comic_id}")
+        result_state = "fail"
+        try:
+            if self._semaphore.locked():
+                yield event.plain_result(self._queue_notice())
 
-        async with self._semaphore:
-            # 贴表情先贴「开始」；贴不上（私聊、协议端不支持）就本次退回文本进度
-            use_reaction = await self._react(event, "start")
-            use_text_progress = self.settings.progress_style == "text" or (
-                self.settings.progress_style == "emoji" and not use_reaction
-            )
-            succeeded = False
-            try:
+            async with self._semaphore:
+                # 贴表情先贴「开始」；贴不上（私聊、协议端不支持）就本次退回文本进度
+                use_reaction = await self._react(event, "start")
+                use_text_progress = self.settings.progress_style == "text" or (
+                    self.settings.progress_style == "emoji" and not use_reaction
+                )
                 if not use_reaction:
                     # 贴上了表情就等于「已开始」，不必再多一条消息
                     yield event.plain_result(
@@ -366,7 +384,8 @@ class ComicParserPlugin(Star):
                 )
                 try:
                     outcome = await task.run(
-                        raw_id, self._progress_callback(event, use_text_progress)
+                        raw_id,
+                        self._progress_callback(event, use_text_progress, slot),
                     )
                 except PluginError as exc:
                     self.guard.forget(session_id, debounce_key)
@@ -384,10 +403,12 @@ class ComicParserPlugin(Star):
                 finally:
                     if self.settings.auto_delete_after_send:
                         task.cleanup(outcome)
-                succeeded = True
-            finally:
-                if use_reaction:
-                    await self._react(event, "done" if succeeded else "fail")
+                result_state = "ok"
+        finally:
+            self._end_running(slot)
+            # 暂停/取消时表情停在「下载中」，别贴个锤子吓人
+            if result_state != "paused":
+                await self._react(event, "done" if result_state == "ok" else "fail")
 
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome
@@ -455,27 +476,36 @@ class ComicParserPlugin(Star):
         return await set_progress_reaction(event, status)
 
     def _progress_callback(
-        self, event: AstrMessageEvent, enabled: bool
-    ) -> ProgressCallback | None:
-        """文本进度：按百分比步进与最小间隔双重节流，避免长任务刷屏。"""
-        if not enabled:
-            return None
+        self, event: AstrMessageEvent, enabled: bool, slot: int
+    ) -> ProgressCallback:
+        """下载进度：**始终**更新任务登记表，只在开启时才往聊天里发。
 
-        state = {"last_pct": -1, "last_ts": 0.0}
+        聊天侧双阈值节流：百分比每进 25% 说一句；张数长时间不涨（慢节点上一张图能拖
+        好几分钟）也照样隔一阵报一次「仍在下载」，免得用户以为掉线——这就是心跳那一半。
+        """
+        box = {"last_pct": -1, "sent_at": time.monotonic()}
 
-        async def on_progress(done: int, total: int, unit: str) -> None:
-            if total > 0:
-                percent = int(done * 100 / total)
-                if percent - state["last_pct"] < PROGRESS_STEP_PERCENT:
+        async def on_progress(state: ProgressState) -> None:
+            running = self._running.get(slot)
+            if running is not None:
+                running.state = state
+            if not enabled:
+                return
+
+            now = time.monotonic()
+            percent = state.percent
+            if percent is None:
+                if now - box["sent_at"] < PROGRESS_MIN_INTERVAL:
                     return
-                state["last_pct"] = percent
-                text = f"📥 下载中 {percent}%（{done}/{total} {unit}）"
+                text = f"📥 下载中，已完成 {state.counter}"
             else:
-                now = time.monotonic()
-                if now - state["last_ts"] < PROGRESS_MIN_INTERVAL:
+                stepped = percent - box["last_pct"] >= PROGRESS_STEP_PERCENT
+                stalled = now - box["sent_at"] >= PROGRESS_STALL_INTERVAL
+                if not stepped and not stalled:
                     return
-                state["last_ts"] = now
-                text = f"📥 下载中，已完成 {done} {unit}"
+                box["last_pct"] = percent
+                text = f"📥 下载中 {percent}%（{state.headline}）"
+            box["sent_at"] = now
 
             try:
                 await event.send(MessageChain([Comp.Plain(text)]))
@@ -483,6 +513,33 @@ class ComicParserPlugin(Star):
                 logger.debug(f"[{PLUGIN_NAME}] 发送进度失败（忽略）: {exc}")
 
         return on_progress
+
+    # ---- 任务登记：排队提示要说清「前面在跑什么、跑到哪」 ----
+
+    def _begin_running(self, label: str) -> int:
+        self._task_seq += 1
+        self._running[self._task_seq] = _RunningTask(label=label)
+        return self._task_seq
+
+    def _end_running(self, slot: int) -> None:
+        self._running.pop(slot, None)
+
+    def _queue_notice(self) -> str:
+        """排队提示：带上前面那一本的实时进度，用户才知道要等多久。"""
+        lines = ["⏳ 前面的下载还没结束，你的请求已排队"]
+        for running in self._running.values():
+            state = running.state
+            if state is None:
+                lines.append(f" · {running.label}：正在取漫画信息…")
+                continue
+            lines.append(
+                f" · {running.label}：{state.headline}"
+                f" · {format_size(state.bytes_downloaded)}"
+                f" · 已用 {state.elapsed:.0f}s"
+            )
+        minutes = max(1, round(self.settings.download_timeout / 60))
+        lines.append(f"⏱ 单本上限 {minutes} 分钟，前一个任务结束后自动开始")
+        return "\n".join(lines)
 
     def _format_outcome(self, outcome: DownloadOutcome) -> str:
         # 摘要里写明实际走的渠道：命令名只是入口，贴别的站点链接会把它带到对应站点

@@ -25,6 +25,7 @@ from ....domain import (
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
 from ...channel import BaseChannel, ProgressCallback, split_option_list
+from ...progress import ProgressHeartbeat
 from ...domain_race import ProbeFn, http_probe
 from .api import GalleryNotFound, NhentaiApi
 from .constants import (
@@ -142,11 +143,14 @@ class NhentaiChannel(BaseChannel):
             f"[{PLUGIN_NAME}] 开始下载 nhentai {comic_id}：{len(urls)} 页，图床 {image_base}，"
             f"网络 {self.proxy_summary()}"
         )
+        heartbeat = ProgressHeartbeat(session.state, on_tick=on_progress)
+        heartbeat.start()
         try:
             stats = await self._build_downloader(site).download(
                 urls, work_dir, session=session, on_progress=on_progress
             )
         finally:
+            await heartbeat.stop()
             unregister_session(session)
 
         if stats.success <= 0:

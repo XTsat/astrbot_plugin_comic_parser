@@ -23,11 +23,6 @@ from ..domain import (
     DownloadedComic,
     PluginSettings,
 )
-from ..domain.constants import (
-    DOMAIN_RACE_CACHE_TTL,
-    DOMAIN_RACE_MIN_SPEED,
-    DOMAIN_RACE_TIMEOUT,
-)
 from .domain_race import (
     CACHE,
     ProbeFn,
@@ -35,9 +30,11 @@ from .domain_race import (
     race_domains,
     summarize,
 )
+from .progress import ProgressState
 
-# 进度回调：(已完成, 总数, 单位)；总数未知时传 0
-ProgressCallback = Callable[[int, int, str], Awaitable[None]]
+# 进度回调：每次都交一份完整快照，命令层据此决定要不要往聊天里发
+ProgressCallback = Callable[[ProgressState], Awaitable[None]]
+
 
 # 代理来源：日志与提示里要能看出「这一趟走的是哪条路」，取值本身就是对用户展示的文案
 PROXY_SOURCE_PLUGIN = "代理"
@@ -179,11 +176,11 @@ class BaseChannel(ABC):
         ``label`` 只用于日志，说明测的是站点域名还是图床。
         """
         domains = [item for item in candidates if item]
-        if not self.settings.domain_race or len(domains) < 2:
+        if not self.settings.probe_enabled or len(domains) < 2:
             return None
 
         key = f"{self.name}:{label}:{'|'.join(domains)}"
-        cached = CACHE.get(key, DOMAIN_RACE_CACHE_TTL)
+        cached = CACHE.get(key, self.settings.probe_cache_ttl)
         if cached is not None:
             # 缓存只负责「谁快」；清单本身始终以当前配置为准
             return [item for item in cached if item in domains] + [
@@ -192,7 +189,7 @@ class BaseChannel(ABC):
 
         try:
             timings = await race_domains(
-                domains, probe, timeout=float(DOMAIN_RACE_TIMEOUT)
+                domains, probe, timeout=float(self.settings.probe_timeout)
             )
         except Exception as exc:  # noqa: BLE001 - 测速故障必须降级成「按配置顺序」
             logger.warning(
@@ -206,7 +203,7 @@ class BaseChannel(ABC):
             )
             return None
 
-        ranked = order_domains(timings, min_speed_kbps=DOMAIN_RACE_MIN_SPEED)
+        ranked = order_domains(timings, min_speed_kbps=self.settings.probe_min_speed)
         CACHE.put(key, ranked)
         logger.info(
             f"[{PLUGIN_NAME}] {self.display_name} {label}测速：{summarize(timings)}"

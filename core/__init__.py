@@ -7,6 +7,7 @@ from .channel import BaseChannel
 from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .packer import Packer
+from .progress import ProgressHeartbeat, ProgressState
 from .registry import (
     build_channels,
     command_map,
@@ -24,6 +25,8 @@ __all__ = [
     "GroupFileResult",
     "GroupFileUploader",
     "Packer",
+    "ProgressHeartbeat",
+    "ProgressState",
     "build_channels",
     "command_map",
     "describe_channels",

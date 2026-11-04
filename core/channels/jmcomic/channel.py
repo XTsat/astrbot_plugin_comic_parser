@@ -14,9 +14,10 @@ from typing import Any, ClassVar
 from astrbot.api import logger
 
 from ....domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
-from ....domain.constants import DOMAIN_RACE_TIMEOUT, IMAGE_SUFFIXES, PLUGIN_NAME
-from ....utils import split_link
+from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
+from ....utils import format_size, split_link
 from ...channel import BaseChannel, ProgressCallback, split_option_list
+from ...progress import ProgressHeartbeat, ProgressState
 from .constants import (
     DEFAULT_API_DOMAINS,
     DEFAULT_HTML_DOMAINS,
@@ -27,7 +28,6 @@ from .option import build_option, import_jmcomic
 from .progress import (
     DownloadSession,
     cancel_active_downloads,
-    format_size,
     progress_downloader_class,
     register_session,
     unregister_session,
@@ -145,10 +145,10 @@ class JMComicChannel(BaseChannel):
             jmcomic,
             comic_id,
             work_dir,
-            # 探测用「测速上限」而不是下载用的 30s：探测线程不会因为外层取消就立刻停，
-            # 给它短超时才能真正把坏节点放掉
+            # 探测有自己的超时（配置项），再被单请求超时兜一道：探测线程不会因为外层
+            # 取消就立刻停，给够了才不至于把「慢但能用」的域名全判死
             timeout=min(
-                DOMAIN_RACE_TIMEOUT,
+                self.settings.probe_timeout,
                 self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1),
             ),
             proxy=self.resolve_proxy(default_enabled=False)[0],
@@ -190,13 +190,11 @@ class JMComicChannel(BaseChannel):
         )
         loop = asyncio.get_running_loop()
 
-        def report(done: int, total: int, unit: str) -> None:
+        def report(state: ProgressState) -> None:
             if on_progress is None:
                 return
             try:
-                future = asyncio.run_coroutine_threadsafe(
-                    on_progress(done, total, unit), loop
-                )
+                future = asyncio.run_coroutine_threadsafe(on_progress(state), loop)
                 # 结果无人等待，挂个回调吞掉异常，避免 "Future exception was never retrieved"
                 future.add_done_callback(lambda f: f.cancelled() or f.exception())
             except RuntimeError:
@@ -206,9 +204,10 @@ class JMComicChannel(BaseChannel):
         session = DownloadSession(album_id=comic_id)
         register_session(session)
         try:
-            return await asyncio.to_thread(
-                self._download_sync, jmcomic, option, comic_id, report, session
-            )
+            async with ProgressHeartbeat(session.state, on_tick=on_progress):
+                return await asyncio.to_thread(
+                    self._download_sync, jmcomic, option, comic_id, report, session
+                )
         finally:
             unregister_session(session)
 

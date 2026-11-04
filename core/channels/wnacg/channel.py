@@ -30,6 +30,7 @@ from ....domain import (
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
 from ...channel import BaseChannel, ProgressCallback
+from ...progress import ProgressHeartbeat
 from .constants import (
     DEFAULT_IMAGE_CONCURRENCY,
     DEFAULT_IMAGE_RETRY_TIMES,
@@ -127,6 +128,8 @@ class WnacgChannel(BaseChannel):
         register_session(session)
         totals = DownloadStats()
         galleries_parsed = 0
+        heartbeat = ProgressHeartbeat(session.state, on_tick=on_progress)
+        heartbeat.start()
         try:
             async with self._site() as site:
                 if album is None:
@@ -166,6 +169,7 @@ class WnacgChannel(BaseChannel):
                     totals.success += stats.success
                     totals.failed += stats.failed
         finally:
+            await heartbeat.stop()
             unregister_session(session)
 
         if galleries_parsed == 0:

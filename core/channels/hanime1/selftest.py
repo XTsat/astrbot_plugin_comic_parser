@@ -56,6 +56,8 @@ hanime_channel = importlib.import_module(f"{PACKAGE}.core.channels.hanime1.chann
 hanime_site = importlib.import_module(f"{PACKAGE}.core.channels.hanime1.site")
 domain_module = importlib.import_module(f"{PACKAGE}.domain")
 domain_constants = importlib.import_module(f"{PACKAGE}.domain.constants")
+progress_module = importlib.import_module(f"{PACKAGE}.core.progress")
+ProgressState = progress_module.ProgressState
 
 Hanime1Channel = hanime_channel.Hanime1Channel
 PluginSettings = domain_module.PluginSettings
@@ -247,10 +249,10 @@ async def _run() -> int:
         },
         PluginSettings(),
     )
-    progress: list[tuple[int, int, str]] = []
+    progress: list[ProgressState] = []
 
-    async def on_progress(done: int, total: int, unit: str) -> None:
-        progress.append((done, total, unit))
+    async def on_progress(state: ProgressState) -> None:
+        progress.append(state)
 
     try:
         # ---- ID 解析 ----
@@ -303,7 +305,7 @@ async def _run() -> int:
         )
         check(
             "进度回调拿到正确总数",
-            bool(progress) and progress[-1][1] == PAGES,
+            bool(progress) and progress[-1].total == PAGES,
             f"最后一次 {progress[-1] if progress else None}",
         )
     finally:
