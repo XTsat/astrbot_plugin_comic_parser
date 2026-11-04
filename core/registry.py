@@ -1,12 +1,13 @@
 """渠道注册表。
 
-新增一个下载渠道的固定动作有五处（漏一处渠道就跑不起来）：
+新增一个下载渠道的固定动作有六处（漏一处渠道就跑不起来）：
 1. `core/channels/<渠道名>/` 新建渠道文件夹：`channel.py` 写 `BaseChannel` 子类，
    渠道私有模块（接入细节、进度上报等）都留在这个文件夹里，由它的 `__init__.py` 导出
 2. 把该类加进 `core/registry.py` 的 `CHANNEL_CLASSES`
 3. 在 `main.py` 里加一个同名的 `cmd_<命令>` 薄方法（命令装饰器无法动态生成）
 4. 在 `_conf_schema.json` 的 `channels.templates` 里加同名模板
 5. 需要新依赖时补 `requirements.txt`，并同步 `metadata.yaml` / README / CHANGELOG 文案
+6. 实现 `default_options()`（至少含 `enable: True`），`build_channels()` 用它兜底
 
 打包、加密、发送不用动——它们在上层统一。
 """
@@ -19,12 +20,14 @@ from .channels.hanime1 import Hanime1Channel
 from .channels.jmcomic import JMComicChannel
 from .channels.nhentai import NhentaiChannel
 from .channels.picacg import PicacgChannel
+from .channels.wnacg import WnacgChannel
 
 CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (
     JMComicChannel,
     NhentaiChannel,
     PicacgChannel,
     Hanime1Channel,
+    WnacgChannel,
 )
 
 

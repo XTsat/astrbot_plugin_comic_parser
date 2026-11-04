@@ -1,7 +1,7 @@
 <div align="center">
 <h1>漫画下载器</h1>
 <p><strong>多渠道漫画下载插件：按 ID 下载整本漫画，统一打包发送，支持密码加密</strong></p>
-<p><sub>禁漫天堂 &nbsp;&nbsp; nhentai &nbsp;&nbsp; 哔咔 &nbsp;&nbsp; Hanime1</sub></p>
+<p><sub>禁漫天堂 &nbsp;&nbsp; nhentai &nbsp;&nbsp; 哔咔 &nbsp;&nbsp; 紳士漫畫</sub></p>
 <p><strong>中文</strong> &nbsp;/&nbsp; <a href="README_en.md">English</a></p>
 </div>
 
@@ -24,9 +24,10 @@
 | `/nh <ID 或链接>`（全称 `/nhentai`） | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
 | `/pica <ID 或链接>`（全称 `/picacg`） | 全部（受白名单/黑名单约束） | 下载整本哔咔漫画（需在渠道配置里填哔咔账号） |
 | `/hm <ID 或链接>`（全称 `/hanime1`，也可 `/ha`、`/hanime`） | 全部（受白名单/黑名单约束） | 下载整本 Hanime1 漫画 |
+| `/ssmh <ID 或链接>`（全称 `/wnacg`，也可 `/wn`） | 全部（受白名单/黑名单约束） | 下载整本紳士漫畫作品 |
 | `/漫画帮助` | 全部 | 查看当前可用渠道、打包格式、密码与进度提示设置 |
 
-> 缩写（`/jm`、`/nh`、`/pica`、`/hm`）是日常用法，插件提示里展示的也是缩写；站点全称同样可以敲，两种写法效果一样。
+> 缩写（`/jm`、`/nh`、`/pica`、`/hm`、`/ssmh`）是日常用法，插件提示里展示的也是缩写；站点全称同样可以敲，两种写法效果一样。
 
 示例：
 
@@ -38,6 +39,8 @@
 /pica 5f1e2d3c4b5a69788796a5b4
 /hm 100445
 /hm https://hanime1.me/comic/100445
+/ssmh 401500
+/ssmh https://www.wnacg.site/photos-index-aid-401500.html
 ```
 
 ## 配置
@@ -158,5 +161,21 @@
 | 并发图片数（`max_concurrent_images`） | int | 5 | 同时下载的图片数量；图床对高并发敏感，建议 3-8 |
 | 单请求重试次数（`retry_times`） | int | 2 | 单张图失败后的重试次数；图床偶发风控时会自动改走另一条通道再取一次 |
 | 使用代理（`use_proxy`） | bool | true | 开启后按「插件代理 → AstrBot 本体代理 → 直连」取代理；站点被 Cloudflare 拦时通常要靠代理换出口 IP |
+
+</details>
+
+### 紳士漫畫渠道
+
+<details>
+<summary>紳士漫畫渠道配置（6 项）</summary>
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 启用（`enable`） | bool | true | 关闭后 `/ssmh` 提示渠道未启用 |
+| 站点域名（`site_domains`） | text | www.wnacg.buzz、www.wnacg.site | 一行一个，**从上到下依次降级**；站点换域名时改这里，不要带 `https://` 前缀 |
+| 请求超时（`request_timeout`） | int | 30 | 单次请求超时秒数；站点在 Cloudflare 后面偶尔慢，调太小容易误判失败 |
+| 并发图片数（`max_concurrent_images`） | int | 4 | 同时下载的图片数量；图床是独立域名，建议 2-8 |
+| 单张图片重试次数（`retry_times`） | int | 2 | 单张图失败后的重试次数；图床偶发风控时会自动改走另一条通道再取一次 |
+| 使用代理（`use_proxy`） | bool | false | 开启后按「插件代理 → AstrBot 本体代理 → 直连」取代理；大陆线路实测可直连，超时或被墙时再打开 |
 
 </details>

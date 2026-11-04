@@ -1,7 +1,7 @@
 <div align="center">
 <h1>Comic Parser</h1>
 <p><strong>Multi-channel comic downloader: grab a whole comic by ID, then pack and send it in one pipeline — optional password encryption</strong></p>
-<p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; PicACG &nbsp;&nbsp; Hanime1</sub></p>
+<p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; PicACG &nbsp;&nbsp; WNACG</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 
@@ -24,9 +24,10 @@
 | `/nh <ID or link>` (full name `/nhentai`) | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
 | `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
 | `/hm <ID or link>` (full name `/hanime1`, also `/ha`, `/hanime`) | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
+| `/ssmh <ID or link>` (full name `/wnacg`, also `/wn`) | Everyone (subject to whitelist/blacklist) | Download a whole WNACG (Shenshi Manhua) gallery |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 
-> The short commands (`/jm`, `/nh`, `/pica`, `/hm`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
+> The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
 
 Examples:
 
@@ -38,6 +39,8 @@ Examples:
 /pica 5f1e2d3c4b5a69788796a5b4
 /hm 100445
 /hm https://hanime1.me/comic/100445
+/ssmh 401500
+/ssmh https://www.wnacg.site/photos-index-aid-401500.html
 ```
 
 ## Configuration
@@ -158,5 +161,21 @@ Examples:
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
 | Per-request retries (`retry_times`) | int | 2 | Retries per image; when the image host throttles, a single image is refetched through the browser-like scraper |
 | Use proxy (`use_proxy`) | bool | true | Uses the proxy chain plugin proxy → AstrBot proxy → direct; a different proxy exit IP is usually what gets past Cloudflare |
+
+</details>
+
+### WNACG channel
+
+<details>
+<summary>WNACG channel settings (6)</summary>
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Enable (`enable`) | bool | true | When off, `/ssmh` reports the channel as disabled |
+| Site domains (`site_domains`) | text | www.wnacg.buzz, www.wnacg.site | One per line, **tried top to bottom**; change this when the site moves to a new domain, without the `https://` prefix |
+| Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site can be slow behind Cloudflare, too small a value causes false failures |
+| Concurrent images (`max_concurrent_images`) | int | 4 | Images downloaded in parallel; the image host is a separate domain, 2-8 works best |
+| Per-image retries (`retry_times`) | int | 2 | Retries per image; when the image host throttles, a single image is refetched through the browser-like scraper |
+| Use proxy (`use_proxy`) | bool | false | Uses the proxy chain plugin proxy → AstrBot proxy → direct; the site is reachable directly from mainland China in our tests, turn this on if it times out or is blocked |
 
 </details>

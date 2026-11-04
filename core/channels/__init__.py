@@ -9,5 +9,12 @@ from .hanime1 import Hanime1Channel
 from .jmcomic import JMComicChannel
 from .nhentai import NhentaiChannel
 from .picacg import PicacgChannel
+from .wnacg import WnacgChannel
 
-__all__ = ["Hanime1Channel", "JMComicChannel", "NhentaiChannel", "PicacgChannel"]
+__all__ = [
+    "Hanime1Channel",
+    "JMComicChannel",
+    "NhentaiChannel",
+    "PicacgChannel",
+    "WnacgChannel",
+]

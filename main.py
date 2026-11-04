@@ -188,6 +188,14 @@ class ComicParserPlugin(Star):
         async for result in self._handle_download(event, "hanime1", comic_id):
             yield result
 
+    @filter.command("wnacg", alias={"ssmh", "wn"})
+    async def cmd_wnacg(
+        self, event: AstrMessageEvent, comic_id: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """下载指定 ID 的紳士漫畫作品。用法：/ssmh <ID 或链接>（别名 /wn）"""
+        async for result in self._handle_download(event, "wnacg", comic_id):
+            yield result
+
     @filter.command("漫画帮助", alias={"comichelp"})
     async def cmd_help(
         self, event: AstrMessageEvent

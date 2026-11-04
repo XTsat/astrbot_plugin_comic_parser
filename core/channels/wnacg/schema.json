@@ -1,0 +1,55 @@
+{
+  "name": "紳士漫畫（ssmh）",
+  "items": {
+    "enable": {
+      "type": "bool",
+      "description": "启用",
+      "default": true
+    },
+    "site_domains": {
+      "type": "text",
+      "description": "站点域名",
+      "hint": "一行一个，从上到下依次降级；站点换域名时改这里即可（不要带 https:// 前缀）",
+      "default": "www.wnacg.buzz\nwww.wnacg.site"
+    },
+    "request_timeout": {
+      "type": "int",
+      "description": "请求超时（秒）",
+      "hint": "单次请求的超时秒数，默认 30；站点在 Cloudflare 后面，偶尔慢，调太小容易误判失败",
+      "default": 30,
+      "slider": {
+        "min": 5,
+        "max": 120,
+        "step": 5
+      }
+    },
+    "max_concurrent_images": {
+      "type": "int",
+      "description": "并发图片数",
+      "hint": "同时下载的图片数量，建议 2-8；图床是独立域名，但对高并发同样敏感",
+      "default": 4,
+      "slider": {
+        "min": 1,
+        "max": 20,
+        "step": 1
+      }
+    },
+    "retry_times": {
+      "type": "int",
+      "description": "单张图片重试次数",
+      "hint": "单张图片下载失败后的重试次数；图床抖动常见，2 次够用",
+      "default": 2,
+      "slider": {
+        "min": 0,
+        "max": 10,
+        "step": 1
+      }
+    },
+    "use_proxy": {
+      "type": "bool",
+      "description": "使用代理",
+      "hint": "大陆线路实测可直连，默认关闭；访问超时或被墙时再开启，按「插件代理 → AstrBot 本体代理 → 直连」取代理",
+      "default": false
+    }
+  }
+}
