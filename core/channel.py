@@ -18,9 +18,9 @@ from ..domain import ChannelUnavailableError, ComicMeta, DownloadError, Download
 # 进度回调：(已完成, 总数, 单位)；总数未知时传 0
 ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 
-# 代理来源：日志与提示里要能看出「这一趟走的是哪条路」
-PROXY_SOURCE_PLUGIN = "插件代理"
-PROXY_SOURCE_ASTRBOT = "AstrBot 本体代理"
+# 代理来源：日志与提示里要能看出「这一趟走的是哪条路」，取值本身就是对用户展示的文案
+PROXY_SOURCE_PLUGIN = "代理"
+PROXY_SOURCE_ASTRBOT = "宿主代理"
 PROXY_SOURCE_DIRECT = "直连"
 
 
@@ -133,11 +133,13 @@ class BaseChannel(ABC):
         return "", PROXY_SOURCE_DIRECT
 
     def proxy_summary(self, *, default_enabled: bool | None = None) -> str:
-        """代理的「人话」描述，供日志与用户提示用：让人一眼看出这一趟走哪条路。"""
+        """代理的「人话」描述，供日志与用户提示用：只说这一趟走哪条路。
+
+        **不回显代理地址**：帮助文案会发到群里，而代理串里常带内网主机与账号密码；
+        要确认具体用哪个代理时直接看配置即可。
+        """
         proxy, source = self.resolve_proxy(default_enabled=default_enabled)
-        if not proxy:
-            return "直连（未使用代理）"
-        return f"{source} {proxy}"
+        return source if proxy else PROXY_SOURCE_DIRECT
 
     def missing_requirement(self) -> str | None:
         """返回首个缺失的运行时依赖名；依赖齐备时返回 None。"""
