@@ -7,7 +7,7 @@ PLUGIN_DISPLAY_NAME: Final = "漫画下载器"
 PLUGIN_DESC: Final = (
     "多渠道漫画下载插件：按 ID 下载整本漫画，统一打包发送，支持密码加密"
 )
-PLUGIN_VERSION: Final = "v0.2.1"
+PLUGIN_VERSION: Final = "v0.2.2"
 PLUGIN_AUTHOR: Final = "XTsat"
 PLUGIN_REPO: Final = "https://github.com/XTsat/astrbot_plugin_comic_parser"
 
