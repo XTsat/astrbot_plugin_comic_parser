@@ -9,11 +9,32 @@ from __future__ import annotations
 import importlib.util
 import os
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
-from ..domain import ChannelUnavailableError, ComicMeta, DownloadError, DownloadedComic, PluginSettings
+from astrbot.api import logger
+
+from ..domain import (
+    PLUGIN_NAME,
+    ChannelUnavailableError,
+    ComicMeta,
+    DownloadError,
+    DownloadedComic,
+    PluginSettings,
+)
+from ..domain.constants import (
+    DOMAIN_RACE_CACHE_TTL,
+    DOMAIN_RACE_MIN_SPEED,
+    DOMAIN_RACE_TIMEOUT,
+)
+from .domain_race import (
+    CACHE,
+    ProbeFn,
+    order_domains,
+    race_domains,
+    summarize,
+)
 
 # 进度回调：(已完成, 总数, 单位)；总数未知时传 0
 ProgressCallback = Callable[[int, int, str], Awaitable[None]]
@@ -141,6 +162,57 @@ class BaseChannel(ABC):
         """
         proxy, source = self.resolve_proxy(default_enabled=default_enabled)
         return source if proxy else PROXY_SOURCE_DIRECT
+
+    # ---- 下载前测速择优：候选并发探测，按实测速度排序 ----
+    async def ordered_domains(
+        self,
+        candidates: Sequence[str],
+        probe: ProbeFn,
+        *,
+        label: str,
+    ) -> list[str] | None:
+        """给候选域名/图床排序：最快的排第一，其余按实测速度与响应时间往后排。
+
+        返回 None 表示「这一轮没拿到任何有效排名」——测速被关闭、只有一个候选、
+        或探测全灭（网络/探测面问题）。调用方据此退回自己的老策略：按填写顺序降级，
+        或干脆交给第三方库自带的域名逻辑。**测速失败永远不该阻断下载。**
+        ``label`` 只用于日志，说明测的是站点域名还是图床。
+        """
+        domains = [item for item in candidates if item]
+        if not self.settings.domain_race or len(domains) < 2:
+            return None
+
+        key = f"{self.name}:{label}:{'|'.join(domains)}"
+        cached = CACHE.get(key, DOMAIN_RACE_CACHE_TTL)
+        if cached is not None:
+            # 缓存只负责「谁快」；清单本身始终以当前配置为准
+            return [item for item in cached if item in domains] + [
+                item for item in domains if item not in cached
+            ]
+
+        try:
+            timings = await race_domains(
+                domains, probe, timeout=float(DOMAIN_RACE_TIMEOUT)
+            )
+        except Exception as exc:  # noqa: BLE001 - 测速故障必须降级成「按配置顺序」
+            logger.warning(
+                f"[{PLUGIN_NAME}] {self.display_name} {label}测速失败，按配置顺序降级：{exc}"
+            )
+            return None
+
+        if not any(timing.ok for timing in timings):
+            logger.warning(
+                f"[{PLUGIN_NAME}] {self.display_name} {label}全部探测失败：{summarize(timings)}"
+            )
+            return None
+
+        ranked = order_domains(timings, min_speed_kbps=DOMAIN_RACE_MIN_SPEED)
+        CACHE.put(key, ranked)
+        logger.info(
+            f"[{PLUGIN_NAME}] {self.display_name} {label}测速：{summarize(timings)}"
+            f" → 选用 {ranked[0]}"
+        )
+        return ranked
 
     def missing_requirement(self) -> str | None:
         """返回首个缺失的运行时依赖名；依赖齐备时返回 None。"""

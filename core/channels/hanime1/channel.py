@@ -25,8 +25,10 @@ from ....domain import (
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
 from ...channel import BaseChannel, ProgressCallback, split_option_list
+from ...domain_race import ProbeFn, http_probe
 from .constants import (
     DEFAULT_FETCH_PROXY,
+    DEFAULT_USER_AGENT,
     IMAGE_HOST_FALLBACKS,
     DEFAULT_IMAGE_CONCURRENCY,
     DEFAULT_IMAGE_DOMAINS,
@@ -49,6 +51,7 @@ from .site import (
     ParsedComic,
     build_image_urls,
     build_page_url,
+    challenge_markers,
     parse_detail,
     parse_reader,
 )
@@ -218,20 +221,47 @@ class Hanime1Channel(BaseChannel):
         for host in IMAGE_HOST_FALLBACKS:
             candidates.append(f"https://{host}/galleries/{parsed.media_id}/")
 
-        tried: set[str] = set()
+        # 同一个图床换个写法只留第一次出现的那条，避免自己跟自己抢排名
+        unique: list[str] = []
+        seen: set[str] = set()
         for base in candidates:
             host = urlsplit(base).netloc or base
-            if host in tried:
+            if host in seen:
                 continue
-            tried.add(host)
+            seen.add(host)
+            unique.append(base)
+        if not unique:
+            return DEFAULT_IMAGE_DOMAINS
+
+        ranked = await self.ordered_domains(
+            unique, self._image_probe(parsed), label="图床"
+        )
+        if ranked:
+            return ranked[0]
+
+        # 测速关闭或全部探测失败：退回逐个探活，至少保证「连不上的往后排」
+        for base in unique:
             if await self._image_host_alive(base, parsed):
                 return base
+            host = urlsplit(base).netloc or base
             logger.warning(f"[{PLUGIN_NAME}] 图床 {host} 连不上，换下一个")
 
         logger.warning(
-            f"[{PLUGIN_NAME}] 所有图床都探测失败，仍按 {candidates[0]} 继续尝试"
+            f"[{PLUGIN_NAME}] 所有图床都探测失败，仍按 {unique[0]} 继续尝试"
         )
-        return candidates[0] if candidates else DEFAULT_IMAGE_DOMAINS
+        return unique[0]
+
+    def _image_probe(self, parsed: ParsedComic) -> ProbeFn:
+        """图床探测面：拿一张真图量，既是探活也是测速（图床只影响下载，独立于页面域名）。"""
+        suffix = parsed.extensions[0] if parsed.extensions else ".jpg"
+        return http_probe(
+            lambda base: build_image_urls(base, parsed.media_id, [suffix])[0],
+            proxy=self._proxy(),
+            headers={
+                "User-Agent": DEFAULT_USER_AGENT,
+                "Referer": "https://hanime1.me/",
+            },
+        )
 
     async def _image_host_alive(self, base: str, parsed: ParsedComic) -> bool:
         """探一张图判断图床是否可用：能拿到真图片才算通。"""
@@ -296,7 +326,7 @@ class Hanime1Channel(BaseChannel):
         parse: Callable[[str], ParsedComic],
         what: str,
     ) -> ParsedComic:
-        domains = self.opt_list("site_domains") or split_option_list(DEFAULT_SITE_DOMAINS)
+        domains = await self._site_domains(path)
         if not domains:
             raise ChannelError("未配置任何 Hanime1 站点域名，请在渠道配置里填写")
 
@@ -313,6 +343,34 @@ class Hanime1Channel(BaseChannel):
 
         detail = f"：{last_error}" if last_error is not None else ""
         raise ChannelError(f"{what} 抓取失败{detail}")
+
+    # ---- 域名测速择优 ----
+    async def _site_domains(self, path: str) -> list[str]:
+        """按实测速度排好序的站点域名清单；测速不可用时就是配置顺序。"""
+        domains = self.opt_list("site_domains") or split_option_list(DEFAULT_SITE_DOMAINS)
+        if len(domains) < 2:
+            return domains
+        ranked = await self.ordered_domains(
+            domains, self._page_probe(path), label="站点域名"
+        )
+        return ranked or domains
+
+    def _page_probe(self, path: str) -> ProbeFn:
+        """站点域名的探测面就是接下来要抓的那个页面，但**直连**走一遍。
+
+        页面抓取默认经读取代理（jina），那条链路测到的是代理的延迟与缓存，而图片下载
+        永远直连——按代理速度排域名只会把最慢的直连节点排到第一。挑战页以 200 返回，
+        所以还要按拦截标记判死，不能只看状态码。
+        """
+        return http_probe(
+            lambda domain: build_page_url(domain, path),
+            proxy=self._proxy(),
+            headers={
+                "User-Agent": DEFAULT_USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml",
+            },
+            reject_markers=challenge_markers(),
+        )
 
     def _scraper(self) -> PageScraper:
         if self._scraper_instance is None:

@@ -14,6 +14,7 @@
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off
 - **Optional result block**: the summary sent with the file (title / author / image count / elapsed) can be turned off
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
+- **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic
 - **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
 - **Automatic cleanup**: temporary files are deleted right after sending
 - **Straight into group files**: turn on "upload to group files" and the finished file lands in the current group's files (optionally in a folder — if the group lacks that folder, the bot creates it when it has the rights and otherwise uses the group file root). QQ already posts a file message for it, so the bot does not send it again in the chat; only when the upload fails does it send the file directly
@@ -80,7 +81,7 @@ Examples:
 ### Download control
 
 <details>
-<summary>Download control (6)</summary>
+<summary>Download control (7)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -90,6 +91,7 @@ Examples:
 | Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
 | Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨. Private chats and clients without reaction support fall back to text progress automatically |
 | Proxy address (`proxy`) | string | empty | Such as `http://host:port`; only channels with "use proxy" enabled use it. When empty, AstrBot's own `http_proxy` is reused if configured |
+| Race domains before download (`domain_race`) | bool | true | Probes every candidate domain / image host at once (response time plus a small download sample) and starts from the fastest; rankings are cached for 10 minutes so it is not measured on every comic. When off, candidates are used in the order you typed them |
 
 </details>
 
@@ -115,8 +117,8 @@ Examples:
 |--------|------|---------|-------------|
 | Enable (`enable`) | bool | true | When off, `/jm` reports the channel as disabled |
 | Client type (`client_type`) | string | api | API / Web / Custom API / Custom Web; `api` is more compatible, the web client is faster but region-restricted |
-| Custom API domains (`api_domains`) | text | 4 common API domains | One per line, **tried top to bottom** (next one on failure) |
-| Custom web domains (`html_domains`) | text | 7 common web domains | One per line, tried top to bottom |
+| Custom API domains (`api_domains`) | text | 4 common API domains | One per line, next one is tried on failure; with "race domains before download" on, the fastest is tested and put first |
+| Custom web domains (`html_domains`) | text | 7 common web domains | One per line, next one is tried on failure; with "race domains before download" on, the fastest is tested and put first |
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; a smaller value gives up on bad nodes faster |
 | Image format (`image_suffix`) | string | .jpg | Extension used when saving images |
 | Per-request retries (`retry_times`) | int | 5 | Retries after a single failed request; a smaller value gives up on bad nodes faster |
@@ -134,8 +136,8 @@ Examples:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | Enable (`enable`) | bool | true | When off, `/nh` reports the channel as disabled |
-| Site domains (`site_domains`) | text | nhentai.net | One per line, **tried top to bottom**; the official API and the page fallback share this list, so a mirror goes here |
-| Image domains (`image_domains`) | text | empty | Empty means the image host list is fetched from the site (recommended); fill one per line to force the first |
+| Site domains (`site_domains`) | text | nhentai.net | One per line, next one is tried on failure; with "race domains before download" on, the fastest site goes first. The official API and the page fallback share this list, so a mirror goes here |
+| Image domains (`image_domains`) | text | empty | Empty means the image host list is fetched from the site (recommended); you may also fill one per line. With several candidates the fastest measured one is used — this is what the whole download's speed depends on |
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site is far away for most networks, so keep it generous |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |
 | Retries per image (`retry_times`) | int | 2 | Retries for a single image; when the image host pushes back, that page is re-fetched through a second path |
@@ -169,8 +171,8 @@ Examples:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | Enable (`enable`) | bool | true | When off, `/hm` reports the channel as disabled |
-| Site domains (`site_domains`) | text | hanimeone.me, hanime1.me | One per line, **tried top to bottom**; the comic section now lives on hanimeone.me, hanime1.me only keeps older works |
-| Image host (`image_domains`) | text | empty | **Usually leave empty**: the host from the page is used, and unreachable ones are swapped automatically; fill it only when none work, e.g. i.nhentai.net |
+| Site domains (`site_domains`) | text | hanimeone.me, hanime1.me | One per line, next one is tried on failure; with "race domains before download" on, they are probed directly and the fastest goes first. The comic section now lives on hanimeone.me, hanime1.me only keeps older works |
+| Image host (`image_domains`) | text | empty | **Usually leave empty**: the host from the page is used, unreachable ones are swapped automatically, and with several candidates the fastest measured one wins; fill it only when none work, e.g. i.nhentai.net |
 | Reader proxy (`fetch_proxy`) | string | https://r.jina.ai/ | Pages are fetched through this public reader service by default (images still come straight from the image host); clear it to talk to the site directly only |
 | Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site can be slow behind Cloudflare, too small a value causes false failures |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel; the image host dislikes high concurrency, 3-8 works best |

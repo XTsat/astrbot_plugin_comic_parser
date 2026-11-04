@@ -207,6 +207,11 @@ def looks_like_challenge(body: str) -> bool:
     return any(marker in sample for marker in _CHALLENGE_MARKERS)
 
 
+def challenge_markers() -> tuple[bytes, ...]:
+    """同一组拦截标记的字节版：域名测速按字节读响应，得用字节比对。"""
+    return tuple(marker.encode() for marker in _CHALLENGE_MARKERS)
+
+
 # ---- 解析内部 ----
 
 

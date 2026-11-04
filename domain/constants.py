@@ -16,6 +16,16 @@ DEFAULT_DOWNLOAD_TIMEOUT: Final = 1800
 DEFAULT_RETRY_TIMES: Final = 2
 DEFAULT_MAX_CONCURRENT_TASKS: Final = 1
 
+# 下载前域名测速：候选域名同时探测、按实测速度排序（镜像节点「连得上但极慢」时才不干等）。
+# 对用户只暴露一个开关，判定口径固定在下面三项——都是「够用、不用调」的取值。
+DEFAULT_DOMAIN_RACE: Final = True
+# 单域名超时（秒）：探测本身是并发跑的，等不到就当成慢节点，不拖住最快的那条
+DOMAIN_RACE_TIMEOUT: Final = 5
+# 低于该速度（KB/s）的候选排到最后（不剔除：整批都慢时仍要有域名可用），0 表示不按速度筛
+DOMAIN_RACE_MIN_SPEED: Final = 150
+# 测速结果缓存时长（秒）：同一批候选在有效期内复用排名，避免每本都重测
+DOMAIN_RACE_CACHE_TTL: Final = 600
+
 # 渠道私有常量（域名清单、单请求超时与重试默认值等）不放这里，
 # 一律跟着渠道走：`core/channels/<渠道名>/constants.py`
 PACK_FORMATS: Final = ("zip", "pdf", "long_img", "none")

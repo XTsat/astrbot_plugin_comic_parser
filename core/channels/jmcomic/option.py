@@ -30,11 +30,23 @@ def import_jmcomic() -> Any | None:
     return jmcomic
 
 
-def build_option(channel: BaseChannel, jmcomic: Any, base_dir: Path) -> Any:
+def build_option(
+    channel: BaseChannel,
+    jmcomic: Any,
+    base_dir: Path,
+    *,
+    domains: list[str] | None = None,
+    retry_times: int | None = None,
+    request_timeout: int | None = None,
+) -> Any:
     """把渠道配置翻译成 jmcomic 的 option。
 
     目录规则固定 Bd/Aid/Pindex：用 Aid 作目录名避开标题里的非法字符，
     再带章节维度 Pindex，否则多章节本子的各章会用相同页码互相覆盖。
+
+    ``domains`` / ``retry_times`` / ``request_timeout`` 是给测速用的临时覆盖：
+    测速要按「单个域名、零重试、短超时」去量，不能沿用下载时的取值，否则一个
+    坏节点会用满重试次数把整轮测速拖成十几秒。
     """
     client_type = channel.opt_str("client_type", "api")
     impl = "html" if client_type.startswith("html") else "api"
@@ -50,24 +62,31 @@ def build_option(channel: BaseChannel, jmcomic: Any, base_dir: Path) -> Any:
         "client": {"impl": impl},
     }
 
-    # 只有「自定义域名」的客户端类型才用下面输入的清单；其它交给 jmcomic 自动更新。
+    # 只有「自定义域名」或「测速排好序」时才用显式清单；其它交给 jmcomic 自动更新。
     # 清单顺序就是 jmcomic 的重试顺序，前一个失败自动换下一个。
-    if client_type.endswith("_custom"):
+    if domains is not None:
+        option_dict["client"]["domain"] = {impl: list(domains)}
+    elif client_type.endswith("_custom"):
         key = "html_domains" if impl == "html" else "api_domains"
         default_domains = (
             DEFAULT_HTML_DOMAINS if impl == "html" else DEFAULT_API_DOMAINS
         )
-        domains = channel.opt_list(key) or split_option_list(default_domains)
-        option_dict["client"]["domain"] = {impl: domains}
+        option_dict["client"]["domain"] = {
+            impl: channel.opt_list(key) or split_option_list(default_domains)
+        }
 
-    option_dict["client"]["retry_times"] = channel.opt_int(
-        "retry_times", DEFAULT_REQUEST_RETRY_TIMES, minimum=1
+    option_dict["client"]["retry_times"] = (
+        channel.opt_int("retry_times", DEFAULT_REQUEST_RETRY_TIMES, minimum=1)
+        if retry_times is None
+        else max(0, retry_times)
     )
 
     # 单请求超时对 api / html 两种客户端都生效；配小了坏节点能更快放弃
     meta_data: dict[str, Any] = {
-        "timeout": channel.opt_int(
-            "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
+        "timeout": (
+            channel.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1)
+            if request_timeout is None
+            else max(1, request_timeout)
         )
     }
     # 代理按「渠道开关 → 插件代理 → AstrBot 本体代理」解析，开关关掉时是真直连

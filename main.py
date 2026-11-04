@@ -35,6 +35,7 @@ from .core import (
     resolve_link,
 )
 from .core.channel import ProgressCallback
+from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
 from .core.packer import Packer
 from .domain import PluginError, PluginSettings
 from .domain.constants import (
@@ -136,6 +137,8 @@ class ComicParserPlugin(Star):
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
+        # 测速排名是上个配置周期的结论：配置改过（域名清单、代理、阈值）就该重新测
+        DOMAIN_RACE_CACHE.clear()
         self._clean_temp_on_start()
 
         logger.info(

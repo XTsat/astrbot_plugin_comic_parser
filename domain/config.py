@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .constants import (
+    DEFAULT_DOMAIN_RACE,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_GROUP_FILE_FOLDER,
@@ -88,6 +89,7 @@ class PluginSettings:
     max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT
     download_retry_times: int = DEFAULT_RETRY_TIMES
+    domain_race: bool = DEFAULT_DOMAIN_RACE
     proxy: str = ""
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -162,6 +164,7 @@ class PluginSettings:
                 DEFAULT_RETRY_TIMES,
                 minimum=0,
             ),
+            domain_race=_as_bool(download.get("domain_race"), DEFAULT_DOMAIN_RACE),
             proxy=_as_str(download.get("proxy")),
             channels=_parse_channels(data.get("channels")),
         )

@@ -25,12 +25,15 @@ from ....domain import (
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
 from ...channel import BaseChannel, ProgressCallback, split_option_list
+from ...domain_race import ProbeFn, http_probe
 from .api import GalleryNotFound, NhentaiApi
 from .constants import (
+    CDN_API_PATH,
     DEFAULT_IMAGE_CONCURRENCY,
     DEFAULT_IMAGE_RETRY_TIMES,
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_SITE_DOMAINS,
+    USER_AGENT,
 )
 from .downloader import ImageDownloader
 from .progress import (
@@ -127,7 +130,8 @@ class NhentaiChannel(BaseChannel):
             # 插件重载或任务重试会走到这里：不依赖前一次 fetch_meta 的缓存，重新取一次
             parsed = await self._load_gallery(comic_id)
 
-        image_base = await self._image_base()
+        image_base = await self._image_base(parsed)
+        site = (await self._site_domains())[0]
         urls = build_image_urls(image_base, parsed.page_paths)
         if not urls:
             raise DownloadError("没有解析到任何图片地址，站点结构可能已变化")
@@ -139,7 +143,7 @@ class NhentaiChannel(BaseChannel):
             f"网络 {self.proxy_summary()}"
         )
         try:
-            stats = await self._build_downloader().download(
+            stats = await self._build_downloader(site).download(
                 urls, work_dir, session=session, on_progress=on_progress
             )
         finally:
@@ -182,8 +186,9 @@ class NhentaiChannel(BaseChannel):
 
     async def _load_gallery(self, comic_id: str) -> ParsedGallery:
         """先走官方 API；接口不可用时才退回页面抓取（要过 Cloudflare，成功率和网络有关）。"""
+        domains = await self._site_domains()
         try:
-            payload = await self._api().fetch_gallery(comic_id)
+            payload = await self._api(domains).fetch_gallery(comic_id)
             return parse_api_gallery(comic_id, payload)
         except GalleryNotFound:
             raise
@@ -191,12 +196,11 @@ class NhentaiChannel(BaseChannel):
             logger.warning(
                 f"[{PLUGIN_NAME}] nhentai 接口取元信息失败，改抓页面兜底：{api_error}"
             )
-            return await self._load_gallery_from_page(comic_id, api_error)
+            return await self._load_gallery_from_page(comic_id, api_error, domains)
 
     async def _load_gallery_from_page(
-        self, comic_id: str, api_error: ChannelError
+        self, comic_id: str, api_error: ChannelError, domains: list[str]
     ) -> ParsedGallery:
-        domains = self.opt_list("site_domains") or default_site_domains()
         if not domains:
             raise ChannelError("未配置任何 nhentai 站点域名，请在渠道配置里填写")
 
@@ -212,17 +216,66 @@ class NhentaiChannel(BaseChannel):
                 logger.warning(f"[{PLUGIN_NAME}] 抓取 {url} 失败，换下一个域名：{exc}")
         raise ChannelError(f"nhentai 作品 {comic_id} 取元信息失败：{last_error}")
 
-    async def _image_base(self) -> str:
-        """图床地址：渠道里手填优先；留空则用 API 返回的图床清单第一项。"""
+    # ---- 域名测速择优 ----
+    async def _site_domains(self) -> list[str]:
+        """按实测速度排好序的站点域名清单；测速不可用时就是配置顺序。"""
+        domains = self.opt_list("site_domains") or default_site_domains()
+        if len(domains) < 2:
+            return domains
+        ranked = await self.ordered_domains(
+            domains, self._site_probe(), label="站点域名"
+        )
+        return ranked or domains
+
+    def _site_probe(self) -> ProbeFn:
+        """站点域名的探测面用 `/api/v2/cdn`：无需凭据、不触发 CF，而且本来每本都要打一次。
+
+        不拿首页或作品页当探针——那些页面在 Cloudflare 后面，服务器直连常常直接 403，
+        会把「这个域名慢」和「被拦住了」混成一件事。
+        """
+        return http_probe(
+            lambda domain: f"https://{domain}{CDN_API_PATH}",
+            proxy=self._proxy(),
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        )
+
+    async def _image_base(self, parsed: ParsedGallery) -> str:
+        """图床地址：手填优先；留空用接口给的图床清单。多候选时按实测速度挑最快的。
+
+        站点域名只决定元信息快慢，整本耗时几乎全在图床上，所以这一层更值得测：
+        nhentai 的图床是一组镜像（i / i2 / i3 …），挑错一个就是整本慢。
+        """
         configured = split_option_list(self.options.get("image_domains"))
         if configured:
-            return configured[0]
-        servers = await self._api().image_servers()
-        return servers[0] if servers else default_image_base()
+            candidates = configured
+        else:
+            candidates = await self._api(await self._site_domains()).image_servers()
+        candidates = [item.rstrip("/") for item in candidates if item]
+        if not candidates:
+            return default_image_base()
+        if len(candidates) < 2 or not parsed.page_paths:
+            return candidates[0]
 
-    def _api(self) -> NhentaiApi:
+        page = parsed.page_paths[0]
+        site = (await self._site_domains())[0]
+        probe = http_probe(
+            lambda base: f"{base.rstrip('/')}/{page.lstrip('/')}",
+            proxy=self._proxy(),
+            headers={
+                # 图床校验来源与 UA：缺了 Referer 部分节点会直接回 403
+                "User-Agent": USER_AGENT,
+                "Referer": f"https://{site}/",
+                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            },
+        )
+        ranked = await self.ordered_domains(candidates, probe, label="图床")
+        return (ranked or candidates)[0]
+
+    def _api(self, domains: list[str] | None = None) -> NhentaiApi:
         return NhentaiApi(
-            domains=self.opt_list("site_domains") or default_site_domains(),
+            domains=domains
+            or self.opt_list("site_domains")
+            or default_site_domains(),
             proxy=self._proxy(),
             timeout=self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1),
         )
@@ -237,8 +290,7 @@ class NhentaiChannel(BaseChannel):
             )
         return self._scraper_instance
 
-    def _build_downloader(self) -> ImageDownloader:
-        site = (self.opt_list("site_domains") or default_site_domains())[0]
+    def _build_downloader(self, site: str) -> ImageDownloader:
         return ImageDownloader(
             scraper=self._scraper(),
             headers={

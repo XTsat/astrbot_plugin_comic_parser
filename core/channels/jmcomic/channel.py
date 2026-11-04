@@ -14,10 +14,15 @@ from typing import Any, ClassVar
 from astrbot.api import logger
 
 from ....domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
-from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
+from ....domain.constants import DOMAIN_RACE_TIMEOUT, IMAGE_SUFFIXES, PLUGIN_NAME
 from ....utils import split_link
-from ...channel import BaseChannel, ProgressCallback
-from .constants import DEFAULT_REQUEST_RETRY_TIMES, DEFAULT_REQUEST_TIMEOUT
+from ...channel import BaseChannel, ProgressCallback, split_option_list
+from .constants import (
+    DEFAULT_API_DOMAINS,
+    DEFAULT_HTML_DOMAINS,
+    DEFAULT_REQUEST_RETRY_TIMES,
+    DEFAULT_REQUEST_TIMEOUT,
+)
 from .option import build_option, import_jmcomic
 from .progress import (
     DownloadSession,
@@ -27,6 +32,7 @@ from .progress import (
     register_session,
     unregister_session,
 )
+from .speed import build_probe
 
 _ALBUM_IN_TEXT = re.compile(r"/(?:album|photo)/(\d+)")
 _FIRST_DIGITS = re.compile(r"\d+")
@@ -102,7 +108,10 @@ class JMComicChannel(BaseChannel):
         if jmcomic is None:
             raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
 
-        option = await asyncio.to_thread(build_option, self, jmcomic, work_dir)
+        domains = await self._ranked_domains(jmcomic, comic_id, work_dir)
+        option = await asyncio.to_thread(
+            build_option, self, jmcomic, work_dir, domains=domains
+        )
         return await asyncio.to_thread(self._fetch_meta_sync, jmcomic, option, comic_id)
 
     def _fetch_meta_sync(self, jmcomic: Any, option: Any, comic_id: str) -> ComicMeta:
@@ -116,6 +125,54 @@ class JMComicChannel(BaseChannel):
             page_count=len(album) if hasattr(album, "__len__") else 0,
         )
 
+    # ---- 域名测速择优 ----
+    async def _ranked_domains(
+        self, jmcomic: Any, comic_id: str, work_dir: Path
+    ) -> list[str] | None:
+        """下载前给候选域名测速排序；返回 None 表示「不干预，交给 jmcomic 自己选域名」。
+
+        手填了域名清单就测那一份；用自动域名时测 jmcomic 手上那份（可能已从上游更新），
+        都拿不到才退回内置清单。测速全灭时返回 None——那种情况下更该让 jmcomic 去上游
+        拉最新域名，而不是把我们这份旧清单钉死。
+        """
+        client_type = self.opt_str("client_type", "api")
+        impl = "html" if client_type.startswith("html") else "api"
+        candidates = self._candidate_domains(jmcomic, impl)
+        if len(candidates) < 2:
+            return None
+        probe = build_probe(
+            self,
+            jmcomic,
+            comic_id,
+            work_dir,
+            # 探测用「测速上限」而不是下载用的 30s：探测线程不会因为外层取消就立刻停，
+            # 给它短超时才能真正把坏节点放掉
+            timeout=min(
+                DOMAIN_RACE_TIMEOUT,
+                self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1),
+            ),
+            proxy=self.resolve_proxy(default_enabled=False)[0],
+        )
+        return await self.ordered_domains(candidates, probe, label="站点域名")
+
+    def _candidate_domains(self, jmcomic: Any, impl: str) -> list[str]:
+        """候选域名：手填清单 → jmcomic 当前的自动域名 → 内置清单。"""
+        configured = self.opt_list("html_domains" if impl == "html" else "api_domains")
+        if configured:
+            return configured
+        config = getattr(jmcomic, "JmModuleConfig", None)
+        auto: Any = None
+        if config is not None:
+            if impl == "html":
+                auto = getattr(config, "DOMAIN_HTML_LIST", None)
+            else:
+                auto = getattr(config, "DOMAIN_API_UPDATED_LIST", None) or getattr(
+                    config, "DOMAIN_API_LIST", None
+                )
+        return split_option_list(auto) or split_option_list(
+            DEFAULT_HTML_DOMAINS if impl == "html" else DEFAULT_API_DOMAINS
+        )
+
     # ---- 下载 ----
     async def download(
         self,
@@ -127,7 +184,10 @@ class JMComicChannel(BaseChannel):
         if jmcomic is None:
             raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
 
-        option = await asyncio.to_thread(build_option, self, jmcomic, work_dir)
+        domains = await self._ranked_domains(jmcomic, comic_id, work_dir)
+        option = await asyncio.to_thread(
+            build_option, self, jmcomic, work_dir, domains=domains
+        )
         loop = asyncio.get_running_loop()
 
         def report(done: int, total: int, unit: str) -> None:

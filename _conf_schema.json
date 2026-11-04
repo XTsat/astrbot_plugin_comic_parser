@@ -162,6 +162,12 @@
         "description": "代理地址",
         "hint": "形如 http://host:port 或 socks5://host:port；渠道里勾选「使用代理」后才生效。留空时开启代理的渠道会自动用 AstrBot 本体的 http_proxy（如果配了），都没有则直连",
         "default": ""
+      },
+      "domain_race": {
+        "type": "bool",
+        "description": "下载前测速择优",
+        "hint": "候选域名/图床同时探测、按实测速度排序：最快的排第一，慢的排后面（仍作为降级备选）。站点镜像「连得上但极慢」时不必再干等；关掉则按填写顺序依次降级",
+        "default": true
       }
     }
   },
@@ -229,13 +235,13 @@
           "api_domains": {
             "type": "text",
             "description": "自定义 API 接口域名",
-            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个",
+            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个；开启「下载前测速择优」时会先测速，把最快的排到最前面",
             "default": "www.cdnhjk.net\nwww.cdnutc.cc\nwww.cdngwc.net\nwww.cdngwc.club"
           },
           "html_domains": {
             "type": "text",
             "description": "自定义网页端域名",
-            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个",
+            "hint": "一行一个，从上到下依次尝试：前一个失败自动换下一个；开启「下载前测速择优」时会先测速，把最快的排到最前面",
             "default": "18comic.vip\n18comic.ink\njmcomic-zzz.one\njmcomic-zzz.org\ncomic18j-moco.work\ncomic18j-nico.site\ncomic18j-ada.work"
           },
           "request_timeout": {
@@ -312,13 +318,13 @@
           "site_domains": {
             "type": "text",
             "description": "站点域名",
-            "hint": "一行一个，从上到下依次降级；官方 API v2 与页面抓取共用这份清单，镜像站换这里即可",
+            "hint": "一行一个，从上到下依次降级；开启「下载前测速择优」时会先测速，把最快的站点域名排到最前面。官方 API v2 与页面抓取共用这份清单，镜像站换这里即可",
             "default": "nhentai.net"
           },
           "image_domains": {
             "type": "text",
             "description": "图床域名",
-            "hint": "留空则自动从站点接口取图床清单（推荐）；也可手填一行一个，取第一个",
+            "hint": "留空则自动从站点接口取图床清单（推荐）；也可手填一行一个，多个候选会按实测速度挑最快的那个",
             "default": ""
           },
           "request_timeout": {
@@ -442,7 +448,7 @@
           "site_domains": {
             "type": "text",
             "description": "站点域名",
-            "hint": "一行一个，从上到下依次尝试；漫画区现在在 hanimeone.me，hanime1.me 上老作品仍可访问",
+            "hint": "一行一个，从上到下依次尝试；开启「下载前测速择优」时会先直连测速，把最快的站点域名排到最前面。漫画区现在在 hanimeone.me，hanime1.me 上老作品仍可访问",
             "default": "hanimeone.me\nhanime1.me"
           },
           "image_domains": {
