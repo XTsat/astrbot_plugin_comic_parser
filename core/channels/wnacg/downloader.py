@@ -20,7 +20,7 @@ from astrbot.api import logger
 from ....domain import ChannelError
 from ....domain.constants import PLUGIN_NAME
 from .progress import DownloadSession
-from .site import WnacgSite
+from .site import WnacgSite, sniff_image_suffix
 
 if TYPE_CHECKING:  # 仅为类型标注；运行时按下面的惰性分支处理依赖缺失
     import aiohttp
@@ -89,15 +89,15 @@ class ImageDownloader:
             headers=self._headers, trust_env=False
         ) as client:
             for index, url in enumerate(urls, 1):
-                suffix = Path(url.split("?")[0]).suffix or ".jpg"
-                target = work_dir / f"{index:0{width}d}{suffix}"
+                # 后缀不按图址猜，等拿到字节后按文件头定（站点图址的扩展名不可信）
+                stem = work_dir / f"{index:0{width}d}"
                 tasks.append(
                     asyncio.create_task(
                         self._fetch_one(
                             client,
                             semaphore,
                             url,
-                            target,
+                            stem,
                             session=session,
                             on_progress=on_progress,
                         )
@@ -120,13 +120,13 @@ class ImageDownloader:
         client: aiohttp.ClientSession,
         semaphore: asyncio.Semaphore,
         url: str,
-        target: Path,
+        stem: Path,
         *,
         session: DownloadSession,
         on_progress: ImageProgressCallback | None,
     ) -> bool:
         async with semaphore:
-            ok = await self._fetch_with_retry(client, url, target, session)
+            ok = await self._fetch_with_retry(client, url, stem, session)
 
             session.done += 1
             session.log_progress()
@@ -141,7 +141,7 @@ class ImageDownloader:
         self,
         client: aiohttp.ClientSession,
         url: str,
-        target: Path,
+        stem: Path,
         session: DownloadSession,
     ) -> bool:
         challenged = False
@@ -154,7 +154,16 @@ class ImageDownloader:
                 ) as response:
                     if response.status == 200:
                         payload = await response.read()
-                        await asyncio.to_thread(target.write_bytes, payload)
+                        suffix = sniff_image_suffix(payload)
+                        if suffix is None:
+                            # 200 但不是图片：多半是风控页/错误页，不能当成成功写进产物
+                            logger.warning(
+                                f"[{PLUGIN_NAME}] 收到的内容不是图片（{len(payload)} 字节），跳过：{url}"
+                            )
+                            return False
+                        await asyncio.to_thread(
+                            self._write, stem.with_suffix(suffix), payload
+                        )
                         session.bytes_downloaded += len(payload)
                         return True
                     if response.status in _CHALLENGE_STATUS:
@@ -172,17 +181,25 @@ class ImageDownloader:
                 await asyncio.sleep(min(1 + attempt, 3))
 
         if challenged:
-            return await self._fetch_via_site(url, target, session)
+            return await self._fetch_via_site(url, stem, session)
         return False
 
     async def _fetch_via_site(
-        self, url: str, target: Path, session: DownloadSession
+        self, url: str, stem: Path, session: DownloadSession
     ) -> bool:
         """图床出现风控时的兜底：同一条地址改由站内抓页器（浏览器指纹）再取一次。"""
         logger.info(f"[{PLUGIN_NAME}] wnacg 图床疑似风控，改用抓页器重取：{url}")
         payload = await self._site.fetch_bytes(url)
         if not payload:
             return False
-        await asyncio.to_thread(target.write_bytes, payload)
+        suffix = sniff_image_suffix(payload)
+        if suffix is None:
+            logger.debug(f"[{PLUGIN_NAME}] 抓页器取回的内容也不是图片：{url}")
+            return False
+        await asyncio.to_thread(self._write, stem.with_suffix(suffix), payload)
         session.bytes_downloaded += len(payload)
         return True
+
+    @staticmethod
+    def _write(target: Path, payload: bytes) -> None:
+        target.write_bytes(payload)

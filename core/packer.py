@@ -135,8 +135,9 @@ class Packer:
         doc = fitz.open()
         try:
             # 让 pymupdf 自己把图片转成单页 PDF 再合并，省掉 PIL 依赖与手工尺寸换算
-            for image in images:
-                page_pdf = self._image_to_pdf_bytes(image)
+            current = images[0]
+            for current in images:
+                page_pdf = self._image_to_pdf_bytes(current)
                 with fitz.open("pdf", page_pdf) as page_doc:
                     doc.insert_pdf(page_doc)
 
@@ -149,6 +150,8 @@ class Packer:
                 )
             else:
                 doc.save(str(out_path))
+        except Exception as exc:  # 图片解码失败的异常类型由 pymupdf 版本决定，这里统一转成可读文案
+            return self._fail(f"PDF 打包失败：图片 {current.name} 无法解码（{exc}）")
         finally:
             doc.close()
 
@@ -164,7 +167,9 @@ class Packer:
         try:
             with fitz.open(str(image)) as image_doc:
                 return image_doc.convert_to_pdf()
-        except (RuntimeError, ValueError, OSError):
+        except Exception:
+            # 这里必须宽捕获：pymupdf 2.x 的解码失败抛 `FzErrorFormat`（既不继承 RuntimeError
+            # 也不继承 OSError），漏掉就会让整本打包直接崩掉；抓宽了才轮得到 Pillow 兜底
             if not PIL_AVAILABLE:
                 raise
             buffer = io.BytesIO()

@@ -147,6 +147,33 @@ def parse_gallery_images(document: str) -> list[str]:
     return urls
 
 
+# 按文件头判断真实格式：站点的图址扩展名不可信
+_IMAGE_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"GIF8", ".gif"),
+)
+
+
+def sniff_image_suffix(payload: bytes) -> str | None:
+    """按文件头判断图片真实后缀；不是图片则返回 None。
+
+    站点的图址扩展名不可信：实测 `009.jpg` 实际是 WebP、`041.png` 才是 PNG。按真实格式
+    落盘，下游（PDF/长图打包、用户解压后看图）才不会踩「扩展名与内容不符」；
+    顺带把「200 但返回风控页/HTML」这种假成功挡掉，不写进产物。
+    """
+    if len(payload) < 12:
+        return None
+    for signature, suffix in _IMAGE_SIGNATURES:
+        if payload.startswith(signature):
+            return suffix
+    if payload[:4] == b"RIFF" and payload[8:12] == b"WEBP":
+        return ".webp"
+    if payload[4:8] == b"ftyp" and payload[8:12] in (b"avif", b"avis"):
+        return ".avif"
+    return None
+
+
 def gallery_path(gallery_id: str) -> str:
     """详情页路径 → 图址页路径（把 `-index-` 换成 `-gallery-`）。"""
     return f"/photos-gallery-aid-{gallery_id}.html"
