@@ -78,8 +78,9 @@ _GALLERY_IN_TEXT = re.compile(
     r"(?:https?://)?(?:www\.)?(?:e-hentai|exhentai)\.org/g/(\d+)/([0-9a-fA-F]{10})",
     re.IGNORECASE,
 )
-# 裸 ID 的三种常见写法：`gid:token`、`gid-token`、`gid token`
-_BARE_ID = re.compile(r"^(\d+)\s*[:\-/\s]\s*([0-9a-fA-F]{10})$")
+# 裸 ID 的常见写法：`gid:token`、`gid-token`、`gid token`、`gid/token`；
+# 从地址栏只复制路径时末尾常带斜杠，一并认掉
+_BARE_ID = re.compile(r"^(\d+)\s*[:\-/\s]\s*([0-9a-fA-F]{10})\s*/?\s*$")
 _EH_HOSTS = ("e-hentai.org", "exhentai.org")
 _PAGES_CACHE = ".ehentai-pages.json"
 
