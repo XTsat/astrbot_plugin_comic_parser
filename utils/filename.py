@@ -52,10 +52,12 @@ def build_package_name(
     custom_template: str = "",
     password: str = "",
     author: str = "",
+    short_id: str = "",
 ) -> str:
     """按模板生成本次打包的基名（不含扩展名）。
 
     密码是否出现在文件名里由模板决定：模板带 `{password}` 才写，没设密码时该段整体去掉。
+    `short_id` 是渠道给的 ID 简写，留空时退回完整 ID，模板里写 `{id_short}` 才会用到。
     """
     pattern = resolve_template(template, custom_template)
     if not password:
@@ -64,6 +66,7 @@ def build_package_name(
         _SafeDict(
             title=title,
             id=comic_id,
+            id_short=short_id or comic_id,
             author=author,
             password=password,
         )

@@ -117,6 +117,16 @@ class BaseChannel(ABC):
                 names.append(alias)
         return tuple(names)
 
+    # ---- ID 展示：文件名模板里的 `{id_short}` 用 ----
+    @classmethod
+    def short_id(cls, comic_id: str) -> str:
+        """`{id_short}` 占位符的取值：默认原样返回，ID 本身够短的渠道无需覆盖。
+
+        只有 ID 里带冗余段的渠道才覆盖（E-Hentai 的 token、哔咔 ObjectId 的中段）。
+        简写只用于文件名展示，不参与下载、缓存与断点目录。
+        """
+        return comic_id
+
     # ---- 配置读取：渠道私有配置项一律走这三个方法，缺失/脏值自动兜底 ----
     @property
     def enabled(self) -> bool:

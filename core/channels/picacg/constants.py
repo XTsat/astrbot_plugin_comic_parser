@@ -46,3 +46,7 @@ DEFAULT_MAX_CONCURRENT_IMAGES: Final = 5
 MAX_PAGES: Final = 200
 # 小于这个体积的响应几乎不可能是真图片（多为防盗链的 HTML 错误页）
 MIN_IMAGE_BYTES: Final = 512
+
+# 文件名简写保留的 ID 尾段长度：ObjectId 前 8 位是秒级时间戳（同一秒入库的作品会撞），
+# 尾段含随机数与自增计数，区分度更高，所以取尾部而不是开头
+SHORT_ID_LENGTH: Final = 8

@@ -40,18 +40,29 @@ DEFAULT_PACK_FORMAT: Final = "zip"
 
 # 文件名模板：键是配置里的选项值，值是可以带占位符的模板。
 # 带 {password} 的模板才会把密码写进文件名（写成英文括号，例如 标题[ID](密码)）——是否显示由模板决定。
+# 预置只留常用形态：简写与完整 ID 各有一个「ID + 标题」，其余组合用自定义模板。
 FILENAME_TEMPLATES: Final = {
-    "title_id": "{title}[{id}]",
-    "title_id_pw": "{title}[{id}]({password})",
+    "id_short_title": "[{id_short}]{title}",
     "id_title": "[{id}]{title}",
     "id_title_pw": "[{id}]{title}({password})",
+    "title_id": "{title}[{id}]",
+    "title_id_pw": "{title}[{id}]({password})",
     "id_only": "{id}",
     "title_only": "{title}",
     "custom": "",
 }
-DEFAULT_FILENAME_TEMPLATE: Final = "id_title"
-# 自定义模板里可用的占位符，供提示文案复用
-FILENAME_PLACEHOLDERS: Final = ("{title}", "{id}", "{author}", "{password}")
+# 默认用简写 ID + 标题：EH 的 token、哔咔的 24 位 ObjectId 直接进文件名太长
+DEFAULT_FILENAME_TEMPLATE: Final = "id_short_title"
+# 自定义模板里可用的占位符，供提示文案复用。
+# `{id}` 是完整 ID；`{id_short}` 是渠道给的简写（E-Hentai 去 token、哔咔取后 8 位，
+# 其它渠道 ID 本身够短、两者相同）。简写只进文件名，不能拿来发起下载。
+FILENAME_PLACEHOLDERS: Final = (
+    "{title}",
+    "{id}",
+    "{id_short}",
+    "{author}",
+    "{password}",
+)
 
 # 长图打包参数：统一宽度后纵向拼接，超过单段上限则分段打包
 LONG_IMG_WIDTH: Final = 1200

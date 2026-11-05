@@ -32,9 +32,10 @@
       "filename_template": {
         "type": "string",
         "description": "文件名模板",
-        "hint": "决定压缩包/PDF 的文件名。带「+密码」的模板会把打包密码写进文件名（密码会出现在聊天记录与日志里）。可用占位符：{title} 标题、{id} 漫画 ID、{author} 作者、{password} 密码",
-        "default": "id_title",
+        "hint": "决定压缩包/PDF 的文件名，默认「[简写ID]标题」。带「+密码」的模板会把打包密码写进文件名（密码会出现在聊天记录与日志里）。可用占位符：{title} 标题、{id} 完整 ID、{id_short} 简写 ID、{author} 作者、{password} 密码（简写规则见「自定义文件名模板」）",
+        "default": "id_short_title",
         "options": [
+          "id_short_title",
           "id_title",
           "id_title_pw",
           "title_id",
@@ -44,6 +45,7 @@
           "custom"
         ],
         "labels": [
+          "[简写ID]标题",
           "[ID]标题",
           "[ID]标题 + 密码",
           "标题[ID]",
@@ -56,7 +58,7 @@
       "filename_custom": {
         "type": "string",
         "description": "自定义文件名模板",
-        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {id}-{title}；可用 {title} {id} {author} {password}，不认识的占位符会留空，密码留空时 (密码) 段自动去掉",
+        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {title}-{id_short}；可用 {title} {id} {id_short} {author} {password}，不认识的占位符会留空，密码留空时 (密码) 段自动去掉。{id_short} 是 ID 简写：E-Hentai 去掉 token 只留 gid，哔咔取 24 位 ID 的后 8 位，其它渠道 ID 本身够短、与 {id} 相同；简写只用于文件名，命令里仍要填完整 ID",
         "default": ""
       },
       "download_dir": {

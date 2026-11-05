@@ -33,6 +33,7 @@ from .constants import (
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_RETRY_TIMES,
     DEFAULT_SECRET_KEY,
+    SHORT_ID_LENGTH,
     WEB_COMIC_DOMAINS,
 )
 
@@ -133,6 +134,12 @@ class PicacgChannel(BaseChannel):
         raise ChannelError(
             "无法从输入中识别出哔咔漫画 ID：请给出作品链接里的 24 位 ID"
         )
+
+    @classmethod
+    def short_id(cls, comic_id: str) -> str:
+        """文件名简写取 24 位 ObjectId 的后 8 位：前 8 位是秒级时间戳，同批作品会撞。"""
+        text = (comic_id or "").lower()
+        return text[-SHORT_ID_LENGTH:] if _COMIC_ID.fullmatch(text) else comic_id
 
     # ---- 元信息 ----
     async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:

@@ -327,6 +327,7 @@ class DownloadTask:
             custom_template=self.settings.filename_custom,
             password=self.settings.pack_password,
             author=meta.author,
+            short_id=self.channel.short_id(meta.comic_id),
         )
         if self.settings.pack_format == "none":
             return self._keep_local(downloaded, base_name)

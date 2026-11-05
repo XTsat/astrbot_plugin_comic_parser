@@ -274,10 +274,11 @@ class ComicParserPlugin(Star):
         packs = "、".join(PACK_FORMATS)
         progress_labels = {"emoji": "贴表情", "text": "文本进度", "none": "关闭"}
         template_labels = {
-            "title_id": "标题[ID]",
-            "title_id_pw": "标题[ID] + 密码",
+            "id_short_title": "[简写ID]标题",
             "id_title": "[ID]标题",
             "id_title_pw": "[ID]标题 + 密码",
+            "title_id": "标题[ID]",
+            "title_id_pw": "标题[ID] + 密码",
             "id_only": "仅 ID",
             "title_only": "仅标题",
             "custom": "自定义模板",
@@ -309,7 +310,7 @@ class ComicParserPlugin(Star):
             f"🌐 支持的网站与作品页链接示意（找 ID 用）：/漫画网站\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
-            f"文件名模板：{template_labels.get(self.settings.filename_template, '[ID]标题')}\n"
+            f"文件名模板：{template_labels.get(self.settings.filename_template, '[简写ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
             f"下载分段：{resume_desc}\n"
             f"群文件：{group_file_desc}\n"

@@ -165,6 +165,12 @@ class EHentaiChannel(BaseChannel):
             "（e-hentai.org/g/<gid>/<token>/）或写成 gid:token"
         )
 
+    @classmethod
+    def short_id(cls, comic_id: str) -> str:
+        """文件名简写只留 gid：token 是页面访问凭证，不帮助人认出作品，还多占 11 个字符。"""
+        gid, sep, _token = (comic_id or "").partition("-")
+        return gid if sep and gid.isdigit() else comic_id
+
     # ---- 元信息 ----
 
     async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:

@@ -77,8 +77,8 @@
 |--------|------|--------|------|
 | 打包格式（`pack_format`） | string | zip | 可选 zip / pdf / long_img（纵向长图）/ none（仅本地保存不发送） |
 | 打包密码（`pack_password`） | string | 空 | 全局加密密码，留空表示不加密 |
-| 文件名模板（`filename_template`） | string | id_title | 产物文件名格式，预置：[ID]标题 / [ID]标题+密码 / 标题[ID] / 标题[ID]+密码 / 仅 ID / 仅标题 / 自定义模板（前四种的 ID 用方括号）。带「+密码」的模板会把密码写进文件名（会出现在聊天记录里） |
-| 自定义文件名模板（`filename_custom`） | string | 空 | 仅在模板选「自定义模板」时生效，例如 `{id}-{title}`；可用 `{title}` `{id}` `{author}` `{password}`，密码留空时 `(密码)` 段自动去掉 |
+| 文件名模板（`filename_template`） | string | id_short_title | 产物文件名格式。预置：[简写ID]标题（默认）/ [ID]标题 / [ID]标题+密码 / 标题[ID] / 标题[ID]+密码 / 仅 ID / 仅标题 / 自定义模板（ID 用方括号）。带「+密码」的模板会把密码写进文件名（会出现在聊天记录里）；简写 ID 规则见下一项，其它组合可用自定义模板 |
+| 自定义文件名模板（`filename_custom`） | string | 空 | 仅在模板选「自定义模板」时生效，例如 `{id}-{title}`；可用 `{title}` `{id}` `{id_short}` `{author}` `{password}`，密码留空时 `(密码)` 段自动去掉。`{id_short}` 是简写 ID：E-Hentai 去掉 token 只留 gid，哔咔取 24 位 ID 的后 8 位，其它渠道与 `{id}` 相同；简写只用于文件名，命令里仍要填完整 ID |
 | 本地保存目录（`download_dir`） | string | downloads | 仅「仅本地保存」模式使用，相对路径基于插件数据目录 |
 | 下载后上传到群文件（`upload_to_group_file`） | bool | true | 在群里下完的文件自动传进群文件里的目标文件夹（没有就新建，建不了才放根目录），聊天里不再重复发；传不上去才直接发文件；仅群聊与 OneBot（NapCat 等 aiocqhttp）协议端适用 |
 | 群文件目标文件夹（`group_file_folder`） | string | 漫画 | 群里存在同名文件夹就传进去（忽略大小写）；没有时看下一项；留空表示总是传群文件根目录 |
