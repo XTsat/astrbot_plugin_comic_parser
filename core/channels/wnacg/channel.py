@@ -67,7 +67,8 @@ class WnacgChannel(BaseChannel):
     command: ClassVar[str] = "wnacg"
     command_aliases: ClassVar[tuple[str, ...]] = ("ssmh", "wn")
     display_name: ClassVar[str] = "紳士漫畫"
-    link_example: ClassVar[str] = "https://www.wnacg.site/photos-index-aid-401500.html"
+    website: ClassVar[str] = "https://www.wnacg.site"
+    link_template: ClassVar[str] = "https://www.wnacg.site/photos-index-aid-<ID>.html"
     # 大陆线路实测可直连，默认直连；超时或被墙时由用户自己打开「使用代理」
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)

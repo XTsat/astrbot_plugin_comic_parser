@@ -76,7 +76,8 @@ class Hanime1Channel(BaseChannel):
     # 站点简称的首字母有两种写法（ha / hm），都认；展示与计数都用第一个
     command_aliases: ClassVar[tuple[str, ...]] = ("hm", "ha", "hanime")
     display_name: ClassVar[str] = "Hanime1 漫画"
-    link_example: ClassVar[str] = "https://hanime1.me/comic/100445"
+    website: ClassVar[str] = "https://hanime1.me"
+    link_template: ClassVar[str] = "https://hanime1.me/comic/<ID>"
     default_use_proxy: ClassVar[bool] = True
     # cloudscraper 不是硬依赖：配了读取代理时用 requests 也能抓页，所以只在真正需要时提示
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)

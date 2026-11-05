@@ -64,7 +64,8 @@ class JMComicChannel(BaseChannel):
     command: ClassVar[str] = "jmcomic"
     command_aliases: ClassVar[tuple[str, ...]] = ("jm",)
     display_name: ClassVar[str] = "JM 漫画"
-    link_example: ClassVar[str] = "https://18comic.vip/album/123456"
+    website: ClassVar[str] = "https://18comic.vip"
+    link_template: ClassVar[str] = "https://18comic.vip/album/<ID>"
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
 

@@ -34,6 +34,7 @@ from .core import (
     command_map,
     describe_channels,
     describe_links,
+    describe_websites,
     resolve_link,
 )
 from .core.channel import CancelToken, ProgressCallback
@@ -295,8 +296,9 @@ class ComicParserPlugin(Star):
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
-            f"🔗 贴完整链接直接下：/comic <作品链接>\n"
+            f"🔗 支持的站点与作品页链接示意（<ID> 处替换成作品 ID）：\n"
             f"{describe_links(self.channels)}\n\n"
+            f"🌐 支持的网站与作品页链接示意（找 ID 用）：/漫画网站\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
             f"文件名模板：{template_labels.get(self.settings.filename_template, '[ID]标题')}\n"
@@ -309,12 +311,26 @@ class ComicParserPlugin(Star):
         )
         yield event.plain_result(text)
 
+    @filter.command("漫画网站", alias={"comicsites", "comicsite"})
+    async def cmd_sites(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """列出所有支持渠道的官网与作品页链接示意，方便到站内搜作品、找 ID。"""
+        text = (
+            f"🌐 支持的漫画网站（共 {len(self.channels)} 个渠道）\n\n"
+            f"{describe_websites(self.channels)}\n\n"
+            f"到站内搜到作品后打开作品页，把 <ID> 替换成链接里的 ID，\n"
+            f"再发给 /comic 就能下载；也可以直接发完整作品页链接\n"
+            f"站点域名打不开时，可在渠道配置里换成其它可用域名"
+        )
+        yield event.plain_result(text)
+
     # ==================== 下载流程 ====================
 
     async def _handle_comic(
         self, event: AstrMessageEvent, link: str
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """把完整链接路由到对应渠道；认不出站点时列出各渠道的链接示例。
+        """把完整链接路由到对应渠道；认不出站点时列出支持的站点与 ID 位置。
 
         只认完整链接：裸 ID 无法判断站点，分享文本里的站点名也不可靠，那些走各渠道命令。
         """

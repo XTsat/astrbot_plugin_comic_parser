@@ -13,6 +13,7 @@ from .registry import (
     command_map,
     describe_channels,
     describe_links,
+    describe_websites,
     resolve_link,
 )
 from .task import DownloadOutcome, DownloadTask
@@ -31,5 +32,6 @@ __all__ = [
     "command_map",
     "describe_channels",
     "describe_links",
+    "describe_websites",
     "resolve_link",
 ]

@@ -89,10 +89,37 @@ def resolve_link(
 
 
 def describe_links(channels: dict[str, BaseChannel]) -> str:
-    """帮助文案里的链接示例：一行一个渠道，用户照着贴自己的作品页链接。"""
+    """帮助文案里的站点说明：真实官网 + 作品页链接示意（`<ID>` 占位）。
+
+    示意链接把具体数字换成 `<ID>` 占位：能看出作品 ID 落在链接的哪一段，
+    又不会拼出点不开的假作品链接。
+    """
     lines = [
-        f"{channel.display_name}：{channel.link_example}"
+        f"{channel.display_name}：{channel.link_template}（<ID> 处替换成作品 ID）"
         for channel in channels.values()
-        if channel.link_example
+        if channel.link_template
     ]
     return "\n".join(lines) if lines else "（当前没有支持链接直下的渠道）"
+
+
+def describe_websites(channels: dict[str, BaseChannel]) -> str:
+    """网站速查：每个渠道的官网 + 作品页链接示意，用户据此去站内搜作品、认 ID。
+
+    作品页用真实域名 + `<ID>` 占位（不放具体数字），既说明 ID 在链接里的位置，
+    也不会让用户拿到一个点不开的假链接。
+    """
+    if not channels:
+        return "（当前没有任何渠道，请先在插件配置里添加下载渠道）"
+
+    entries: list[str] = []
+    for channel in channels.values():
+        state = "（未启用）" if not channel.enabled else ""
+        lines = [f"/{channel.display_command} — {channel.display_name}{state}"]
+        if channel.website:
+            lines.append(f"  官网：{channel.website}")
+        if channel.link_template:
+            lines.append(
+                f"  作品页：{channel.link_template}（<ID> 处替换成作品 ID）"
+            )
+        entries.append("\n".join(lines))
+    return "\n\n".join(entries)

@@ -61,7 +61,9 @@ class PicacgChannel(BaseChannel):
     command: ClassVar[str] = "picacg"
     command_aliases: ClassVar[tuple[str, ...]] = ("pica",)
     display_name: ClassVar[str] = "哔咔漫画"
-    link_example: ClassVar[str] = "https://manhuapica.com/comic/5f1e2d3c4b5a69788796a5b4"
+    # 哔咔以 App 为主，网页版作品页在这个域名下；没有网页版时用户可从 App 分享内容里取 ID
+    website: ClassVar[str] = "https://manhuapica.com"
+    link_template: ClassVar[str] = "https://manhuapica.com/comic/<ID>"
     default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("httpx",)
 

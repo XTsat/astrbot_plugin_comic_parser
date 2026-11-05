@@ -69,7 +69,8 @@ class NhentaiChannel(BaseChannel):
     command: ClassVar[str] = "nhentai"
     command_aliases: ClassVar[tuple[str, ...]] = ("nh",)
     display_name: ClassVar[str] = "nhentai"
-    link_example: ClassVar[str] = "https://nhentai.net/g/123456/"
+    website: ClassVar[str] = "https://nhentai.net"
+    link_template: ClassVar[str] = "https://nhentai.net/g/<ID>/"
     default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
 
