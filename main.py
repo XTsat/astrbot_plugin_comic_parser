@@ -258,6 +258,14 @@ class ComicParserPlugin(Star):
         async for result in self._handle_download(event, "wnacg", comic_id):
             yield result
 
+    @filter.command("ehentai", alias={"eh"})
+    async def cmd_ehentai(
+        self, event: AstrMessageEvent, comic_id: str = ""
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """下载指定 ID 的 E-Hentai 作品。用法：/eh <gid:token 或链接>"""
+        async for result in self._handle_download(event, "ehentai", comic_id):
+            yield result
+
     @filter.command("漫画帮助", alias={"comichelp"})
     async def cmd_help(
         self, event: AstrMessageEvent

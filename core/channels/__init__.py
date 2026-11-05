@@ -5,6 +5,7 @@
 渠道只负责取元信息与下载图片，打包加密在上层统一处理。
 """
 
+from .ehentai import EHentaiChannel
 from .hanime1 import Hanime1Channel
 from .jmcomic import JMComicChannel
 from .nhentai import NhentaiChannel
@@ -12,6 +13,7 @@ from .picacg import PicacgChannel
 from .wnacg import WnacgChannel
 
 __all__ = [
+    "EHentaiChannel",
     "Hanime1Channel",
     "JMComicChannel",
     "NhentaiChannel",

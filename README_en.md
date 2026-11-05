@@ -9,6 +9,7 @@
 
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: hand over a comic ID or link and get the whole comic
+- **E-Hentai channel**: `/eh <gid:token or link>` (full name `/ehentai`) downloads a whole E-Hentai gallery. Without a cookie it fetches the 1280px-wide resampled images anonymously; originals are only used once you add a cookie and keep "prefer originals" on, and each original is charged against the site's image quota by file size. The quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so send the same command again to continue — long galleries usually take a few passes
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages")
@@ -30,13 +31,14 @@
 | `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
 | `/hm <ID or link>` (full name `/hanime1`, also `/ha`, `/hanime`) | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
 | `/ssmh <ID or link>` (full name `/wnacg`, also `/wn`) | Everyone (subject to whitelist/blacklist) | Download a whole WNACG (Shenshi Manhua) gallery |
+| `/eh <gid:token or link>` (full name `/ehentai`) | Everyone (subject to whitelist/blacklist) | Download a whole E-Hentai gallery; the ID has two parts (gid plus token), so a bare number is rejected with a hint (anonymous 1280px; originals need a cookie) |
 | `/comic stop` (also `/jm stop`, `/nh stop`, …) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so sending the same command again resumes. Admins can use `/comic stop all` to cancel every session's downloads |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 | `/漫画网站` (also `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs |
 
 > When you just want one comic, pasting its link into `/comic` is the quickest way; when you only have an ID (or the link is not a work page), use the matching channel command.
 > Channel commands do not pin the site either: a nhentai link after `/jm` downloads that nhentai gallery, and the download summary states which site was actually used.
-> The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
+> The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
 
 Examples:
 
@@ -46,6 +48,7 @@ Examples:
 /comic https://manhuapica.com/comic/5f1e2d3c4b5a69788796a5b4
 /comic https://hanime1.me/comic/100445
 /comic https://www.wnacg.site/photos-index-aid-401500.html
+/comic https://e-hentai.org/g/4306312/0123456789/
 /jm 123456
 /jm https://18comic.vip/album/123456/
 /nh 123456
@@ -55,9 +58,12 @@ Examples:
 /hm https://hanime1.me/comic/100445
 /ssmh 401500
 /ssmh https://www.wnacg.site/photos-index-aid-401500.html
+/eh 4306312:0123456789
+/eh https://e-hentai.org/g/4306312/0123456789/
 ```
 
 > `/comic` only accepts full links (a work page address with a domain): a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead.
+> An E-Hentai ID has two parts, gid and token (e.g. `4306312:0123456789`); a bare number is rejected with a hint, so copying the gallery link from your browser's address bar is the easiest way.
 > Do not know where to find the ID? Send `/漫画网站` to see each site's homepage plus a sample work-page link (`<ID>` placeholder); once you find the comic there, replace `<ID>` with the number in the link.
 
 ## Configuration
@@ -215,6 +221,28 @@ Examples:
 | Use proxy (`use_proxy`) | bool | false | Uses the proxy chain plugin proxy → AstrBot proxy → direct; the site is reachable directly from mainland China in our tests, turn this on if it times out or is blocked |
 
 </details>
+
+### E-Hentai channel
+
+<details>
+<summary>E-Hentai channel settings (10)</summary>
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Enable (`enable`) | bool | true | When off, `/eh` reports the channel as disabled |
+| Site domains (`site_domains`) | text | e-hentai.org, exhentai.org | One per line, next one is tried on failure; keep `e-hentai.org` first (works anonymously); `exhentai.org` needs a cookie and is skipped without one; with "probe before download" on, they are probed and the fastest goes first |
+| Use proxy (`use_proxy`) | bool | true | Uses the proxy chain plugin proxy → AstrBot proxy → direct; most mainland networks need one to reach either site |
+| Request timeout (`request_timeout`) | int | 30 | Timeout per request; the site is overseas and occasionally flaky, so too small a value causes false failures |
+| Request interval (`request_interval`) | float | 1.0 | Minimum seconds between page requests (work page and image page); the site is sensitive to paging speed, so a smaller value can trigger a temporary ban (1 second by default) |
+| Concurrent images (`max_concurrent_images`) | int | 3 | Images downloaded in parallel; the site counts image quota per IP, so 2-4 works best |
+| Retries per image (`retry_times`) | int | 2 | Retries per image after a server error or network hiccup; a spent quota (509) and a login wall are not retried — the download stops and keeps the breakpoint |
+| Max pages (`max_pages`) | int | 0 | Pages per download, 0 means the whole gallery; for large galleries set a cap together with segmented resume so a single request does not run too long |
+| Prefer originals (`download_original`) | bool | true | Only effective with a cookie: originals are tried first and charged against the site's quota at 10× the file size in MB; a page whose original fails falls back to its 1280px version |
+| Cookie (`cookie`) | string | empty | Optional. Account credential, do not leak; empty means anonymous 1280px resampled images. Fill `ipb_member_id` and `ipb_pass_hash` (plus `igneous` for exhentai), separated by semicolons, to fetch originals |
+
+</details>
+
+> The site's image quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so send the same command again to continue; a cookie does not bypass the quota of a shared exit IP. Originals cost far more quota than resampled images, so turn "prefer originals" off if you only want to read.
 
 ## Others
 

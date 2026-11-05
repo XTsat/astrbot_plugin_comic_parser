@@ -1,0 +1,721 @@
+"""E-Hentai 渠道的 `BaseChannel` 实现：拿 ID → 取元信息 → 逐页下载。
+
+链路是「官 API 拿元信息 + 两层 HTML 拿图片地址」：
+
+- `gdata`（`api.py`）一次请求拿到标题/页数/标签，匿名可用；
+- 作品页 `?p=N` 列缩略图，图片页 `#img` 是 1280px 重采样图（匿名可下），
+  「Download original」是原图（需要登录 Cookie）；
+- 默认匿名 = 降级画质；填了 Cookie 且开启「优先原图」时，逐页先试原图、失败回退重采样。
+
+站点按 IP 记图片配额、对翻页速率敏感，所以页面请求串行限速、图片小并发，
+遇到 509/临时封禁**不重试**，直接转成 `DownloadPaused` 保留断点——重发命令从已下好的页接着下。
+打包、加密、发送都在上层，这里看不到任何 zip/pdf/密码逻辑。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import re
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any, ClassVar
+
+from astrbot.api import logger
+
+from ....domain import (
+    ChannelError,
+    ComicMeta,
+    DownloadedComic,
+    DownloadError,
+    DownloadPaused,
+    PluginSettings,
+)
+from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
+from ....utils import (
+    find_existing_image,
+    host_matches,
+    split_link,
+    write_image_atomically,
+)
+from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
+from ...domain_race import ProbeFn, http_probe
+from ...progress import ProgressHeartbeat, emit
+from .api import (
+    EHLoginRequired,
+    EHQuotaExceeded,
+    EHentaiClient,
+    EHBanned,
+    fetch_gdata,
+    has_login_cookies,
+    parse_cookie_string,
+)
+from .constants import (
+    DEFAULT_IMAGE_CONCURRENCY,
+    DEFAULT_IMAGE_RETRY_TIMES,
+    DEFAULT_MAX_PAGES,
+    DEFAULT_REQUEST_INTERVAL,
+    DEFAULT_REQUEST_TIMEOUT,
+    DEFAULT_SITE_DOMAINS,
+    USER_AGENT,
+)
+from .downloader import EHentaiDownloader
+from .progress import (
+    DownloadSession,
+    cancel_active_downloads,
+    format_size,
+    register_session,
+    unregister_session,
+)
+from .site import GalleryMeta, gallery_url, parse_gallery_meta
+
+# 作品页路径：`/g/<gid>/<10 位十六进制 token>/`。必须锚定整段路径，
+# 否则 nhentai 的 `/g/<id>/` 形状会把 E-Hentai 链接抢走（另一处已同步收紧）
+_GALLERY_PATH = re.compile(r"^/g/(\d+)/([0-9a-fA-F]{10})/?(?:[?#].*)?$")
+# 用户可能贴完整链接、省略协议头的链接，或夹在分享文本里的链接
+_GALLERY_IN_TEXT = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:e-hentai|exhentai)\.org/g/(\d+)/([0-9a-fA-F]{10})",
+    re.IGNORECASE,
+)
+# 裸 ID 的三种常见写法：`gid:token`、`gid-token`、`gid token`
+_BARE_ID = re.compile(r"^(\d+)\s*[:\-/\s]\s*([0-9a-fA-F]{10})$")
+_EH_HOSTS = ("e-hentai.org", "exhentai.org")
+_PAGES_CACHE = ".ehentai-pages.json"
+
+
+class EHentaiChannel(BaseChannel):
+    """按 `gid + token` 下载整本 E-Hentai 作品。"""
+
+    name: ClassVar[str] = "ehentai"
+    command: ClassVar[str] = "ehentai"
+    command_aliases: ClassVar[tuple[str, ...]] = ("eh",)
+    display_name: ClassVar[str] = "E-Hentai"
+    website: ClassVar[str] = "https://e-hentai.org"
+    link_template: ClassVar[str] = "https://e-hentai.org/g/<gid>/<token>/"
+    link_hint: ClassVar[str] = (
+        "<gid> 填作品页里的数字 ID，<token> 填那串 10 位十六进制"
+    )
+    default_use_proxy: ClassVar[bool] = True
+    requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
+
+    def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
+        super().__init__(options, settings)
+        # fetch_meta 刚取过元信息，download 直接复用，省掉一次 gdata 请求
+        self._meta: dict[str, GalleryMeta] = {}
+
+    @classmethod
+    def default_options(cls) -> dict[str, Any]:
+        """内置渠道默认启用：匿名可下 1280px；Cookie 留空，用户需要原图时自己填。"""
+        return {
+            "enable": True,
+            "site_domains": DEFAULT_SITE_DOMAINS,
+            "use_proxy": True,
+            "request_timeout": DEFAULT_REQUEST_TIMEOUT,
+            "request_interval": DEFAULT_REQUEST_INTERVAL,
+            "max_concurrent_images": DEFAULT_IMAGE_CONCURRENCY,
+            "retry_times": DEFAULT_IMAGE_RETRY_TIMES,
+            "max_pages": DEFAULT_MAX_PAGES,
+            "download_original": True,
+            "cookie": "",
+        }
+
+    # ---- ID 解析 ----
+
+    def match_link(self, text: str) -> str | None:
+        """只认 e-hentai/exhentai 域名下的 `/g/<gid>/<10 位 token>/`。
+
+        必须同时校验域名与完整路径：别的站点也有 `/g/<id>/` 形状（nhentai），
+        只看路径会把链接路由错。
+        """
+        host, path = split_link(text)
+        if not host_matches(host, _EH_HOSTS):
+            return None
+        matched = _GALLERY_PATH.match(path)
+        return _canonical(matched.group(1), matched.group(2)) if matched else None
+
+    def normalize_id(self, raw: str) -> str:
+        """把链接、`gid:token`、`gid-token`、`gid token` 收敛成 `gid-token`。
+
+        规范形用 `-` 而不是 `:`：任务层会把它拼进断点目录名 `ehentai-<id>`，
+        `:` 在 Windows 路径里非法。裸 gid 一律拒绝——`gdata` 强制要 token，
+        只给数字没法定位作品（实测 `/g/<gid>/` 直接 404）。
+        """
+        text = (raw or "").strip()
+        if not text:
+            raise ChannelError(
+                f"请提供作品链接或 gid:token，例如 /{self.display_command} "
+                "https://e-hentai.org/g/1234567/0123456789/"
+            )
+
+        matched = _GALLERY_IN_TEXT.search(text)
+        if matched:
+            return _canonical(matched.group(1), matched.group(2))
+        matched = _BARE_ID.match(text)
+        if matched:
+            return _canonical(matched.group(1), matched.group(2))
+        if text.isdigit():
+            raise ChannelError(
+                "E-Hentai 作品 ID 由数字 gid 和 10 位十六进制 token 两段组成，只给数字下不了；"
+                "请贴完整作品页链接（/g/<gid>/<token>/），或写成 1234567:0123456789"
+            )
+        raise ChannelError(
+            "无法识别 E-Hentai 作品 ID，请贴作品页链接"
+            "（e-hentai.org/g/<gid>/<token>/）或写成 gid:token"
+        )
+
+    # ---- 元信息 ----
+
+    async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:
+        gid, token = _split_comic_id(comic_id)
+        proxy, _source = self.resolve_proxy()
+        async with self._client(proxy) as client:
+            item = await fetch_gdata(client, gid, token)
+        meta = parse_gallery_meta(item)
+        meta.gid, meta.token = gid, token
+        self._meta[comic_id] = meta
+        logger.info(
+            f"[{PLUGIN_NAME}] E-Hentai {comic_id} 元信息：{meta.filecount} 页 · "
+            f"{format_size(meta.filesize)} · 登录：{'是' if client.logged_in else '否（匿名 1280px）'}"
+        )
+        return self._build_meta(comic_id, meta)
+
+    # ---- 下载 ----
+
+    async def download(
+        self,
+        comic_id: str,
+        work_dir: Path,
+        on_progress: ProgressCallback | None = None,
+        cancel: CancelToken | None = None,
+    ) -> DownloadedComic:
+        gid, token = _split_comic_id(comic_id)
+        meta = self._meta.pop(comic_id, None)
+        proxy, _source = self.resolve_proxy()
+
+        async with self._client(proxy) as client:
+            if meta is None:
+                # 插件重载或任务重试会走到这里：不依赖前一次 fetch_meta 的缓存
+                item = await fetch_gdata(client, gid, token)
+                meta = parse_gallery_meta(item)
+                meta.gid, meta.token = gid, token
+            return await self._download(
+                client, comic_id, gid, token, meta, work_dir, on_progress, cancel
+            )
+
+    async def _download(
+        self,
+        client: EHentaiClient,
+        comic_id: str,
+        gid: str,
+        token: str,
+        meta: GalleryMeta,
+        work_dir: Path,
+        on_progress: ProgressCallback | None,
+        cancel: CancelToken | None,
+    ) -> DownloadedComic:
+        max_pages = self._max_pages()
+        try:
+            host, pages = await self._load_pages(
+                client, gid, token, meta.filecount, work_dir, max_pages
+            )
+        except (EHQuotaExceeded, EHBanned) as exc:
+            raise self._paused(work_dir, str(exc)) from exc
+        except EHLoginRequired as exc:
+            raise self._need_login(exc) from exc
+
+        if max_pages > 0 and len(pages) > max_pages:
+            logger.info(
+                f"[{PLUGIN_NAME}] E-Hentai {comic_id} 按「最多下载页数」截取前 "
+                f"{max_pages}/{meta.filecount} 页"
+            )
+            pages = pages[:max_pages]
+        if not pages:
+            raise DownloadError("没有解析到任何图片页，站点结构可能已变化")
+
+        wants_original = self.opt_bool("download_original", True)
+        if wants_original and not client.logged_in:
+            logger.info(
+                f"[{PLUGIN_NAME}] E-Hentai 未配置登录 Cookie，本次自动降级为 1280px 重采样图"
+            )
+        elif not wants_original and client.logged_in:
+            logger.info(
+                f"[{PLUGIN_NAME}] E-Hentai 已配置 Cookie，但关闭了「优先原图」，本次下 1280px 重采样图"
+            )
+
+        downloader = EHentaiDownloader(
+            client,
+            interval=self._request_interval(),
+            retry_times=self.opt_int(
+                "retry_times", DEFAULT_IMAGE_RETRY_TIMES, minimum=0
+            ),
+            concurrency=self.opt_int(
+                "max_concurrent_images", DEFAULT_IMAGE_CONCURRENCY, minimum=1
+            ),
+            include_original=wants_original and client.logged_in,
+        )
+
+        session = DownloadSession(comic_id=comic_id, total=len(pages), cancel=cancel)
+        register_session(session)
+        logger.info(
+            f"[{PLUGIN_NAME}] 开始下载 E-Hentai {comic_id}：{len(pages)} 页，站点 {host}，"
+            f"画质 {'原图优先（失败回退 1280px）' if downloader.include_original else '1280px 重采样'}，"
+            f"网络 {self.proxy_summary()}"
+        )
+        # 文件名宽度按整本页数定，不按本次截断后的页数：否则先整本下一半、再改小
+        # max_pages 续跑时，`0001.jpg` 与 `001.jpg` 对不上，同一页会被重下
+        width = max(3, len(str(meta.filecount or len(pages))))
+        heartbeat = ProgressHeartbeat(session.state, on_tick=on_progress)
+        heartbeat.start()
+        try:
+            fatal = await self._run_workers(
+                downloader, host, pages, work_dir, session, on_progress, width
+            )
+        finally:
+            await heartbeat.stop()
+            unregister_session(session)
+
+        if fatal is not None:
+            if isinstance(fatal, EHQuotaExceeded):
+                raise self._paused(
+                    work_dir,
+                    "E-Hentai 图片配额用尽（HTTP 509）",
+                    saved=session.done,
+                    total=session.total,
+                ) from fatal
+            if isinstance(fatal, EHBanned):
+                raise self._paused(
+                    work_dir,
+                    "站点提示当前 IP 被临时封禁（翻页/下载太快）",
+                    saved=session.done,
+                    total=session.total,
+                ) from fatal
+            if isinstance(fatal, EHLoginRequired):
+                raise self._need_login(fatal) from fatal
+            raise DownloadError(f"E-Hentai 下载失败：{fatal}") from fatal
+
+        if session.done <= 0:
+            raise DownloadError(
+                "图片一张都没下载成功，可能是站点风控拦截或网络不通；"
+                "请检查代理与渠道配置后重试"
+            )
+        if session.failed:
+            logger.warning(
+                f"[{PLUGIN_NAME}] E-Hentai {comic_id} 有 {session.failed}/{session.total} 页失败，产物将缺页"
+            )
+        # 整本已下完，页地址缓存不再有用；「仅本地保存」模式下别把它留在用户目录里
+        try:
+            (work_dir / _PAGES_CACHE).unlink(missing_ok=True)
+        except OSError:
+            pass
+        # 目录里的实际张数才是要打包的张数：续跑时目录里可能还留着上一轮下好的、
+        # 已经超出本次 max_pages 截取范围的页，按 session.done 报会少算
+        image_count = _count_images(work_dir)
+        extra = (
+            f"，目录共 {image_count} 张" if image_count != session.done else ""
+        )
+        logger.info(
+            f"[{PLUGIN_NAME}] 下载结束 E-Hentai {comic_id}：{session.done}/{session.total} 页"
+            f"（跳过已下 {session.skipped}，降级 {session.degraded}{extra}）· "
+            f"{format_size(session.bytes_downloaded)} · 耗时 {session.elapsed():.1f}s"
+        )
+        return DownloadedComic(
+            meta=self._build_meta(comic_id, meta),
+            source_dir=work_dir,
+            image_count=image_count,
+            failed_images=session.failed,
+        )
+
+    async def _run_workers(
+        self,
+        downloader: EHentaiDownloader,
+        host: str,
+        pages: list[str],
+        work_dir: Path,
+        session: DownloadSession,
+        on_progress: ProgressCallback | None,
+        width: int,
+    ) -> BaseException | None:
+        """并发跑完所有页；返回第一个致命异常（配额/封禁/登录），其余失败只计数。"""
+        abort = asyncio.Event()
+        # 图片页本身也是「页面」：限 2 路并发，真正的节流在 downloader 的闸门上
+        page_semaphore = asyncio.Semaphore(2)
+        degraded_notice = {"logged": False, "missing": False}
+
+        async def one(index: int, page_url: str) -> None:
+            if session.stopped or abort.is_set():
+                return
+            stem = work_dir / f"{index:0{width}d}"
+            existing = find_existing_image(stem)
+            if existing is not None:
+                session.skipped += 1
+                session.done += 1
+                try:
+                    session.bytes_downloaded += existing.stat().st_size
+                except OSError:
+                    pass
+                return
+
+            try:
+                async with page_semaphore:
+                    links = await downloader.image_links(page_url, host)
+
+                payload: bytes | None = None
+                suffix = ""
+                if downloader.include_original and not links.original:
+                    # Cookie 无效或该图没有原图时，图片页不会给 /fullimg/ 链接：
+                    # 仍然按 1280px 下，但让管理员在日志里看到「原图没生效」
+                    if not degraded_notice["missing"]:
+                        logger.info(
+                            f"[{PLUGIN_NAME}] E-Hentai 图片页没有原图链接（Cookie 可能未生效），"
+                            "本次取 1280px 重采样"
+                        )
+                        degraded_notice["missing"] = True
+                if downloader.include_original and links.original:
+                    try:
+                        payload, suffix = await downloader.image(links.original)
+                    except (EHQuotaExceeded, EHBanned):
+                        raise
+                    except EHLoginRequired as exc:
+                        # 原图需要登录但 Cookie 没配/失效：整本继续走重采样，不中断
+                        if not degraded_notice["logged"]:
+                            logger.info(
+                                f"[{PLUGIN_NAME}] E-Hentai 原图需要登录，后续页自动回退 1280px：{exc}"
+                            )
+                            degraded_notice["logged"] = True
+                    except ChannelError as exc:
+                        if not degraded_notice["logged"]:
+                            logger.warning(
+                                f"[{PLUGIN_NAME}] E-Hentai 原图取不到，后续页自动回退 1280px：{exc}"
+                            )
+                            degraded_notice["logged"] = True
+
+                degraded = payload is None and downloader.include_original
+                if payload is None:
+                    payload, suffix = await downloader.image(links.resample)
+
+                target = stem.with_suffix(suffix)
+                # 写盘是同步 IO，丢线程池里，别阻塞事件循环（几百 KB 一张）
+                await asyncio.to_thread(write_image_atomically, target, payload)
+                session.done += 1
+                session.bytes_downloaded += len(payload)
+                if degraded:
+                    session.degraded += 1
+                await emit(on_progress, session.state())
+            except (EHQuotaExceeded, EHBanned, EHLoginRequired):
+                abort.set()
+                raise
+            except ChannelError as exc:
+                session.failed += 1
+                logger.warning(
+                    f"[{PLUGIN_NAME}] E-Hentai {session.comic_id} 第 {index} 页失败：{exc}"
+                )
+
+        tasks = [
+            asyncio.create_task(one(index, url))
+            for index, url in enumerate(pages, 1)
+        ]
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+
+        for result in results:
+            if isinstance(result, (EHQuotaExceeded, EHBanned, EHLoginRequired)):
+                return result
+            if isinstance(result, BaseException) and not isinstance(
+                result, asyncio.CancelledError
+            ):
+                return result
+        return None
+
+    # ---- 作品页枚举与断点缓存 ----
+
+    async def _load_pages(
+        self,
+        client: EHentaiClient,
+        gid: str,
+        token: str,
+        filecount: int,
+        work_dir: Path,
+        max_pages: int = 0,
+    ) -> tuple[str, list[str]]:
+        """确定可用站点域名并拿到整本图片页地址；完整翻页结果会缓存到断点目录。
+
+        `max_pages > 0` 时只翻到够用的那一页，且不写缓存：否则「这次只下 2 页」
+        留下的半截清单会被下一次「下整本」当成完整清单复用。
+        """
+        hosts = await self._site_domains()
+        wanted = min(filecount, max_pages) if max_pages > 0 else filecount
+        cached = self._read_pages_cache(work_dir, gid, token, filecount)
+        if cached is not None and cached[0] in hosts and len(cached[1]) >= wanted:
+            logger.info(
+                f"[{PLUGIN_NAME}] E-Hentai {gid} 复用断点里的 {len(cached[1])} 页地址"
+                f"（站点 {cached[0]}）"
+            )
+            return cached
+
+        downloader = EHentaiDownloader(
+            client,
+            interval=self._request_interval(),
+            retry_times=self.opt_int(
+                "retry_times", DEFAULT_IMAGE_RETRY_TIMES, minimum=0
+            ),
+            concurrency=1,
+            include_original=False,
+        )
+        last_error: ChannelError | None = None
+        for host in hosts:
+            try:
+                pages = await self._enumerate_pages(
+                    downloader, host, gid, token, filecount, max_pages
+                )
+            except (EHQuotaExceeded, EHBanned):
+                raise
+            except ChannelError as exc:
+                last_error = exc
+                logger.warning(
+                    f"[{PLUGIN_NAME}] E-Hentai 站点 {host} 打不开作品页，换下一个：{exc}"
+                )
+                continue
+            if max_pages <= 0 or len(pages) >= filecount:
+                self._write_pages_cache(
+                    work_dir, gid, token, host, filecount, pages
+                )
+            return host, pages
+        raise ChannelError(f"E-Hentai 作品页打不开：{last_error}")
+
+    async def _enumerate_pages(
+        self,
+        downloader: EHentaiDownloader,
+        host: str,
+        gid: str,
+        token: str,
+        filecount: int,
+        max_pages: int = 0,
+    ) -> list[str]:
+        first = await downloader.gallery_page(gallery_url(host, gid, token, 0), host)
+        if not first:
+            raise ChannelError("作品页里没有解析到缩略图，可能已删除或需要登录")
+        # 缩略图每页数量可由用户设置（20/40/100），以实际解析到的为准
+        per_page = len(first)
+        wanted = min(filecount, max_pages) if max_pages > 0 else filecount
+        total_pages = max(1, (wanted + per_page - 1) // per_page)
+        pages = list(first)
+        for page in range(1, total_pages):
+            if len(pages) >= wanted:
+                break
+            urls = await downloader.gallery_page(
+                gallery_url(host, gid, token, page), host
+            )
+            if not urls:
+                logger.warning(
+                    f"[{PLUGIN_NAME}] E-Hentai 作品页第 {page} 页没有缩略图，跳过"
+                )
+                continue
+            pages.extend(urls)
+        # 去重但保序：同页重复链接会让某一页被下两次、页码错位
+        unique = list(dict.fromkeys(pages))
+        if len(unique) < wanted:
+            logger.warning(
+                f"[{PLUGIN_NAME}] E-Hentai 只解析到 {len(unique)}/{filecount} 页，"
+                "站点结构可能已变化或部分页不可见"
+            )
+        return unique
+
+    def _read_pages_cache(
+        self, work_dir: Path, gid: str, token: str, filecount: int
+    ) -> tuple[str, list[str]] | None:
+        path = work_dir / _PAGES_CACHE
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        if str(data.get("gid")) != gid or str(data.get("token")) != token:
+            return None
+        if _as_int(data.get("filecount")) != filecount:
+            return None
+        host = str(data.get("host") or "")
+        raw_pages = data.get("pages")
+        pages = [
+            str(item)
+            for item in raw_pages
+            if isinstance(item, str) and item.startswith("http")
+        ] if isinstance(raw_pages, list) else []
+        if not host or not pages:
+            return None
+        return host, pages
+
+    def _write_pages_cache(
+        self,
+        work_dir: Path,
+        gid: str,
+        token: str,
+        host: str,
+        filecount: int,
+        pages: list[str],
+    ) -> None:
+        path = work_dir / _PAGES_CACHE
+        tmp = path.with_name(f"{path.name}.part")
+        payload = {
+            "gid": gid,
+            "token": token,
+            "host": host,
+            "filecount": filecount,
+            "pages": pages,
+        }
+        try:
+            tmp.write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            )
+            os.replace(tmp, path)
+        except OSError as exc:
+            # 缓存写不进去只影响续跑效率，不该挡住本次下载
+            logger.warning(f"[{PLUGIN_NAME}] E-Hentai 页地址缓存写入失败（忽略）：{exc}")
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    # ---- 内部 ----
+
+    def _client(self, proxy: str) -> EHentaiClient:
+        return EHentaiClient(
+            proxy=proxy,
+            timeout=self.opt_int(
+                "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
+            ),
+            cookie=self.opt_str("cookie"),
+        )
+
+    async def _site_domains(self) -> list[str]:
+        """配置里的站点域名，按实测速度排序；没配 Cookie 时跳过 exhentai。
+
+        两个站点内容一致，正常情况 e-hentai 排第一；填了 Cookie 时 exhentai 也可用，
+        这时值得测一下——境外线路下两个域名的速度可能差出一倍。
+        """
+        domains = self.opt_list("site_domains") or split_option_list(
+            DEFAULT_SITE_DOMAINS
+        )
+        hosts: list[str] = []
+        for raw in domains:
+            host = raw.strip().lower()
+            host = re.sub(r"^https?://", "", host).split("/", 1)[0]
+            host = host.split(":", 1)[0].rstrip(".")
+            if host and host not in hosts:
+                hosts.append(host)
+        if not self._has_credentials():
+            hosts = [host for host in hosts if host != "exhentai.org"]
+        if not hosts:
+            raise ChannelError(
+                "E-Hentai 没有可用的站点域名：exhentai 需要登录 Cookie，"
+                "请在渠道配置里填 cookie，或把 e-hentai.org 加回站点域名"
+            )
+        if len(hosts) < 2:
+            return hosts
+        ranked = await self.ordered_domains(
+            hosts, self._site_probe(), label="站点域名"
+        )
+        if not ranked:
+            return hosts
+        # 测速只负责「谁快」：探测失败的域名也得留在后面，等前面真的打不开时兜底
+        return ranked + [host for host in hosts if host not in ranked]
+
+    def _site_probe(self) -> ProbeFn:
+        """探测面用首页：无需凭据，且和真正要打开的作品页走同一条线路。"""
+        return http_probe(
+            lambda host: f"https://{host}/",
+            proxy=self._proxy(),
+            headers={"User-Agent": USER_AGENT, "Accept": "text/html"},
+            # exhentai 的 Cookie 只填了一半时首页是 Sad Panda（HTTP 200），
+            # 不标记出来会被测速排到第一，下载再回落一次
+            reject_markers=(b"Sad Panda",),
+        )
+
+    def _proxy(self) -> str:
+        proxy, _source = self.resolve_proxy()
+        return proxy
+
+    def _has_credentials(self) -> bool:
+        return has_login_cookies(parse_cookie_string(self.opt_str("cookie")))
+
+    def _request_interval(self) -> float:
+        raw = self.options.get("request_interval")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = DEFAULT_REQUEST_INTERVAL
+        return min(max(value, 0.0), 10.0)
+
+    def _max_pages(self) -> int:
+        return self.opt_int("max_pages", DEFAULT_MAX_PAGES, minimum=0)
+
+    def _build_meta(self, comic_id: str, meta: GalleryMeta) -> ComicMeta:
+        return ComicMeta(
+            channel=self.name,
+            comic_id=comic_id,
+            title=meta.display_title,
+            author=meta.author,
+            page_count=meta.filecount,
+            tags=meta.tags,
+        )
+
+    def _paused(
+        self,
+        work_dir: Path,
+        reason: str,
+        *,
+        saved: int | None = None,
+        total: int = 0,
+    ) -> DownloadPaused:
+        """配额/封禁统一转成「暂停」：保留断点，重发命令接着下，不当作失败重试。"""
+        if saved is None:
+            saved = _count_images(work_dir)
+        return DownloadPaused(
+            f"⏸ {reason}。已保存 {saved}{f'/{total}' if total else ''} 页，断点会保留；"
+            "过几小时或换网络后重发同一命令会接着下",
+            saved=saved,
+            total=total,
+        )
+
+    def _need_login(self, exc: Exception) -> DownloadError:
+        return DownloadError(
+            f"E-Hentai 需要登录才能继续：{exc}。"
+            "匿名只能下 1280px 重采样图；要原图或 exhentai 内容，"
+            "请在渠道配置的「登录 Cookie」里填 ipb_member_id、ipb_pass_hash（exhentai 还需 igneous）"
+        )
+
+    def cancel_downloads(self) -> list[str]:
+        """插件卸载时调用：让进行中的下载尽快收工并返回其状态（供上层写日志）。"""
+        return cancel_active_downloads()
+
+
+def _split_comic_id(comic_id: str) -> tuple[str, str]:
+    gid, sep, token = (comic_id or "").partition("-")
+    if not sep or not gid.isdigit() or not re.fullmatch(r"[0-9a-fA-F]{10}", token):
+        raise ChannelError(f"E-Hentai 作品 ID 格式不对：{comic_id}")
+    return gid, token.lower()
+
+
+def _canonical(gid: str, token: str) -> str:
+    return f"{gid}-{token.lower()}"
+
+
+def _count_images(work_dir: Path) -> int:
+    try:
+        return sum(
+            1
+            for path in work_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+        )
+    except OSError:
+        return 0
+
+
+def _as_int(raw: object) -> int:
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return -1

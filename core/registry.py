@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from ..domain import PluginSettings
 from .channel import BaseChannel
+from .channels.ehentai import EHentaiChannel
 from .channels.hanime1 import Hanime1Channel
 from .channels.jmcomic import JMComicChannel
 from .channels.nhentai import NhentaiChannel
@@ -29,6 +30,7 @@ CHANNEL_CLASSES: tuple[type[BaseChannel], ...] = (
     PicacgChannel,
     Hanime1Channel,
     WnacgChannel,
+    EHentaiChannel,
 )
 
 
@@ -95,7 +97,8 @@ def describe_links(channels: dict[str, BaseChannel]) -> str:
     又不会拼出点不开的假作品链接。
     """
     lines = [
-        f"{channel.display_name}：{channel.link_template}（<ID> 处替换成作品 ID）"
+        f"{channel.display_name}：{channel.link_template}"
+        f"（{channel.link_hint or '<ID> 处替换成作品 ID'}）"
         for channel in channels.values()
         if channel.link_template
     ]
@@ -119,7 +122,8 @@ def describe_websites(channels: dict[str, BaseChannel]) -> str:
             lines.append(f"  官网：{channel.website}")
         if channel.link_template:
             lines.append(
-                f"  作品页：{channel.link_template}（<ID> 处替换成作品 ID）"
+                f"  作品页：{channel.link_template}"
+                f"（{channel.link_hint or '<ID> 处替换成作品 ID'}）"
             )
         entries.append("\n".join(lines))
     return "\n\n".join(entries)

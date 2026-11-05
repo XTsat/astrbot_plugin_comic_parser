@@ -88,6 +88,9 @@ class BaseChannel(ABC):
     # 作品页链接示意：真实域名 + `<ID>` 占位（不放具体数字）。
     # `<ID>` 不是可点击的地址，也不会拼出点不开的假链接，只是告诉用户作品 ID 在链接里的位置。
     link_template: ClassVar[str] = ""
+    # 作品页链接里 ID 的填法说明：不写就按默认的「<ID> 处替换成作品 ID」展示。
+    # 两段式 ID（如 E-Hentai 的 gid+token）在这里说明每一段填什么。
+    link_hint: ClassVar[str] = ""
     requires: ClassVar[tuple[str, ...]] = ()  # 运行时依赖的模块名
     # 「使用代理」开关在配置里缺失时的默认值：面向境外站点的渠道默认开启
     default_use_proxy: ClassVar[bool] = False

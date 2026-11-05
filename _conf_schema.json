@@ -620,6 +620,96 @@
             "default": false
           }
         }
+      },
+      "ehentai": {
+        "name": "E-Hentai（eh）",
+        "items": {
+          "enable": {
+            "type": "bool",
+            "description": "启用",
+            "default": true
+          },
+          "site_domains": {
+            "type": "text",
+            "description": "站点域名",
+            "hint": "一行一个，从上到下依次降级；e-hentai.org 匿名可用，exhentai.org 需要登录 Cookie（未填 Cookie 时自动跳过）。开启「下载前测速择优」时会先测速，把最快的站点域名排到最前面",
+            "default": "e-hentai.org\nexhentai.org"
+          },
+          "use_proxy": {
+            "type": "bool",
+            "description": "使用代理",
+            "hint": "按「插件代理 → AstrBot 本体代理 → 直连」取代理；E-Hentai 在多数大陆网络下需要代理才能访问",
+            "default": true
+          },
+          "request_timeout": {
+            "type": "int",
+            "description": "请求超时（秒）",
+            "hint": "单次请求的超时秒数，默认 30；站点在境外，偶有抖动，调太小容易误判失败",
+            "default": 30,
+            "slider": {
+              "min": 5,
+              "max": 120,
+              "step": 5
+            }
+          },
+          "request_interval": {
+            "type": "float",
+            "description": "页面请求间隔（秒）",
+            "hint": "作品页/图片页两次请求之间至少间隔这么久；站点对翻页速率敏感，调太小容易触发临时封禁，默认 1 秒",
+            "default": 1.0,
+            "slider": {
+              "min": 0,
+              "max": 5,
+              "step": 0.1
+            }
+          },
+          "max_concurrent_images": {
+            "type": "int",
+            "description": "并发图片数",
+            "hint": "同时下载的图片数量；站点按 IP 记图片配额，建议 2-4",
+            "default": 3,
+            "slider": {
+              "min": 1,
+              "max": 10,
+              "step": 1
+            }
+          },
+          "retry_times": {
+            "type": "int",
+            "description": "单张图片重试次数",
+            "hint": "单张图片因 5xx/网络抖动失败后的重试次数；配额 509 与登录墙不重试",
+            "default": 2,
+            "slider": {
+              "min": 0,
+              "max": 10,
+              "step": 1
+            }
+          },
+          "max_pages": {
+            "type": "int",
+            "description": "最多下载页数",
+            "hint": "单次最多下多少页，0 表示不限；大 gallery 建议设上限配合分段续跑，避免一次占用太久",
+            "default": 0,
+            "slider": {
+              "min": 0,
+              "max": 2000,
+              "step": 50
+            }
+          },
+          "download_original": {
+            "type": "bool",
+            "description": "优先原图",
+            "hint": "配置了登录 Cookie 时优先下原图（按 10×文件大小 MB 扣站点图片配额），单页取不到自动回退 1280px；未配置 Cookie 时本项无效，固定下 1280px 重采样",
+            "default": true
+          },
+          "cookie": {
+            "type": "string",
+            "description": "登录 Cookie",
+            "hint": "可选。填 ipb_member_id、ipb_pass_hash（exhentai 还需 igneous），多个用分号连接，如 ipb_member_id=...; ipb_pass_hash=...；留空=匿名，只能下 1280px 重采样。Cookie 等同账号凭据，泄露等于交出账号",
+            "default": "",
+            "secret": true
+          }
+        }
       }
     },
     "default": [
@@ -676,6 +766,19 @@
         "max_concurrent_images": 4,
         "retry_times": 2,
         "use_proxy": false
+      },
+      {
+        "__template_key": "ehentai",
+        "enable": true,
+        "site_domains": "e-hentai.org\nexhentai.org",
+        "use_proxy": true,
+        "request_timeout": 30,
+        "request_interval": 1.0,
+        "max_concurrent_images": 3,
+        "retry_times": 2,
+        "max_pages": 0,
+        "download_original": true,
+        "cookie": ""
       }
     ]
   }

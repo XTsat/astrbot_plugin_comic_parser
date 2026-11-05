@@ -23,7 +23,7 @@ from ....domain import (
     PluginSettings,
 )
 from ....domain.constants import PLUGIN_NAME
-from ....utils import split_link
+from ....utils import host_matches, split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat
 from ...domain_race import ProbeFn, http_probe
@@ -56,6 +56,9 @@ from .site import (
 
 _GALLERY_IN_TEXT = re.compile(r"/g/(\d+)")
 _FIRST_DIGITS = re.compile(r"\d+")
+# E-Hentai 的作品页也是 `/g/<gid>/<token>/` 形状：显式的域名排除比路径正则更稳，
+# 不会因为 token 恰好全是数字而误判
+_EH_HOSTS = ("e-hentai.org", "exhentai.org")
 
 
 class NhentaiChannel(BaseChannel):
@@ -96,8 +99,11 @@ class NhentaiChannel(BaseChannel):
 
     # ---- ID 解析 ----
     def match_link(self, text: str) -> str | None:
-        # `/g/<id>` 是 nhentai 独有的作品路径（镜像站结构一致），不必再认域名
-        _, path = split_link(text)
+        # `/g/<id>` 是 nhentai 的作品路径（镜像站结构一致），不必再认域名；
+        # 但 E-Hentai 的 `/g/<gid>/<token>/` 也是这个形状，必须让给 ehentai 渠道
+        host, path = split_link(text)
+        if host_matches(host, _EH_HOSTS):
+            return None
         matched = _GALLERY_IN_TEXT.search(path)
         return matched.group(1) if matched else None
 

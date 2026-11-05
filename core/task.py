@@ -265,6 +265,10 @@ class DownloadTask:
             elif isinstance(error, asyncio.CancelledError):
                 # 下载在非「到点」的情况下被叫停（外部取消）：同样留断点
                 raise self._cancelled(work_dir, meta, comic_id)
+            elif isinstance(error, (DownloadPaused, DownloadCancelled)):
+                # 暂停/取消不是失败：配额或封禁状态下重试只会再撞一次，
+                # 直接交给上层展示「断点已保留」
+                raise error
             elif isinstance(error, PluginError):
                 last_error = error
             else:
