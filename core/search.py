@@ -26,6 +26,8 @@ from ..domain import (
 from ..domain.constants import (
     SEARCH_CACHE_MAX_ENTRIES,
     SEARCH_MAX_TEXT_CHARS,
+    SEARCH_RESULT_MAX_SESSIONS,
+    SEARCH_RESULT_TTL,
 )
 from .channel import BaseChannel
 
@@ -52,6 +54,14 @@ class _CacheEntry:
     page: SearchPage
 
 
+@dataclass(slots=True)
+class _RecentSearch:
+    """本会话最近一次展示给用户的结果（渠道名 + 规范 ID），按显示顺序保存。"""
+
+    stored_at: float
+    entries: list[tuple[str, str]]
+
+
 class SearchService:
     """搜索编排：超时、缓存、冷却与文本渲染。"""
 
@@ -65,6 +75,7 @@ class SearchService:
         self._cache: dict[tuple[str, str], _CacheEntry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._last_search: dict[str, float] = {}
+        self._recent: dict[str, _RecentSearch] = {}
 
     # ---- 能力与冷却 ----
     def searchable(self) -> list[BaseChannel]:
@@ -197,16 +208,78 @@ class SearchService:
             for stale in list(self._cache)[: max(drop, 1)]:
                 self._cache.pop(stale, None)
 
+    # ---- 序号下载 ----
+    def remember(
+        self, session_id: str, entries: list[tuple[BaseChannel, SearchItem]]
+    ) -> None:
+        """记下这次展示的结果顺序，供「发序号直接下载」用。
+
+        存渠道名而不是渠道对象：解析时再查一遍注册表，渠道被停用后旧序号自然失效。
+        """
+        if not session_id or not entries:
+            return
+        self._recent[session_id] = _RecentSearch(
+            stored_at=time.monotonic(),
+            entries=[
+                (channel.name, str(item.comic_id)) for channel, item in entries
+            ],
+        )
+        if len(self._recent) <= SEARCH_RESULT_MAX_SESSIONS:
+            return
+        # 会话数量不可控：先清过期记录，仍超限就丢最早的那批
+        cutoff = time.monotonic() - SEARCH_RESULT_TTL
+        for key, entry in list(self._recent.items()):
+            if entry.stored_at < cutoff:
+                self._recent.pop(key, None)
+        overflow = len(self._recent) - SEARCH_RESULT_MAX_SESSIONS
+        if overflow > 0:
+            oldest = sorted(
+                self._recent, key=lambda key: self._recent[key].stored_at
+            )[:overflow]
+            for key in oldest:
+                self._recent.pop(key, None)
+
+    def forget(self, session_id: str) -> None:
+        """清掉本会话的序号记忆：重新搜索却没有结果时，旧列表不该还能按序号下载。"""
+        self._recent.pop(session_id, None)
+
+    def resolve_index(
+        self, session_id: str, token: str
+    ) -> tuple[BaseChannel, str] | None:
+        """把序号还原成那次搜索结果里的（渠道, 规范 ID）；过期/越界/渠道停用时返回 None。"""
+        if not session_id or not token.isdigit():
+            return None
+        index = int(token)
+        if index < 1:
+            return None
+        entry = self._recent.get(session_id)
+        if entry is None:
+            return None
+        if time.monotonic() - entry.stored_at > SEARCH_RESULT_TTL:
+            self._recent.pop(session_id, None)
+            return None
+        if index > len(entry.entries):
+            return None
+        channel_name, comic_id = entry.entries[index - 1]
+        channel = self.channels.get(channel_name)
+        if channel is None or not channel.enabled:
+            return None
+        return channel, comic_id
+
     # ---- 渲染 ----
-    def render_one(self, outcome: SearchOutcome, keyword: str) -> str:
+    def render_one(
+        self, outcome: SearchOutcome, keyword: str, session_id: str = ""
+    ) -> str:
         """只搜一个渠道时的结果文案；失败也直接给出原因，不吞掉。"""
         channel = outcome.channel
         if outcome.error:
+            self.forget(session_id)
             if outcome.timed_out:
                 return f"❌ {channel.display_name} 搜索超时：{outcome.error}"
             return f"❌ {channel.display_name} 搜索失败：{outcome.error}"
         page = outcome.page
         if page is None or page.empty:
+            self.forget(session_id)
             return (
                 f"🔎 {channel.display_name} 没有找到「{keyword}」的结果\n"
                 "换个关键词，或 /漫画网站 到站内搜作品、找 ID"
@@ -215,12 +288,19 @@ class SearchService:
         lines = [f"🔎 {channel.display_name} 搜索「{keyword}」", ""]
         for index, item in enumerate(page.items, start=1):
             lines.extend(self._format_item(index, item, channel))
+        self.remember(
+            session_id, [(channel, item) for item in page.items]
+        )
+
         lines.append("")
         lines.append(self._footer(page, outcome.elapsed))
+        lines.append(
+            f"下载：/{channel.display_command} 1（把 1 换成上面的序号）"
+        )
         return self._bounded("\n".join(lines))
 
     def render_all(
-        self, outcomes: list[SearchOutcome], keyword: str
+        self, outcomes: list[SearchOutcome], keyword: str, session_id: str = ""
     ) -> str:
         """全渠道搜索结果：按渠道轮流取，避免第一个渠道占满整条消息。"""
         limit = max(1, int(getattr(self.settings, "search_aggregate_limit", 8)))
@@ -232,6 +312,7 @@ class SearchService:
         lines = [f"🔎 全渠道搜索「{keyword}」", ""]
 
         if not buckets:
+            self.forget(session_id)
             lines.append("没有渠道返回结果；换个关键词，或 /漫画网站 到站内搜作品、找 ID")
             lines.extend(self._failure_lines(outcomes))
             return self._bounded("\n".join(lines))
@@ -255,19 +336,27 @@ class SearchService:
                 break
             index += 1
 
+        # 显示顺序：按渠道分组，但编号在所有渠道之间连续——用户看到的是同一条列表，
+        # 直接回序号就能下；分组各自从 1 开始会让每个渠道的第一条都叫「1」
+        displayed: list[tuple[BaseChannel, SearchItem]] = []
         for outcome in buckets:
             picked = selected[outcome.channel.name]
             if not picked:
                 continue
             channel = outcome.channel
             lines.append(f"【{channel.display_name}】")
-            for position, item in enumerate(picked, start=1):
-                lines.extend(self._format_item(position, item, channel))
+            for item in picked:
+                displayed.append((channel, item))
+                lines.extend(self._format_item(len(displayed), item, channel))
             lines.append("")
+        self.remember(session_id, displayed)
 
-        lines.append(self._failure_lines(outcomes))
+        failures = self._failure_lines(outcomes)
+        if failures:
+            lines.append(failures)
         slowest = max((outcome.elapsed for outcome in outcomes), default=0.0)
         lines.append(f"共 {shown} 条 · 用时 {slowest:.1f}s")
+        lines.append("下载：/comic 1（把 1 换成上面的序号，自动按结果所属渠道下载）")
         lines.append(
             "只想搜一个渠道："
             + "、".join(f"/{o.channel.display_command} sou 关键词" for o in buckets)
@@ -291,10 +380,7 @@ class SearchService:
             meta_parts.append(f"{page_count}P")
         meta = f"（{' · '.join(meta_parts)}）" if meta_parts else ""
         comic_id = str(getattr(item, "comic_id", ""))
-        return [
-            f"{index}. {title}{meta}",
-            f"   ID：{comic_id}　下载：/{channel.display_command} {comic_id}",
-        ]
+        return [f"{index}. {title}{meta}　ID：{comic_id}"]
 
     @staticmethod
     def _failure_lines(outcomes: list[SearchOutcome]) -> str:

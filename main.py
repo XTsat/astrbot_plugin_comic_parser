@@ -60,6 +60,7 @@ from .domain.constants import (
     PROGRESS_STALL_INTERVAL,
     PROGRESS_STEP_PERCENT,
     SEARCH_MAX_KEYWORD_LENGTH,
+    SEARCH_RESULT_TTL,
     SEARCH_WORDS,
     STOP_ALL_WORDS,
     STOP_WORDS,
@@ -337,6 +338,13 @@ class ComicParserPlugin(Star):
             )
         else:
             search_desc = "当前没有支持搜索的渠道"
+        index_minutes = max(1, SEARCH_RESULT_TTL // 60)
+        index_hint = (
+            f"搜索后下载：直接发 /comic <序号>（如 /comic 1），"
+            f"也可以 /<渠道命令> <序号>；序号在搜索后 {index_minutes} 分钟内有效\n"
+            if self.settings.search_enabled and searchable
+            else ""
+        )
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
@@ -351,6 +359,7 @@ class ComicParserPlugin(Star):
             f"群文件：{group_file_desc}\n"
             f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>\n"
             f"搜索：{search_desc}\n"
+            f"{index_hint}"
             f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
             f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
         )
@@ -378,13 +387,15 @@ class ComicParserPlugin(Star):
     ) -> AsyncGenerator[MessageEventResult, None]:
         """`/comic <链接>` 下载，`/comic sou <关键词>` 搜索所有渠道。
 
-        只认完整链接：裸 ID 无法判断站点，分享文本里的站点名也不可靠，那些走各渠道命令。
+        链接下载只认完整链接：裸 ID 无法判断站点，分享文本里的站点名也不可靠，那些走各渠道命令。
+        裸数字先按「上一次搜索结果的序号」解释，免得全渠道搜索后还得先记住 ID。
         """
         # 全角空格/多空格先压成单个半角空格，`/comic　sou　名字` 也能识别
         text = " ".join((args or "").split())
         if not text:
             yield event.plain_result(
-                "用法：/comic <作品链接>，或 /comic sou <关键词>（全渠道搜索）\n"
+                "用法：/comic <作品链接>、/comic <搜索序号>，"
+                "或 /comic sou <关键词>（全渠道搜索）\n"
                 f"{describe_links(self.channels)}"
             )
             return
@@ -404,13 +415,31 @@ class ComicParserPlugin(Star):
                 yield result
             return
 
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        indexed = self.search_service.resolve_index(session_id, text)
+        if indexed is not None:
+            channel, comic_id = indexed
+            # 序号已经解析成渠道 + 规范 ID，不能再让下载入口把它当成新序号
+            async for result in self._handle_download(
+                event, channel.command, comic_id, allow_index=False
+            ):
+                yield result
+            return
+
         resolved = resolve_link(self.channels, text)
         if resolved is None:
-            yield event.plain_result(
-                "❌ 认不出这条链接属于哪个站点：请贴作品页的完整链接，"
-                "或直接用对应渠道的命令（见 /漫画帮助）\n"
-                f"{describe_links(self.channels)}"
-            )
+            if text.isdigit():
+                yield event.plain_result(
+                    "❌ 没有找到这个序号对应的搜索结果（可能已过期）："
+                    "先 /comic sou <关键词> 搜一次；按 ID 下载请用对应渠道命令，"
+                    "或直接贴作品链接"
+                )
+            else:
+                yield event.plain_result(
+                    "❌ 认不出这条链接属于哪个站点：请贴作品页的完整链接，"
+                    "或直接用对应渠道的命令（见 /漫画帮助）\n"
+                    f"{describe_links(self.channels)}"
+                )
             return
 
         channel, _ = resolved
@@ -418,7 +447,11 @@ class ComicParserPlugin(Star):
             yield result
 
     async def _handle_download(
-        self, event: AstrMessageEvent, command: str, raw_id: str
+        self,
+        event: AstrMessageEvent,
+        command: str,
+        raw_id: str,
+        allow_index: bool = True,
     ) -> AsyncGenerator[MessageEventResult, None]:
         channel = self._commands.get(command)
         if channel is None:
@@ -456,6 +489,12 @@ class ComicParserPlugin(Star):
         if denied:
             yield event.plain_result(denied)
             return
+
+        if allow_index:
+            indexed = self.search_service.resolve_index(session_id, text)
+            if indexed is not None:
+                # 序号指向哪本就走哪个渠道：聚合搜索的结果跨渠道，命令只是入口
+                channel, text = indexed
 
         # 链接自带站点，命令只是入口别名：命令与链接指向的渠道不一致时，以链接为准。
         # 否则 `/jm <nhentai 链接>` 会从链接里抠出一串数字当成 JM 的本子 ID，下到另一本
@@ -608,7 +647,7 @@ class ComicParserPlugin(Star):
                 return
             outcome = await self.search_service.search_one(channel, keyword)
             yield event.plain_result(
-                self.search_service.render_one(outcome, keyword)
+                self.search_service.render_one(outcome, keyword, session_id)
             )
             return
 
@@ -618,7 +657,7 @@ class ComicParserPlugin(Star):
             yield event.plain_result(f"❌ {exc}")
             return
         yield event.plain_result(
-            self.search_service.render_all(outcomes, keyword)
+            self.search_service.render_all(outcomes, keyword, session_id)
         )
 
     async def _deliver(

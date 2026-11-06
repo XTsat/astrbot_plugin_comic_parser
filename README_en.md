@@ -9,7 +9,7 @@
 
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: hand over a comic ID or link and get the whole comic
-- **Search right in the chat**: `/jm sou <keyword>` searches JM only, while `/comic sou <keyword>` searches every channel that supports search. Each channel is timed separately, so one slow site is skipped instead of holding up the whole command; every hit comes with its ID and download command, ready to copy
+- **Search right in the chat**: `/jm sou <keyword>` searches JM only, while `/comic sou <keyword>` searches every channel that supports search. Each channel is timed separately, so one slow site is skipped instead of holding up the whole command. Hits are numbered continuously and each line only shows the title, author/page count and ID, with a single download example at the end; reply with the number to download (e.g. `/comic 1` or `/jm 1`). A new search replaces the numbers, and they stay valid for 10 minutes
 - **E-Hentai channel**: `/eh <gid:token or link>` (full name `/ehentai`) downloads a whole E-Hentai gallery. Without a cookie it fetches the 1280px-wide resampled images anonymously; originals are only used once you add a cookie and keep "prefer originals" on, and each original is charged against the site's image quota by file size. The quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so send the same command again to continue — long galleries usually take a few passes
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
@@ -27,8 +27,8 @@
 | Command | Permission | Description |
 |---------|------------|-------------|
 | `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded (works for every channel below) |
-| `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; each hit comes with its ID and the matching download command |
-| `/jm sou <keyword>` (same for `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜` |
+| `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; hits are numbered continuously, and `/comic <number>` downloads the matching one |
+| `/jm sou <keyword>` (same for `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜`; after a search, send `/<channel command> <number>` to download |
 | `/jm <ID or link>` (full name `/jmcomic`) | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
 | `/nh <ID or link>` (full name `/nhentai`) | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
 | `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
@@ -64,14 +64,17 @@ Examples:
 /eh 4306312:0123456789
 /eh https://e-hentai.org/g/4306312/0123456789/
 /comic sou tentacles
+/comic 1
 /jm sou 無職転生
+/jm 1
 /nh sou tentacles
 ```
 
-> `/comic` only accepts full links (a work page address with a domain): a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead.
+> Search hits show only the title, author/page count, a continuous number and the ID; the download example is shown once at the end. Send `/comic 1` (or `/jm 1`) to download the first hit, and the channel is picked automatically from the result. A new search replaces the numbers, and they stay valid for 10 minutes.
+> `/comic` only accepts full links (a work page address with a domain) or a number from the latest search: a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead.
 > An E-Hentai ID has two parts, gid and token (e.g. `4306312:0123456789`); a bare number is rejected with a hint. `gid:token`, `gid/token`, and `gid-token` are all accepted, with or without a trailing slash. Copying the gallery link from your browser's address bar is the easiest way.
 > Do not know where to find the ID? Send `/漫画网站` to see each site's homepage plus a sample work-page link (`<ID>` placeholder); once you find the comic there, replace `<ID>` with the number in the link.
-> Search results show only title, author/page count and ID; a hit is not a promise that it can be downloaded (it may need a login, be delisted, or be region-locked). Open the work page to confirm before downloading.
+> Search results show only title, author/page count and ID; a hit is not a promise that it can be downloaded (it may need a login, be delisted, or be region-locked). Open the work page to confirm, then download it by number or ID.
 
 ## Configuration
 
