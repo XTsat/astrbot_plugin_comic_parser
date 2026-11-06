@@ -25,7 +25,13 @@ from ....domain import (
 )
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
 from ....utils import format_size, split_link
-from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
+from ...channel import (
+    BaseChannel,
+    CancelToken,
+    ProgressCallback,
+    is_search_proxy_override,
+    split_option_list,
+)
 from ...progress import ProgressHeartbeat, ProgressState
 from ...search_query import field_label
 from .constants import (
@@ -86,6 +92,11 @@ class JMComicChannel(BaseChannel):
     link_template: ClassVar[str] = "https://18comic.vip/album/<ID>"
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
+    # 直连搜索经常被上游限速；提示里直接给出可操作的开关，而不是只说超时
+    search_timeout_hint: ClassVar[str] = (
+        "JM 直连搜索可能很慢，可在 JM 渠道配置里打开「使用代理」，"
+        "或打开/调大「搜索」里的「自动代理重试」"
+    )
 
     @classmethod
     def default_options(cls) -> dict[str, Any]:
@@ -250,12 +261,39 @@ class JMComicChannel(BaseChannel):
             raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
 
         keyword, method, note = self._build_search(query)
+        # 开了自动代理时，直连只给一次短请求：外层超时后 to_thread 里的请求仍会跑完，
+        # 把 jmcomic 默认的 30 秒 × 5 次重试带进后台会白占连接，留给代理重试即可。
+        auto_proxy_ready = bool(
+            self.settings.search_auto_proxy and self.settings.proxy
+        )
+        # 直连只给一次短请求；代理重试按「自动代理重试额外时间」给预算，不能沿用
+        # 直连那个被压短的超时，否则搜索超时配得小的时候代理也来不及返回。
+        if is_search_proxy_override():
+            budget = max(1, int(self.settings.search_auto_proxy_timeout) - 1)
+            retry_times = 0
+        elif auto_proxy_ready:
+            budget = max(1, int(self.settings.search_timeout) - 1)
+            retry_times = 0
+        else:
+            budget = 0
+            retry_times = None
+        request_timeout = (
+            min(
+                self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1),
+                budget,
+            )
+            if budget
+            else None
+        )
         option = await asyncio.to_thread(
             build_option,
             self,
             jmcomic,
             Path(tempfile.gettempdir()),
             impl="api",
+            for_search=True,
+            retry_times=retry_times,
+            request_timeout=request_timeout,
         )
         result = await asyncio.to_thread(
             self._search_sync, option, keyword, page, method

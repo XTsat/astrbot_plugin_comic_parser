@@ -27,7 +27,13 @@ from ....domain import (
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
-from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
+from ...channel import (
+    BaseChannel,
+    CancelToken,
+    ProgressCallback,
+    is_search_proxy_override,
+    split_option_list,
+)
 from ...progress import ProgressHeartbeat
 from ...search_query import fallback_note, plain_search_text
 from ...domain_race import ProbeFn, http_probe
@@ -386,14 +392,18 @@ class Hanime1Channel(BaseChannel):
         )
 
     def _scraper(self) -> PageScraper:
-        if self._scraper_instance is None:
-            self._scraper_instance = PageScraper(
+        # 搜索超时后的代理重试必须用新的抓页器：缓存里那个绑定的是上一次的直连代理
+        if self._scraper_instance is None or is_search_proxy_override():
+            scraper = PageScraper(
                 timeout=self.opt_int(
                     "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
                 ),
                 proxy=self._proxy(),
                 fetch_proxy=self.opt_str("fetch_proxy", DEFAULT_FETCH_PROXY),
             )
+            if not is_search_proxy_override():
+                self._scraper_instance = scraper
+            return scraper
         return self._scraper_instance
 
     # ---- 搜索 ----

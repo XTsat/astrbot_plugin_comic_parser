@@ -152,7 +152,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Search
 
 <details>
-<summary>Search (6)</summary>
+<summary>Search (8)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -162,6 +162,8 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Results per page, all channels (`aggregate_limit`) | int | 8 | Maximum hits shown per page by an all-channel search, taken round-robin so one channel cannot fill the message; paging continues at the same size |
 | Result cache lifetime (`cache_ttl`) | int | 60 | Reuses the previous result for the same channel and keyword within this window; 0 disables caching |
 | Search cooldown (`cooldown`) | int | 3 | Minimum seconds between two searches in the same session; 0 disables the limit |
+| Auto-proxy retry on timeout (`auto_proxy`) | bool | true | When any channel misses the per-channel search timeout, retry once through the global proxy configured in the plugin; has no effect without a global proxy |
+| Extra time for auto-proxy retry (`auto_proxy_timeout`) | int | 15 | The retry has its own time budget and does not consume the per-channel search timeout; only used when auto-proxy is on and a global proxy is configured |
 
 </details>
 
@@ -299,5 +301,8 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 **Why do some channels show no results or a timeout when searching?** An all-channel search times each channel separately (per-channel search timeout, 10 seconds by default); a channel that is slow or blocked is skipped with a note under the results while the others are still shown. Raise the timeout, or search one channel with `/jm sou` instead. The PicaACG channel also needs an account and password in its settings, and reports that explicitly when they are missing.
 
+**Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy the search takes about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds.
+
+After a search timeout, the plugin automatically retries through the global proxy configured in the plugin and notes "搜索超时后已用代理重试" in the results. This does not change the proxy setting used for downloads. The retry is on by default and can be disabled with "auto-proxy retry on timeout" in Search, or tuned with its extra-time setting.
 
 **Why did the file end up in the group file root instead of the configured folder?** That happens when the group has no such folder and the bot could not create it: creating a group file folder requires the bot to be a group admin or owner, so a regular member cannot do it, and the plugin still uploads to the root instead of wasting the download. Make the bot an admin, or create the folder yourself in the group files.

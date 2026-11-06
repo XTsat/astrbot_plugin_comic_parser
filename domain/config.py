@@ -23,6 +23,8 @@ from .constants import (
     DEFAULT_RESUME_TTL,
     DEFAULT_RETRY_TIMES,
     DEFAULT_SEARCH_AGGREGATE_LIMIT,
+    DEFAULT_SEARCH_AUTO_PROXY,
+    DEFAULT_SEARCH_AUTO_PROXY_TIMEOUT,
     DEFAULT_SEARCH_CACHE_TTL,
     DEFAULT_SEARCH_COOLDOWN,
     DEFAULT_SEARCH_ENABLED,
@@ -114,6 +116,8 @@ class PluginSettings:
     search_aggregate_limit: int = DEFAULT_SEARCH_AGGREGATE_LIMIT
     search_cache_ttl: int = DEFAULT_SEARCH_CACHE_TTL
     search_cooldown: int = DEFAULT_SEARCH_COOLDOWN
+    search_auto_proxy: bool = DEFAULT_SEARCH_AUTO_PROXY
+    search_auto_proxy_timeout: int = DEFAULT_SEARCH_AUTO_PROXY_TIMEOUT
     proxy: str = ""
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -233,6 +237,18 @@ class PluginSettings:
             ),
             search_cooldown=_as_int(
                 search.get("cooldown"), DEFAULT_SEARCH_COOLDOWN, minimum=0
+            ),
+            search_auto_proxy=_as_bool(
+                search.get("auto_proxy"), DEFAULT_SEARCH_AUTO_PROXY
+            ),
+            # 自动代理重试是额外预算，给 1–120 秒；配成 0 会让重试立刻判超时
+            search_auto_proxy_timeout=min(
+                _as_int(
+                    search.get("auto_proxy_timeout"),
+                    DEFAULT_SEARCH_AUTO_PROXY_TIMEOUT,
+                    minimum=1,
+                ),
+                120,
             ),
             proxy=_as_str(download.get("proxy")),
             channels=_parse_channels(data.get("channels")),

@@ -13,7 +13,9 @@ import importlib.util
 import os
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -67,6 +69,27 @@ PROXY_SOURCE_PLUGIN = "代理"
 PROXY_SOURCE_ASTRBOT = "宿主代理"
 PROXY_SOURCE_DIRECT = "直连"
 
+# 搜索超时后的代理重试：只影响当前异步任务（含其 to_thread 子上下文），
+# 不会把并发下载的代理设置一起改掉。
+_SEARCH_PROXY_OVERRIDE: ContextVar[str | None] = ContextVar(
+    "search_proxy_override", default=None
+)
+
+
+@contextmanager
+def search_proxy_override(proxy: str) -> Iterator[None]:
+    """在块内把渠道的代理解析强制指向 ``proxy``，用于搜索超时后的自动代理重试。"""
+    token = _SEARCH_PROXY_OVERRIDE.set(proxy)
+    try:
+        yield
+    finally:
+        _SEARCH_PROXY_OVERRIDE.reset(token)
+
+
+def is_search_proxy_override() -> bool:
+    """当前是否处于「搜索超时后的自动代理重试」中。"""
+    return _SEARCH_PROXY_OVERRIDE.get() is not None
+
 
 def split_option_list(raw: Any) -> list[str]:
     """把「多行文本 / 逗号空格分隔的字符串 / list」拆成列表，保持填写顺序。
@@ -100,6 +123,8 @@ class BaseChannel(ABC):
     requires: ClassVar[tuple[str, ...]] = ()  # 运行时依赖的模块名
     # 「使用代理」开关在配置里缺失时的默认值：面向境外站点的渠道默认开启
     default_use_proxy: ClassVar[bool] = False
+    # 搜索超时时追加给用户的排查提示（渠道私有，不知道就留空）
+    search_timeout_hint: ClassVar[str] = ""
 
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
         self.options: dict[str, Any] = dict(options)
@@ -182,6 +207,9 @@ class BaseChannel(ABC):
           环境变量里），这样本体配过代理的人不用在插件里再填一遍
         - 都没有 → 直连
         """
+        override = _SEARCH_PROXY_OVERRIDE.get()
+        if override:
+            return override, PROXY_SOURCE_PLUGIN
         if default_enabled is None:
             default_enabled = self.default_use_proxy
         if not self.opt_bool("use_proxy", default_enabled):

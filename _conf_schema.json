@@ -300,6 +300,23 @@
           "max": 60,
           "step": 1
         }
+      },
+      "auto_proxy": {
+        "type": "bool",
+        "description": "搜索超时后自动代理重试",
+        "hint": "任意渠道搜索超过「单渠道搜索超时」后，用插件配置的全局代理再试一次；没有配置全局代理时不生效",
+        "default": true
+      },
+      "auto_proxy_timeout": {
+        "type": "int",
+        "description": "自动代理重试额外时间（秒）",
+        "hint": "代理重试单独计时，不占用上面的单渠道搜索超时；只在开启自动代理且配置了全局代理时生效",
+        "default": 15,
+        "slider": {
+          "min": 1,
+          "max": 60,
+          "step": 1
+        }
       }
     }
   },

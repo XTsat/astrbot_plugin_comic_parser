@@ -39,6 +39,7 @@ def build_option(
     retry_times: int | None = None,
     request_timeout: int | None = None,
     impl: str | None = None,
+    for_search: bool = False,
 ) -> Any:
     """把渠道配置翻译成 jmcomic 的 option。
 
@@ -48,6 +49,9 @@ def build_option(
     ``domains`` / ``retry_times`` / ``request_timeout`` 是给测速用的临时覆盖：
     测速要按「单个域名、零重试、短超时」去量，不能沿用下载时的取值，否则一个
     坏节点会用满重试次数把整轮测速拖成十几秒。
+
+    ``for_search`` 只影响搜索：jmcomic 的 API 客户端初始化时会先请求一次 ``/setting``
+    拿 cookie，搜索再快也要多等这一趟；搜索本身不需要这份 cookie，塞一个空值跳过它。
     """
     client_type = channel.opt_str("client_type", "api")
     if impl is None:
@@ -91,13 +95,17 @@ def build_option(
             else max(1, request_timeout)
         )
     }
-    # 代理按「渠道开关 → 插件代理 → AstrBot 本体代理」解析，开关关掉时是真直连
+    # 代理按「渠道开关 → 插件代理 → AstrBot 本体代理」解析，开关关掉时是真直连；
+    # 搜索超时后的自动代理重试由 core/channel.py 的 contextvar 覆盖，这里不用特殊分支
     proxy = channel.resolve_proxy(default_enabled=False)[0]
     if proxy:
         meta_data["proxies"] = proxy
     else:
         # 显式置空：容器里常带系统代理变量，不覆盖会让请求绕到不存在的代理上
         meta_data["proxies"] = {}
+    if for_search:
+        # 非空即可让 jmcomic 的 ensure_have_cookies 跳过 /setting；搜索不依赖服务端 cookie
+        meta_data["cookies"] = {"AVS": ""}
     option_dict["client"]["postman"] = {"meta_data": meta_data}
 
     return jmcomic.JmModuleConfig.option_class().construct(option_dict)

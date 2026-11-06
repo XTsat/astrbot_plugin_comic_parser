@@ -36,7 +36,7 @@ from ..domain.constants import (
     SEARCH_RESULT_TTL,
     SEARCH_UPSTREAM_FETCH_LIMIT,
 )
-from .channel import BaseChannel
+from .channel import BaseChannel, search_proxy_override
 from .search_query import parse_search_query
 
 _WHITESPACE = re.compile(r"\s+")
@@ -152,6 +152,11 @@ class SearchService:
             )
 
         timeout = max(1, int(getattr(self.settings, "search_timeout", 10)))
+        auto_proxy = bool(getattr(self.settings, "search_auto_proxy", True))
+        proxy = (getattr(self.settings, "proxy", "") or "").strip()
+        retry_timeout = max(
+            1, int(getattr(self.settings, "search_auto_proxy_timeout", 15))
+        )
         limit = SEARCH_UPSTREAM_FETCH_LIMIT
         lock = self._locks.setdefault(channel.name, asyncio.Lock())
 
@@ -164,22 +169,64 @@ class SearchService:
                     return cached
                 return await channel.search(query, limit=limit, page=page)
 
+        hint = getattr(channel, "search_timeout_hint", "")
+        hint_suffix = f"（{hint}）" if hint else ""
         try:
             result = await asyncio.wait_for(execute(), timeout=float(timeout))
-            self._cache_put(cache_key, result)
-            return SearchOutcome(
-                channel=channel, page=result, elapsed=time.monotonic() - started
-            )
         except asyncio.TimeoutError:
             logger.warning(
                 f"[{PLUGIN_NAME}] {channel.display_name} 搜索超时（{timeout}s）：{query.raw}"
             )
-            return SearchOutcome(
-                channel=channel,
-                timed_out=True,
-                error=f"超过 {timeout} 秒没有响应",
-                elapsed=time.monotonic() - started,
+            if not auto_proxy or not proxy:
+                return self._timeout_outcome(
+                    channel, started, timeout, hint_suffix
+                )
+            logger.warning(
+                f"[{PLUGIN_NAME}] {channel.display_name} 搜索超时，"
+                f"自动用代理重试（{retry_timeout}s）：{query.raw}"
             )
+            try:
+                with search_proxy_override(proxy):
+                    result = await asyncio.wait_for(
+                        execute(), timeout=float(retry_timeout)
+                    )
+            except asyncio.TimeoutError:
+                return self._timeout_outcome(
+                    channel,
+                    started,
+                    timeout,
+                    hint_suffix,
+                    retry_timeout=retry_timeout,
+                )
+            except SearchUnsupportedError as exc:
+                return SearchOutcome(
+                    channel=channel,
+                    timed_out=True,
+                    error=f"自动代理重试失败：{exc}",
+                    elapsed=time.monotonic() - started,
+                )
+            except PluginError as exc:
+                return SearchOutcome(
+                    channel=channel,
+                    timed_out=True,
+                    error=f"自动代理重试失败：{exc}",
+                    elapsed=time.monotonic() - started,
+                )
+            except Exception as exc:  # 兜底：自动代理重试也不能拖垮整次搜索
+                logger.error(
+                    f"[{PLUGIN_NAME}] {channel.display_name} 自动代理重试失败：{exc}"
+                )
+                return SearchOutcome(
+                    channel=channel,
+                    timed_out=True,
+                    error="自动代理重试出现未预期错误，详情见日志",
+                    elapsed=time.monotonic() - started,
+                )
+            logger.info(
+                f"[{PLUGIN_NAME}] {channel.display_name} 自动代理重试成功"
+                f"（{time.monotonic() - started:.1f}s）：{query.raw}"
+            )
+            result.note = self._append_note(result.note, "搜索超时后已用代理重试")
         except SearchUnsupportedError as exc:
             return SearchOutcome(
                 channel=channel,
@@ -201,6 +248,38 @@ class SearchService:
                 error="搜索出现未预期错误，详情见日志",
                 elapsed=time.monotonic() - started,
             )
+
+        self._cache_put(cache_key, result)
+        return SearchOutcome(
+            channel=channel, page=result, elapsed=time.monotonic() - started
+        )
+
+    def _timeout_outcome(
+        self,
+        channel: BaseChannel,
+        started: float,
+        timeout: int,
+        hint_suffix: str,
+        *,
+        retry_timeout: int = 0,
+    ) -> SearchOutcome:
+        if retry_timeout:
+            message = (
+                f"超过 {timeout} 秒没有响应，"
+                f"自动代理重试 {retry_timeout} 秒仍未完成"
+            )
+        else:
+            message = f"超过 {timeout} 秒没有响应"
+        return SearchOutcome(
+            channel=channel,
+            timed_out=True,
+            error=f"{message}{hint_suffix}",
+            elapsed=time.monotonic() - started,
+        )
+
+    @staticmethod
+    def _append_note(note: str, extra: str) -> str:
+        return f"{note}；{extra}" if note else extra
 
     async def search_all(self, query: SearchQuery) -> list[SearchOutcome]:
         """并发搜所有可用渠道的上游第一页；每个渠道各自超时，互不阻塞。"""
