@@ -25,6 +25,7 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Protocol
+from urllib.parse import quote
 
 from astrbot.api import logger
 
@@ -35,6 +36,7 @@ from .constants import (
     IMAGE_EXTENSIONS,
     MAX_PAGES,
     MIN_IMAGE_BYTES,
+    PATH_COMIC_SEARCH,
 )
 
 # ---- 详情页 ----
@@ -111,6 +113,102 @@ class ParsedComic:
     @property
     def resolved_page_count(self) -> int:
         return len(self.extensions) or self.page_count
+
+
+# ---- 搜索结果 ----
+
+# 搜索结果卡片：`<a href=".../comic/<id>">` 包住封面与标题；标题 class 见下。
+# 站点不同版本会把标题放在 <a> 内或紧随其后，解析时两种都兜。
+_SEARCH_CARD = re.compile(
+    r'<a[^>]+href="[^"]*/comic/(\d+)"[^>]*>(.*?)</a>',
+    re.DOTALL | re.IGNORECASE,
+)
+_SEARCH_TITLE = re.compile(
+    r'class="[^"]*comic-rows-videos-title[^"]*"[^>]*>(.*?)</',
+    re.DOTALL | re.IGNORECASE,
+)
+_SEARCH_COVER = re.compile(
+    r'data-srcset="([^"]+)"|<img[^>]+src="([^"]+)"', re.IGNORECASE
+)
+_SEARCH_COMIC_ID = re.compile(r"/comic/(\d+)")
+
+
+@dataclass(slots=True)
+class SearchHit:
+    """漫画区搜索结果里的一条作品。"""
+
+    comic_id: str
+    title: str = ""
+    cover_url: str = ""
+
+
+def comic_search_path(keyword: str, page: int = 1) -> str:
+    """漫画区搜索路径；关键词要 URL 编码。"""
+    return PATH_COMIC_SEARCH.format(
+        keyword=quote(keyword, safe=""), page=max(1, int(page))
+    )
+
+
+def parse_comic_search(document: str) -> list[SearchHit]:
+    """解析漫画区搜索结果页；解析不到就返回空列表，由上层按「没搜到」展示。"""
+    hits: list[SearchHit] = []
+    seen: set[str] = set()
+
+    for card in _SEARCH_CARD.finditer(document):
+        comic_id = card.group(1)
+        if comic_id in seen:
+            continue
+        inner = card.group(2)
+        title = _search_title(inner)
+        if not title:
+            # 标题放在 <a> 之外的版本：在锚点附近再找一次
+            title = _search_title(document[card.end() : card.end() + 600])
+        if not title:
+            continue
+        seen.add(comic_id)
+        hits.append(
+            SearchHit(
+                comic_id=comic_id,
+                title=title,
+                cover_url=_search_cover(inner),
+            )
+        )
+
+    if hits:
+        return hits
+
+    # 兜底：卡片结构完全变了时，按 /comic/<id> 出现位置逐个回看附近的标题
+    for matched in _SEARCH_COMIC_ID.finditer(document):
+        comic_id = matched.group(1)
+        if comic_id in seen:
+            continue
+        window = document[max(0, matched.start() - 1200) : matched.end() + 1200]
+        title = _search_title(window)
+        if not title:
+            continue
+        seen.add(comic_id)
+        hits.append(
+            SearchHit(
+                comic_id=comic_id,
+                title=title,
+                cover_url=_search_cover(window),
+            )
+        )
+    return hits
+
+
+def _search_title(fragment: str) -> str:
+    matched = _SEARCH_TITLE.search(fragment)
+    return _clean(matched.group(1)) if matched is not None else ""
+
+
+def _search_cover(fragment: str) -> str:
+    matched = _SEARCH_COVER.search(fragment)
+    if matched is None:
+        return ""
+    raw = (matched.group(1) or matched.group(2) or "").strip()
+    # data-srcset 可能是「url 1x, url 2x」；取第一个地址
+    return raw.split(",")[0].strip().split(" ")[0]
 
 
 # ---- 解析 ----

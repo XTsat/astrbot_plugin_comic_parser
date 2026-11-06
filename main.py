@@ -1,6 +1,6 @@
-"""漫画下载器 —— 多渠道按 ID 下载整本漫画，统一打包发送，支持密码加密。
+"""漫画下载器 —— 多渠道按 ID 下载整本漫画 / 在聊天里搜索，统一打包发送，支持密码加密。
 
-命令层只做四件事：准入判断、渠道选择、进度转发、结果发送；
+命令层只做四件事：准入判断、渠道选择、进度转发、结果发送；搜索另走一条轻量链路，
 真正的下载在渠道里，打包与加密在 `core/packer.py`（上层统一）。
 """
 
@@ -30,6 +30,7 @@ from .core import (
     GroupFileResult,
     GroupFileUploader,
     ProgressState,
+    SearchService,
     build_channels,
     command_map,
     describe_channels,
@@ -37,10 +38,15 @@ from .core import (
     describe_websites,
     resolve_link,
 )
-from .core.channel import CancelToken, ProgressCallback
+from .core.channel import BaseChannel, CancelToken, ProgressCallback
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
 from .core.packer import Packer
-from .domain import DownloadCancelled, DownloadPaused, PluginError, PluginSettings
+from .domain import (
+    DownloadCancelled,
+    DownloadPaused,
+    PluginError,
+    PluginSettings,
+)
 from .domain.constants import (
     PACK_FORMATS,
     PLUGIN_AUTHOR,
@@ -53,6 +59,8 @@ from .domain.constants import (
     PROGRESS_REACTIONS,
     PROGRESS_STALL_INTERVAL,
     PROGRESS_STEP_PERCENT,
+    SEARCH_MAX_KEYWORD_LENGTH,
+    SEARCH_WORDS,
     STOP_ALL_WORDS,
     STOP_WORDS,
 )
@@ -157,6 +165,7 @@ class ComicParserPlugin(Star):
         self.group_files = GroupFileUploader()
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
+        self.search_service = SearchService(self.channels, self.settings)
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
         # 正在跑的任务：排队提示与「前面下到哪」都读它
         self._running: dict[int, _RunningTask] = {}
@@ -211,59 +220,71 @@ class ComicParserPlugin(Star):
     # 推荐入口：整条作品链接自带站点，不用记命令；各渠道命令保留给「只有 ID」的场景
     @filter.command("comic")
     async def cmd_comic(
-        self, event: AstrMessageEvent, link: str = ""
+        self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载链接指向的整本漫画，自动识别站点。用法：/comic <作品链接>"""
-        async for result in self._handle_comic(event, link):
+        """下载链接指向的整本漫画，自动识别站点；`/comic sou 关键词` 搜所有渠道。"""
+        async for result in self._handle_comic(event, self._command_args(event)):
             yield result
 
     # 指令注册用站点全称，日常敲的缩写走别名；提示文案里展示的仍是缩写（见 cmd_help）
     @filter.command("jmcomic", alias={"jm"})
     async def cmd_jmcomic(
-        self, event: AstrMessageEvent, comic_id: str = ""
+        self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载指定 ID 的 JM 漫画。用法：/jm <ID 或链接>"""
-        async for result in self._handle_download(event, "jmcomic", comic_id):
+        """下载 JM 漫画；`/jm sou 关键词` 只搜 JM。"""
+        async for result in self._handle_download(
+            event, "jmcomic", self._command_args(event)
+        ):
             yield result
 
     @filter.command("nhentai", alias={"nh"})
     async def cmd_nhentai(
-        self, event: AstrMessageEvent, comic_id: str = ""
+        self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载指定 ID 的 nhentai 作品。用法：/nh <ID 或链接>"""
-        async for result in self._handle_download(event, "nhentai", comic_id):
+        """下载 nhentai 作品；`/nh sou 关键词` 只搜 nhentai。"""
+        async for result in self._handle_download(
+            event, "nhentai", self._command_args(event)
+        ):
             yield result
 
     @filter.command("picacg", alias={"pica"})
     async def cmd_picacg(
-        self, event: AstrMessageEvent, comic_id: str = ""
+        self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载指定 ID 的哔咔漫画。用法：/pica <ID 或链接>"""
-        async for result in self._handle_download(event, "picacg", comic_id):
+        """下载哔咔漫画；`/pica sou 关键词` 只搜哔咔（需已填账号）。"""
+        async for result in self._handle_download(
+            event, "picacg", self._command_args(event)
+        ):
             yield result
 
     @filter.command("hanime1", alias={"hm", "ha", "hanime"})
     async def cmd_hanime1(
-        self, event: AstrMessageEvent, comic_id: str = ""
+        self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载指定 ID 的 Hanime1 漫画。用法：/hm <ID 或链接>（别名 /ha、/hanime）"""
-        async for result in self._handle_download(event, "hanime1", comic_id):
+        """下载 Hanime1 漫画；`/hm sou 关键词` 只搜 Hanime1。"""
+        async for result in self._handle_download(
+            event, "hanime1", self._command_args(event)
+        ):
             yield result
 
     @filter.command("wnacg", alias={"ssmh", "wn"})
     async def cmd_wnacg(
-        self, event: AstrMessageEvent, comic_id: str = ""
+        self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载指定 ID 的紳士漫畫作品。用法：/ssmh <ID 或链接>（别名 /wn）"""
-        async for result in self._handle_download(event, "wnacg", comic_id):
+        """下载紳士漫畫作品；`/ssmh sou 关键词` 只搜紳士漫畫。"""
+        async for result in self._handle_download(
+            event, "wnacg", self._command_args(event)
+        ):
             yield result
 
     @filter.command("ehentai", alias={"eh"})
     async def cmd_ehentai(
-        self, event: AstrMessageEvent, comic_id: str = ""
+        self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载指定 ID 的 E-Hentai 作品。用法：/eh <gid:token 或链接>"""
-        async for result in self._handle_download(event, "ehentai", comic_id):
+        """下载 E-Hentai 作品；`/eh sou 关键词` 只搜 E-Hentai。"""
+        async for result in self._handle_download(
+            event, "ehentai", self._command_args(event)
+        ):
             yield result
 
     @filter.command("漫画帮助", alias={"comichelp"})
@@ -302,6 +323,20 @@ class ComicParserPlugin(Star):
             resume_desc = f"每 {minutes} 分钟先暂停，再发同一条命令接着下"
         else:
             resume_desc = "不分段，一次下完"
+        searchable = [
+            channel
+            for channel in self.channels.values()
+            if channel.enabled and channel.supports_search
+        ]
+        if not self.settings.search_enabled:
+            search_desc = "未启用（在插件配置的「搜索」里打开）"
+        elif searchable:
+            search_desc = (
+                f"/comic sou <关键词> 一次搜 {len(searchable)} 个渠道；"
+                "也可 /<渠道命令> sou <关键词> 只搜一个"
+            )
+        else:
+            search_desc = "当前没有支持搜索的渠道"
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME}\n"
             f"{describe_channels(self.channels)}\n\n"
@@ -315,6 +350,7 @@ class ComicParserPlugin(Star):
             f"下载分段：{resume_desc}\n"
             f"群文件：{group_file_desc}\n"
             f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>\n"
+            f"搜索：{search_desc}\n"
             f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
             f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
         )
@@ -330,6 +366,7 @@ class ComicParserPlugin(Star):
             f"{describe_websites(self.channels)}\n\n"
             f"到站内搜到作品后打开作品页，把 <ID> 替换成链接里的 ID，\n"
             f"再发给 /comic 就能下载；也可以直接发完整作品页链接\n"
+            f"不想离开聊天：/comic sou <关键词> 一次搜所有支持搜索的渠道\n"
             f"站点域名打不开时，可在渠道配置里换成其它可用域名"
         )
         yield event.plain_result(text)
@@ -337,23 +374,34 @@ class ComicParserPlugin(Star):
     # ==================== 下载流程 ====================
 
     async def _handle_comic(
-        self, event: AstrMessageEvent, link: str
+        self, event: AstrMessageEvent, args: str
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """把完整链接路由到对应渠道；认不出站点时列出支持的站点与 ID 位置。
+        """`/comic <链接>` 下载，`/comic sou <关键词>` 搜索所有渠道。
 
         只认完整链接：裸 ID 无法判断站点，分享文本里的站点名也不可靠，那些走各渠道命令。
         """
-        text = (link or "").strip()
-        if text.lower() in STOP_WORDS or text.lower() in STOP_ALL_WORDS:
-            async for result in self._handle_stop(
-                event, include_all=text.lower() in STOP_ALL_WORDS
-            ):
-                yield result
-            return
+        # 全角空格/多空格先压成单个半角空格，`/comic　sou　名字` 也能识别
+        text = " ".join((args or "").split())
         if not text:
             yield event.plain_result(
-                f"用法：/comic <作品链接>\n{describe_links(self.channels)}"
+                "用法：/comic <作品链接>，或 /comic sou <关键词>（全渠道搜索）\n"
+                f"{describe_links(self.channels)}"
             )
+            return
+
+        head, _, rest = text.partition(" ")
+        head_lower = head.lower()
+        if head_lower in SEARCH_WORDS:
+            async for result in self._handle_search(event, None, rest.strip()):
+                yield result
+            return
+        if head_lower in STOP_WORDS or head_lower in STOP_ALL_WORDS:
+            include_all = (
+                head_lower in STOP_ALL_WORDS
+                or rest.strip().lower() in STOP_ALL_WORDS
+            )
+            async for result in self._handle_stop(event, include_all=include_all):
+                yield result
             return
 
         resolved = resolve_link(self.channels, text)
@@ -377,23 +425,36 @@ class ComicParserPlugin(Star):
             yield event.plain_result("❌ 该下载渠道未启用，请先在插件配置里添加")
             return
 
-        session_id = str(getattr(event, "unified_msg_origin", "") or "")
-        denied = self.guard.check_session(session_id)
-        if denied:
-            yield event.plain_result(denied)
-            return
-
-        text = raw_id.strip()
-        if text.lower() in STOP_WORDS or text.lower() in STOP_ALL_WORDS:
-            async for result in self._handle_stop(
-                event, include_all=text.lower() in STOP_ALL_WORDS
+        text = " ".join((raw_id or "").split())
+        head, _, rest = text.partition(" ")
+        head_lower = head.lower()
+        if head_lower in SEARCH_WORDS:
+            async for result in self._handle_search(
+                event, channel, rest.strip()
             ):
+                yield result
+            return
+        if head_lower in STOP_WORDS or head_lower in STOP_ALL_WORDS:
+            include_all = (
+                head_lower in STOP_ALL_WORDS
+                or rest.strip().lower() in STOP_ALL_WORDS
+            )
+            async for result in self._handle_stop(event, include_all=include_all):
                 yield result
             return
         if not text:
             # 示例用缩写命令：用户日常敲的就是这个，全称只是注册名
             hint = channel.display_command
-            yield event.plain_result(f"用法：/{hint} <ID 或链接>\n示例：/{hint} 123456")
+            yield event.plain_result(
+                f"用法：/{hint} <ID 或链接>，或 /{hint} sou <关键词>\n"
+                f"示例：/{hint} 123456"
+            )
+            return
+
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        denied = self.guard.check_session(session_id)
+        if denied:
+            yield event.plain_result(denied)
             return
 
         # 链接自带站点，命令只是入口别名：命令与链接指向的渠道不一致时，以链接为准。
@@ -479,6 +540,87 @@ class ComicParserPlugin(Star):
             if result_state != "paused":
                 await self._react(event, "done" if result_state == "ok" else "fail")
 
+    # ==================== 搜索流程 ====================
+
+    async def _handle_search(
+        self,
+        event: AstrMessageEvent,
+        channel: BaseChannel | None,
+        keyword: str,
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """`/comic sou` 搜全部渠道，`/jm sou` 只搜一个渠道。
+
+        聚合搜索由 SearchService 给每个渠道单独计时：慢渠道到点记为「已跳过」，
+        其余结果照常返回，不会出现「一个渠道卡住整条命令一直转」。
+        """
+        if not self.settings.search_enabled:
+            yield event.plain_result(
+                "❌ 搜索未启用：请在插件配置的「搜索」里打开「启用搜索」"
+            )
+            return
+
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        denied = self.guard.check_session(session_id)
+        if denied:
+            yield event.plain_result(denied)
+            return
+
+        keyword = (keyword or "").strip()
+        if not keyword:
+            if channel is not None:
+                hint = channel.display_command
+                yield event.plain_result(
+                    f"用法：/{hint} sou <关键词>\n示例：/{hint} sou 触手"
+                )
+            else:
+                searchable = self.search_service.searchable()
+                names = "、".join(
+                    f"/{item.display_command}" for item in searchable
+                ) or "（没有支持搜索的渠道）"
+                yield event.plain_result(
+                    "用法：/comic sou <关键词>（一次搜索所有支持搜索的渠道）\n"
+                    f"可搜索的渠道：{names}\n"
+                    "也可以只搜一个：/<渠道命令> sou <关键词>"
+                )
+            return
+
+        if len(keyword) > SEARCH_MAX_KEYWORD_LENGTH:
+            yield event.plain_result(
+                f"❌ 关键词太长了，最多 {SEARCH_MAX_KEYWORD_LENGTH} 个字符"
+            )
+            return
+
+        cooling = self.search_service.begin(session_id)
+        if cooling:
+            yield event.plain_result(cooling)
+            return
+
+        if channel is not None:
+            try:
+                channel.ensure_available()
+            except PluginError as exc:
+                yield event.plain_result(f"❌ {exc}")
+                return
+            if not channel.supports_search:
+                yield event.plain_result(
+                    f"❌ {channel.display_name} 暂不支持搜索"
+                )
+                return
+            outcome = await self.search_service.search_one(channel, keyword)
+            yield event.plain_result(
+                self.search_service.render_one(outcome, keyword)
+            )
+            return
+
+        try:
+            outcomes = await self.search_service.search_all(keyword)
+        except PluginError as exc:
+            yield event.plain_result(f"❌ {exc}")
+            return
+        yield event.plain_result(
+            self.search_service.render_all(outcomes, keyword)
+        )
+
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -537,6 +679,21 @@ class ComicParserPlugin(Star):
         return result
 
     # ==================== 内部工具 ====================
+
+    @staticmethod
+    def _command_args(event: AstrMessageEvent) -> str:
+        """取命令名之后的原始文本，供 `/jm sou 名字` 这类多词参数使用。
+
+        AstrBot 的指令参数按空格切分，`cmd_xxx(comic_id: str)` 只会拿到第一个 token，
+        `/jm sou 触手 少女` 会把关键词截成「sou」；因此这里直接读整条消息并剥掉命令名
+        （命令名本身不含空格）。搜索关键词允许带空格，下载 ID/链接的解析仍按原逻辑走。
+        """
+        try:
+            raw = event.get_message_str() or ""
+        except Exception:  # 兼容实现了 message_str 但没有 getter 的事件对象
+            raw = str(getattr(event, "message_str", "") or "")
+        parts = raw.strip().split(maxsplit=1)
+        return parts[1].strip() if len(parts) > 1 else ""
 
     async def _react(self, event: AstrMessageEvent, status: str) -> bool:
         """按配置决定是否需要贴表情；关闭进度或选了文本进度时返回 False。"""

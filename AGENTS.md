@@ -15,7 +15,7 @@
 
 **AstrBot 插件**是基于 `astrbot.api.star` 框架的 Python 插件，以 `Star` 子类为核心，通过装饰器注册指令组、事件监听器、过滤器，在 AstrBot 运行时中加载。
 
-**本项目**：`astrbot_plugin_comic_parser`（展示名「漫画下载器」），多渠道漫画下载插件。**只做下载**：按 ID 或作品链接下载整本漫画，不被动解析聊天里随机出现的链接。
+**本项目**：`astrbot_plugin_comic_parser`（展示名「漫画下载器」），多渠道漫画下载与搜索插件。**下载为主、搜索为辅**：按 ID 或作品链接下载整本漫画，也可以在渠道命令后加 `sou` 搜索作品（结果只给 ID 与下载命令）；不被动解析聊天里随机出现的链接，也不会自动下载搜索结果。
 
 核心能力：
 
@@ -23,8 +23,9 @@
 - **上层统一打包，按需加密**：任何渠道下载完都走同一套产物流程——`zip` / `pdf` / `long_img` / `none`；设置全局密码才加密（ZIP 用 AES、PDF 用 AES-256），设置了密码却缺少加密依赖时**失败关闭**，绝不静默产出未加密文件
 - **准入与调度**：会话白/黑名单、同会话防抖、全局并发上限、整本超时与重试
 - **产物交付**：压缩包以文件形式发出；仅本地保存模式的目录落进数据目录并长期保留
+- **搜索（可选能力）**：`/jm sou <关键词>` 只搜一个渠道，`/comic sou <关键词>` 并发搜所有支持搜索的渠道；每个渠道单独超时，慢渠道自动跳过；搜索结果只给 ID 与下载命令，不进入下载/打包链路
 
-底板参考（只借形态，不复制代码）：配置底板与「白/黑名单 + 防抖 + 超时重试 + `template_list` 渠道模板」的思路参考同类 AstrBot 解析插件；ZIP/PDF 打包与加密行为参考同类漫画下载插件。下载方向与它们都不同，判断取舍时以「专注于下载」为准。
+底板参考（只借形态，不复制代码）：配置底板与「白/黑名单 + 防抖 + 超时重试 + `template_list` 渠道模板」的思路参考同类 AstrBot 解析插件；ZIP/PDF 打包与加密行为参考同类漫画下载插件。下载方向与它们都不同，判断取舍时以「下载为主、搜索为辅」为准。
 
 核心文件清单：
 
@@ -62,14 +63,15 @@ astrbot_plugin_comic_parser/
 ├── domain/                      # 数据定义层（无内部依赖）
 │   ├── constants.py             # 常量与默认值
 │   ├── config.py                # 配置 → 强类型 PluginSettings（脏值兜底）
-│   ├── models.py                # ComicMeta / DownloadedComic / PackResult
+│   ├── models.py                # ComicMeta / DownloadedComic / PackResult / SearchItem / SearchPage
 │   └── errors.py                # PluginError 族（消息面向用户）
 ├── utils/                       # 通用工具层
 │   ├── filename.py              # 文件名清洗与打包基名
 │   └── link.py                  # 作品链接拆主机名/路径、域名归属判断
 └── core/                        # 业务层
-    ├── channel.py               # BaseChannel 抽象（渠道只做取元信息 + 下载图片）
+    ├── channel.py               # BaseChannel 抽象（渠道做取元信息 + 下载；搜索是可选方法）
     ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
+    ├── search.py                # 搜索编排：单渠道超时、聚合、缓存、结果渲染
     ├── channels/                # 每个渠道一个文件夹，渠道私有代码全在自己文件夹里
     │   ├── jmcomic/             # JM 漫画渠道
     │   │   ├── __init__.py      #   只导出 JMComicChannel（上层只认这个类）
@@ -120,11 +122,11 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 层 | 目录 | 本项目实际内容 |
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
-| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖） |
+| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py`（搜索超时/聚合/渲染） |
 | 工具层 | `utils/` | `filename.py`（文件名清洗）、`link.py`（链接拆主机名/路径、域名归属） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
-**渠道与上层的分工是硬约束**：渠道（`core/channels/<渠道名>/`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。新增渠道的固定动作共 **六处**（漏一处渠道就跑不起来）：
+**渠道与上层的分工是硬约束**：渠道（`core/channels/<渠道名>/`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。**搜索是可选能力**：渠道覆盖 `BaseChannel.search()` 即自动 `supports_search`，不实现也能正常下载；搜索结果由 `core/search.py` 统一做超时、聚合与渲染。新增渠道的固定动作仍是 **六处**（漏一处渠道就跑不起来）：
 
 1. `core/channels/<渠道名>/` 新建渠道文件夹：在 `channel.py` 里写 `BaseChannel` 子类（只实现 `normalize_id` / `match_link` / `fetch_meta` / `download`），渠道私有模块都留在该文件夹内，由 `__init__.py` 导出渠道类
 2. 加进 `core/registry.py` 的 `CHANNEL_CLASSES`
@@ -317,10 +319,12 @@ class MyPlugin(Star):
 | `download.progress_style` / `download.show_result_summary` | string / bool | 进度与结果提示（`main.py`） |
 | `download.max_concurrent_tasks` / `download.download_timeout` / `download.download_retry_times` | int | 调度（`core/task.py`） |
 | `download.proxy` | string | 渠道共用代理地址 |
+| `search.enable` / `search.timeout` / `search.page_size` / `search.aggregate_limit` | bool / int / int / int | 搜索开关与节奏（`core/search.py`） |
+| `search.cache_ttl` / `search.cooldown` | int / int | 结果缓存与会话冷却（`core/search.py`） |
 | `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |
 
-顶层 key 只有 `packing` / `download` / `access` / `channels` 四个分组（前三个是 `object`，WebUI 里各成一块区域）；`domain/config.py` 读分组值时对老的扁平 key 有回退，存量配置不会失效。
+顶层 key 是 `packing` / `download` / `probe` / `search` / `access` / `channels` 六个分组（前五个是 `object`，WebUI 里各成一块区域）；`domain/config.py` 读分组值时对老的扁平 key 有回退，存量配置不会失效。
 
 渠道模板里的条目会被 `domain/config.py` 收敛成 `{渠道名: 条目}`，渠道私有字段（如 `client_type`、`image_suffix`）由渠道自己用 `BaseChannel.opt_*` 读取，**不要提升成顶层配置**——否则新增渠道会不断污染顶层 schema。
 
@@ -407,6 +411,8 @@ async def on_message(
 | 命令 | 权限 | 说明 |
 |------|------|------|
 | `/comic <作品链接>` | 全部（受白名单/黑名单约束） | 按链接自动识别站点并下载整本 |
+| `/comic sou <关键词>` | 全部（受白名单/黑名单约束） | 并发搜索所有支持搜索的渠道；每渠道单独超时，慢渠道跳过 |
+| `/jm sou <关键词>`（渠道命令同理） | 全部（受白名单/黑名单约束） | 只搜该渠道；`sou` 也认 `search`、`搜索`、`搜` |
 | `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 JM 漫画 |
 | `/nh <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
 | `/漫画帮助`（别名 `comichelp`） | 全部 | 查看可用渠道、打包格式、密码与进度提示设置 |

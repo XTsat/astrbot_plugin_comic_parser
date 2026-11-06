@@ -28,9 +28,9 @@ class AccessGuard:
     def check_session(self, session_id: str) -> str | None:
         """返回拒绝原因；放行时返回 None。白名单优先级高于黑名单。"""
         if self._whitelist and session_id not in self._whitelist:
-            return "❌ 本会话不在白名单内，没有下载权限"
+            return "❌ 本会话不在白名单内，没有下载或搜索权限"
         if session_id in self._blacklist:
-            return "❌ 本会话已被禁用下载"
+            return "❌ 本会话已被禁用下载与搜索"
         return None
 
     def is_duplicate(self, session_id: str, key: str) -> bool:

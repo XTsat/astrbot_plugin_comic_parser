@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import html as html_module
 import re
+from urllib.parse import quote
 from dataclasses import dataclass, field
 
 from ....domain import ChannelError
@@ -155,6 +156,95 @@ def parse_image_page(html_text: str, host: str) -> ImageLinks:
         if is_quota_gif(original):
             original = ""
     return ImageLinks(resample=resample, original=original)
+
+
+# ---- 搜索结果 ----
+
+# 搜索结果行：`<tr class="gtr">`，标题在 `div.glink`，页数在 `glmeta`（"123 pages"）
+_SEARCH_ROW = re.compile(
+    r'<tr[^>]*class="[^"]*\bgtr\b[^"]*"[^>]*>(.*?)</tr>',
+    re.DOTALL | re.IGNORECASE,
+)
+_SEARCH_GALLERY = re.compile(
+    r'href="(?:https?://[^"/]+)?/g/(\d+)/([0-9a-fA-F]{10})/?"', re.IGNORECASE
+)
+_SEARCH_TITLE = re.compile(
+    r'class="[^"]*\bglink\b[^"]*"[^>]*>(.*?)</',
+    re.DOTALL | re.IGNORECASE,
+)
+_SEARCH_PAGES = re.compile(r"(\d+)\s*pages?", re.IGNORECASE)
+_SEARCH_PAGE_LINK = re.compile(r"[?&]page=(\d+)", re.IGNORECASE)
+
+
+@dataclass(slots=True)
+class SearchHit:
+    """搜索结果里的一条作品；ID 是 gid + token 两段。"""
+
+    gid: str
+    token: str
+    title: str = ""
+    page_count: int = 0
+
+
+def ehentai_search_url(host: str, keyword: str, page: int = 0) -> str:
+    """站内搜索页；`page` 从 0 开始（站点分页是 0 基）。"""
+    return (
+        f"https://{host}/?f_search={quote(keyword, safe='')}"
+        f"&page={max(0, int(page))}"
+    )
+
+
+def parse_search_results(document: str) -> tuple[list[SearchHit], bool]:
+    """解析搜索页；返回（条目，是否还有下一页）。
+
+    行结构缺失时退回「按作品链接找附近标题」的兜底；解析不到就返回空列表，
+    由上层按「没搜到」展示，而不是抛未预期异常。
+    """
+    hits: list[SearchHit] = []
+    seen: set[str] = set()
+    for row in _SEARCH_ROW.findall(document):
+        matched = _SEARCH_GALLERY.search(row)
+        if matched is None:
+            continue
+        gid, token = matched.group(1), matched.group(2).lower()
+        if gid in seen:
+            continue
+        seen.add(gid)
+        title_match = _SEARCH_TITLE.search(row)
+        title = _clean_text(title_match.group(1)) if title_match else ""
+        pages_match = _SEARCH_PAGES.search(row)
+        hits.append(
+            SearchHit(
+                gid=gid,
+                token=token,
+                title=title,
+                page_count=int(pages_match.group(1)) if pages_match else 0,
+            )
+        )
+
+    if not hits:
+        for matched in _SEARCH_GALLERY.finditer(document):
+            gid, token = matched.group(1), matched.group(2).lower()
+            if gid in seen:
+                continue
+            window = document[max(0, matched.start() - 800) : matched.end() + 800]
+            title_match = _SEARCH_TITLE.search(window)
+            if title_match is None:
+                continue
+            seen.add(gid)
+            pages_match = _SEARCH_PAGES.search(window)
+            hits.append(
+                SearchHit(
+                    gid=gid,
+                    token=token,
+                    title=_clean_text(title_match.group(1)),
+                    page_count=int(pages_match.group(1)) if pages_match else 0,
+                )
+            )
+
+    pages = [int(value) for value in _SEARCH_PAGE_LINK.findall(document)]
+    has_more = max(pages) > 0 if pages else len(hits) >= 25
+    return hits, has_more
 
 
 # ---- 风控/异常页识别 ----

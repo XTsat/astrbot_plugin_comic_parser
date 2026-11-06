@@ -22,6 +22,8 @@ from ....domain import (
     DownloadError,
     DownloadedComic,
     PluginSettings,
+    SearchItem,
+    SearchPage,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, sanitize_filename, split_link
@@ -146,6 +148,50 @@ class PicacgChannel(BaseChannel):
         async with self._session() as client:
             comic = await client.fetch_comic(comic_id)
         return self._meta(comic_id, comic)
+
+    # ---- 搜索 ----
+    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+        """哔咔搜索必须登录；没填账号密码时给明确提示，而不是让用户以为「搜不到」。"""
+        if not self.opt_str("account") or not self.opt_str("password"):
+            raise ChannelError(
+                "哔咔搜索需要账号：请先在渠道配置里填写哔咔账号与密码"
+            )
+
+        async with self._session() as client:
+            payload = await client.search(keyword)
+        comics = (payload.get("data") or {}).get("comics") or {}
+        docs = comics.get("docs") if isinstance(comics, dict) else None
+        items: list[SearchItem] = []
+        if isinstance(docs, list):
+            for entry in docs[: max(1, limit)]:
+                if not isinstance(entry, dict):
+                    continue
+                comic_id = str(entry.get("_id") or "").strip()
+                if not comic_id:
+                    continue
+                items.append(
+                    SearchItem(
+                        channel=self.name,
+                        comic_id=comic_id,
+                        title=str(entry.get("title") or ""),
+                        author=_author_name(entry.get("author")),
+                        page_count=_as_int(
+                            entry.get("epsCount") or entry.get("pagesCount"), 0
+                        ),
+                        cover_url=_cover_url(entry.get("thumb")),
+                    )
+                )
+        total = _as_int(comics.get("total"), 0) if isinstance(comics, dict) else 0
+        pages = _as_int(comics.get("pages"), 1) if isinstance(comics, dict) else 1
+        return SearchPage(
+            channel=self.name,
+            keyword=keyword,
+            items=items,
+            total=total or None,
+            has_more=pages > 1
+            or (total > len(items))
+            or (isinstance(docs, list) and len(docs) > len(items)),
+        )
 
     def _meta(self, comic_id: str, comic: Mapping[str, Any]) -> ComicMeta:
         creator = comic.get("_creator") or {}
@@ -322,3 +368,17 @@ class _Progress:
 
     async def _emit(self) -> None:
         await emit(self.on_progress, self.state())
+
+
+def _author_name(raw: object) -> str:
+    if isinstance(raw, Mapping):
+        return str(raw.get("name") or "").strip()
+    if isinstance(raw, (list, tuple)):
+        return "、".join(str(item).strip() for item in raw if str(item).strip())
+    return str(raw or "").strip()
+
+
+def _cover_url(raw: object) -> str:
+    if isinstance(raw, Mapping):
+        return image_url(raw)
+    return str(raw or "").strip()

@@ -39,6 +39,7 @@ from .constants import (
     PATH_COMIC,
     PATH_EPISODE_PAGES,
     PATH_EPISODES,
+    PATH_SEARCH,
     PATH_SIGN_IN,
     USER_AGENT,
 )
@@ -251,6 +252,16 @@ class PicaClient:
             raise ChannelError("哔咔登录失败：接口没有返回 token，请检查账号密码")
         self.token = token
         return token
+
+    async def search(self, keyword: str, page: int = 1) -> dict[str, Any]:
+        """按关键词搜索漫画；返回 `data.comics` 分页对象（需登录）。"""
+        payload = await self.request(
+            "POST",
+            PATH_SEARCH,
+            params={"page": max(1, int(page))},
+            body={"keyword": keyword, "categories": [], "s": "ua"},
+        )
+        return payload
 
     async def fetch_comic(self, comic_id: str) -> dict[str, Any]:
         payload = await self.request("GET", PATH_COMIC.format(comic_id=comic_id))

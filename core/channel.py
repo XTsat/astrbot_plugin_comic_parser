@@ -2,6 +2,9 @@
 
 一个渠道只负责三件事：把用户输入收敛成本渠道的漫画 ID、取元信息、把图片下载到本地目录。
 **打包、加密、发送都在上层统一处理**，渠道不参与，新增渠道时也不该重复实现。
+
+搜索是**可选能力**：默认实现抛 `SearchUnsupportedError`，支持的渠道覆盖 `search()` 即可，
+不影响「新增渠道六处接线」的既有约定，也不会让未实现的渠道无法实例化。
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ from ..domain import (
     DownloadError,
     DownloadedComic,
     PluginSettings,
+    SearchPage,
+    SearchUnsupportedError,
 )
 from .domain_race import (
     CACHE,
@@ -270,6 +275,24 @@ class BaseChannel(ABC):
             raise ChannelUnavailableError(
                 f"{self.display_name} 依赖 {missing} 未安装，请先安装后重载插件"
             )
+
+    # ---- 搜索：可选能力，默认不支持 ----
+    @property
+    def supports_search(self) -> bool:
+        """是否实现了搜索。
+
+        用「是否覆盖了基类方法」判定，而不是另加一个手填的类属性：渠道实现了 `search()`
+        却忘了打开开关这种不一致，在运行时无法自愈，直接由代码结构决定最稳。
+        """
+        return type(self).search is not BaseChannel.search
+
+    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+        """按关键词搜索本渠道，返回至多 ``limit`` 条结果。
+
+        默认抛 `SearchUnsupportedError`：未实现搜索的渠道仍然能正常下载，也不需要写 stub。
+        搜索结果只用于展示与给出下载入口，不进入 `DownloadTask`。
+        """
+        raise SearchUnsupportedError(f"{self.display_name} 暂不支持搜索")
 
     # ---- 子类必须实现 ----
     @abstractmethod

@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from astrbot.api import logger
 
 from ....domain import ChannelError
 from ....domain.constants import PLUGIN_NAME
-from .constants import CDN_API_PATH, DEFAULT_IMAGE_DOMAIN, GALLERY_API_PATH, USER_AGENT
+from .constants import (
+    CDN_API_PATH,
+    DEFAULT_IMAGE_DOMAIN,
+    GALLERY_API_PATH,
+    SEARCH_API_PATH,
+    USER_AGENT,
+)
 
 
 class GalleryNotFound(ChannelError):
@@ -59,6 +66,19 @@ class NhentaiApi:
         )
         if not isinstance(payload, dict):
             raise ChannelError("nhentai 接口返回了非预期的数据格式")
+        return payload
+
+    async def search(self, keyword: str, page: int = 1) -> dict[str, Any]:
+        """按关键词搜索作品（API v2，匿名可用，25 条/页）。"""
+        path = (
+            f"{SEARCH_API_PATH}?query={quote(keyword, safe='')}"
+            f"&page={max(1, int(page))}"
+        )
+        payload = await self._get_json(
+            path, not_found=ChannelError("nhentai 搜索接口不存在")
+        )
+        if not isinstance(payload, dict):
+            raise ChannelError("nhentai 搜索接口返回了非预期的数据格式")
         return payload
 
     async def image_servers(self) -> list[str]:

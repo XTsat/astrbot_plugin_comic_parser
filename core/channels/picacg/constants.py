@@ -10,6 +10,8 @@ from typing import Final
 BASE_URL: Final = "https://picaapi.picacomic.com/"
 # 接口路径（相对 BASE_URL，不带前导斜杠：签名算的就是这个相对路径 + query）
 PATH_SIGN_IN: Final = "auth/sign-in"
+# 搜索：官方 App 的「进阶搜索」，必须登录（401 不带 token）；旧接口 comics/search 仍存在但字段更少
+PATH_SEARCH: Final = "comics/advanced-search"
 PATH_COMIC: Final = "comics/{comic_id}"
 PATH_EPISODES: Final = "comics/{comic_id}/eps"
 PATH_EPISODE_PAGES: Final = "comics/{comic_id}/order/{order}/pages"

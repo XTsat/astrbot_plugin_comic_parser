@@ -21,6 +21,8 @@ from ....domain import (
     DownloadedComic,
     DownloadError,
     PluginSettings,
+    SearchItem,
+    SearchPage,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
@@ -185,6 +187,42 @@ class NhentaiChannel(BaseChannel):
         """插件卸载时调用：让进行中的下载尽快收工并返回其状态（供上层写日志）。"""
         return cancel_active_downloads()
 
+    # ---- 搜索 ----
+    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+        """官方 API v2 搜索；结果只有标题/页数，没有作者（作者是站内 tag，需另查）。"""
+        payload = await self._api().search(keyword)
+        raw = payload.get("result")
+        items: list[SearchItem] = []
+        if isinstance(raw, list):
+            for entry in raw[: max(1, limit)]:
+                if not isinstance(entry, dict):
+                    continue
+                comic_id = str(entry.get("id") or "").strip()
+                if not comic_id:
+                    continue
+                title = str(
+                    entry.get("english_title")
+                    or entry.get("japanese_title")
+                    or ""
+                ).strip()
+                items.append(
+                    SearchItem(
+                        channel=self.name,
+                        comic_id=comic_id,
+                        title=title,
+                        page_count=_as_int(entry.get("num_pages")),
+                    )
+                )
+        total = _as_int_optional(payload.get("total"))
+        return SearchPage(
+            channel=self.name,
+            keyword=keyword,
+            items=items,
+            total=total,
+            has_more=_as_int(payload.get("num_pages")) > 1
+            or (total is not None and total > len(items)),
+        )
+
     # ---- 内部 ----
     def _build_meta(self, comic_id: str, parsed: ParsedGallery) -> ComicMeta:
         return ComicMeta(
@@ -328,3 +366,17 @@ class NhentaiChannel(BaseChannel):
         都没有 → 直连。开关关掉时不会偷偷用环境变量。
         """
         return self.resolve_proxy()[0]
+
+
+def _as_int(raw: object) -> int:
+    try:
+        return max(0, int(str(raw)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_int_optional(raw: object) -> int | None:
+    try:
+        return max(0, int(str(raw)))
+    except (TypeError, ValueError):
+        return None

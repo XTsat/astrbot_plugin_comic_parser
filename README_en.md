@@ -1,7 +1,7 @@
 <div align="center">
 <h1>Comic Parser</h1>
-<p><strong>Multi-channel comic downloader: paste a work link or an ID to grab a whole comic, then pack and send it in one pipeline — optional password encryption</strong></p>
-<p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; PicACG &nbsp;&nbsp; WNACG</sub></p>
+<p><strong>Multi-channel comic downloader with built-in search: find a work, download the whole comic, then pack and send it in one pipeline — optional password encryption</strong></p>
+<p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; search &nbsp;&nbsp; wnacg</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 
@@ -9,6 +9,7 @@
 
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: hand over a comic ID or link and get the whole comic
+- **Search right in the chat**: `/jm sou <keyword>` searches JM only, while `/comic sou <keyword>` searches every channel that supports search. Each channel is timed separately, so one slow site is skipped instead of holding up the whole command; every hit comes with its ID and download command, ready to copy
 - **E-Hentai channel**: `/eh <gid:token or link>` (full name `/ehentai`) downloads a whole E-Hentai gallery. Without a cookie it fetches the 1280px-wide resampled images anonymously; originals are only used once you add a cookie and keep "prefer originals" on, and each original is charged against the site's image quota by file size. The quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so send the same command again to continue — long galleries usually take a few passes
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
@@ -26,6 +27,8 @@
 | Command | Permission | Description |
 |---------|------------|-------------|
 | `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded (works for every channel below) |
+| `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; each hit comes with its ID and the matching download command |
+| `/jm sou <keyword>` (same for `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜` |
 | `/jm <ID or link>` (full name `/jmcomic`) | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
 | `/nh <ID or link>` (full name `/nhentai`) | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
 | `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
@@ -34,7 +37,7 @@
 | `/eh <gid:token or link>` (full name `/ehentai`) | Everyone (subject to whitelist/blacklist) | Download a whole E-Hentai gallery; the ID has two parts (gid plus token), so a bare number is rejected with a hint (anonymous 1280px; originals need a cookie) |
 | `/comic stop` (also `/jm stop`, `/nh stop`, …) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so sending the same command again resumes. Admins can use `/comic stop all` to cancel every session's downloads |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
-| `/漫画网站` (also `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs |
+| `/漫画网站` (also `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs; you can also search in chat with `/comic sou` |
 
 > When you just want one comic, pasting its link into `/comic` is the quickest way; when you only have an ID (or the link is not a work page), use the matching channel command.
 > Channel commands do not pin the site either: a nhentai link after `/jm` downloads that nhentai gallery, and the download summary states which site was actually used.
@@ -60,11 +63,15 @@ Examples:
 /ssmh https://www.wnacg.site/photos-index-aid-401500.html
 /eh 4306312:0123456789
 /eh https://e-hentai.org/g/4306312/0123456789/
+/comic sou tentacles
+/jm sou 無職転生
+/nh sou tentacles
 ```
 
 > `/comic` only accepts full links (a work page address with a domain): a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead.
 > An E-Hentai ID has two parts, gid and token (e.g. `4306312:0123456789`); a bare number is rejected with a hint. `gid:token`, `gid/token`, and `gid-token` are all accepted, with or without a trailing slash. Copying the gallery link from your browser's address bar is the easiest way.
 > Do not know where to find the ID? Send `/漫画网站` to see each site's homepage plus a sample work-page link (`<ID>` placeholder); once you find the comic there, replace `<ID>` with the number in the link.
+> Search results show only title, author/page count and ID; a hit is not a promise that it can be downloaded (it may need a login, be delisted, or be region-locked). Open the work page to confirm before downloading.
 
 ## Configuration
 
@@ -120,6 +127,22 @@ Examples:
 
 </details>
 
+### Search
+
+<details>
+<summary>Search (6)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable search (`enable`) | bool | true | When off, `/jm sou` and `/comic sou` report that search is disabled; downloading is unaffected |
+| Per-channel search timeout (`timeout`) | int | 10 | Each channel is timed on its own; in an all-channel search a channel that misses this deadline is skipped while the other results are still shown |
+| Results per channel (`page_size`) | int | 5 | Maximum number of hits shown when searching a single channel |
+| Aggregated result limit (`aggregate_limit`) | int | 8 | Maximum number of hits shown by an all-channel search, taken round-robin so one channel cannot fill the message |
+| Result cache lifetime (`cache_ttl`) | int | 60 | Reuses the previous result for the same channel and keyword within this window; 0 disables caching |
+| Search cooldown (`cooldown`) | int | 3 | Minimum seconds between two searches in the same session; 0 disables the limit |
+
+</details>
+
 ### Sessions and limits
 
 <details>
@@ -127,8 +150,8 @@ Examples:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Whitelist sessions (`whitelist`) | list | empty | When non-empty, only these sessions may download; takes priority over the blacklist |
-| Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use the download commands |
+| Whitelist sessions (`whitelist`) | list | empty | When non-empty, only these sessions may download or search; takes priority over the blacklist |
+| Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use download or search commands |
 | Debounce seconds (`debounce_interval`) | int | 60 | Ignores repeated requests for the same comic within this window; 0 disables it |
 
 </details>
@@ -251,5 +274,7 @@ Examples:
 **Why did I still receive the file in the chat with "upload to group files" turned on?** Two cases fall back to sending the file directly: the upload failed this time (the reason is shown in the message), or the download did not happen in a group / the protocol backend has no group file support. A failed upload is usually an environment problem — when the plugin and the protocol backend do not share the same machine or the same mounted directory, the backend cannot read the plugin's temp path; a bot account without upload permission also fails.
 
 **The download stopped halfway and the message says "send it again to continue" — what does that mean?** A request that keeps downloading too long (continuous download per request, 15 minutes by default) pauses first and keeps the images in the temporary directory, so nothing is packed or sent this time; send the same command again and it resumes, without refetching the pages already saved, then packs and delivers as usual. The images expire after the breakpoint lifetime (2 hours by default), and a request after that starts from scratch; if "clean temp on startup" is on, reloading the plugin clears breakpoints too.
+
+**Why do some channels show no results or a timeout when searching?** An all-channel search times each channel separately (per-channel search timeout, 10 seconds by default); a channel that is slow or blocked is skipped with a note under the results while the others are still shown. Raise the timeout, or search one channel with `/jm sou` instead. The PicaACG channel also needs an account and password in its settings, and reports that explicitly when they are missing.
 
 **Why did the file end up in the group file root instead of the configured folder?** That happens when the group has no such folder and the bot could not create it: creating a group file folder requires the bot to be a group admin or owner, so a regular member cannot do it, and the plugin still uploads to the root instead of wasting the download. Make the bot an admin, or create the folder yourself in the group files.

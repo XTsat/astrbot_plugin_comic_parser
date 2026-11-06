@@ -31,6 +31,8 @@ from ....domain import (
     DownloadError,
     DownloadPaused,
     PluginSettings,
+    SearchItem,
+    SearchPage,
 )
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
 from ....utils import (
@@ -68,7 +70,15 @@ from .progress import (
     register_session,
     unregister_session,
 )
-from .site import GalleryMeta, gallery_url, parse_gallery_meta
+from .site import (
+    GalleryMeta,
+    ehentai_search_url,
+    gallery_url,
+    is_banned,
+    is_login_wall,
+    parse_gallery_meta,
+    parse_search_results,
+)
 
 # 作品页路径：`/g/<gid>/<10 位十六进制 token>/`。必须锚定整段路径，
 # 否则 nhentai 的 `/g/<id>/` 形状会把 E-Hentai 链接抢走（另一处已同步收紧）
@@ -209,6 +219,77 @@ class EHentaiChannel(BaseChannel):
             return await self._download(
                 client, comic_id, gid, token, meta, work_dir, on_progress, cancel
             )
+
+    # ---- 搜索 ----
+    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+        """站内搜索页；匿名可用，exhentai 需要登录 Cookie。
+
+        搜索页是 HTML（站点没有搜索 API），解析失败按「没搜到」返回空列表，
+        被风控/封禁时才报错——站点改版不应该让整条搜索命令炸掉。
+        """
+        hosts = self._search_hosts()
+        last_error: Exception | None = None
+        async with self._client(self._proxy()) as client:
+            for host in hosts:
+                url = ehentai_search_url(host, keyword)
+                try:
+                    document, final_url = await client.get_text(url)
+                except (EHQuotaExceeded, EHLoginRequired, EHBanned) as exc:
+                    raise ChannelError(f"E-Hentai 搜索失败：{exc}") from exc
+                except ChannelError as exc:
+                    last_error = exc
+                    logger.warning(
+                        f"[{PLUGIN_NAME}] E-Hentai 搜索页抓取失败，换下一个域名：{exc}"
+                    )
+                    continue
+                if is_banned(document):
+                    raise ChannelError("E-Hentai 搜索被临时封禁，请过几小时再试")
+                if is_login_wall(document) or "sadpanda" in final_url.lower():
+                    last_error = ChannelError("搜索页需要登录")
+                    continue
+
+                hits, has_more = parse_search_results(document)
+                if hits:
+                    items = [
+                        SearchItem(
+                            channel=self.name,
+                            comic_id=_canonical(hit.gid, hit.token),
+                            title=hit.title,
+                            page_count=hit.page_count,
+                        )
+                        for hit in hits[: max(1, limit)]
+                    ]
+                    return SearchPage(
+                        channel=self.name,
+                        keyword=keyword,
+                        items=items,
+                        has_more=has_more or len(hits) > len(items),
+                    )
+                if "No hits found" in document:
+                    return SearchPage(channel=self.name, keyword=keyword)
+                last_error = ChannelError("搜索页没有解析到结果")
+
+        if last_error is not None:
+            raise ChannelError(f"E-Hentai 搜索失败：{last_error}") from last_error
+        return SearchPage(channel=self.name, keyword=keyword)
+
+    def _search_hosts(self) -> list[str]:
+        """搜索只认配置里的站点域名；没登录时跳过 exhentai（会返回 Sad Panda）。"""
+        raw = self.opt_list("site_domains") or split_option_list(DEFAULT_SITE_DOMAINS)
+        hosts: list[str] = []
+        for item in raw:
+            host = re.sub(r"^https?://", "", item.strip().lower())
+            host = host.split("/", 1)[0].split(":", 1)[0].rstrip(".")
+            if host and host not in hosts:
+                hosts.append(host)
+        if not self._has_credentials():
+            hosts = [host for host in hosts if host != "exhentai.org"]
+        if not hosts:
+            raise ChannelError(
+                "E-Hentai 没有可用的站点域名：exhentai 需要登录 Cookie，"
+                "请在渠道配置里填 cookie，或把 e-hentai.org 加回站点域名"
+            )
+        return hosts
 
     async def _download(
         self,

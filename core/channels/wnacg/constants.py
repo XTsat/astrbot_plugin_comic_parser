@@ -27,3 +27,7 @@ DEFAULT_IMAGE_CONCURRENCY: Final = 4
 # 站内页面请求限速：超过 60 次/分钟 Cloudflare 直接回 429（上游注释里写明的实测结论），
 # 这里取 50 次/分钟留余量
 PAGE_REQUESTS_PER_MINUTE: Final = 50
+
+# 搜索页：`q` 关键词、`p` 页码、`s` 排序（默认按创建时间倒序）。
+# 注意：搜索页与详情页共用同一个 50 次/分钟限速器，搜索会占用下载的页面配额。
+SEARCH_PATH: Final = "/search/index.php?s=create_time_DESC&q={keyword}&p={page}"

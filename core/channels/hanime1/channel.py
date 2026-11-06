@@ -21,6 +21,8 @@ from ....domain import (
     DownloadedComic,
     DownloadError,
     PluginSettings,
+    SearchItem,
+    SearchPage,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
@@ -53,6 +55,8 @@ from .site import (
     build_image_urls,
     build_page_url,
     challenge_markers,
+    comic_search_path,
+    parse_comic_search,
     parse_detail,
     parse_reader,
 )
@@ -388,6 +392,53 @@ class Hanime1Channel(BaseChannel):
                 fetch_proxy=self.opt_str("fetch_proxy", DEFAULT_FETCH_PROXY),
             )
         return self._scraper_instance
+
+    # ---- 搜索 ----
+    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+        """漫画区搜索；视频搜索页不返回漫画，所以固定走 `/comics/search`。
+
+        `hanime1.me` 的漫画区已迁走，搜索只在 `hanimeone.me` 有内容；域名按配置顺序试，
+        某个域名返回 0 条时继续试下一个，避免用户把 `hanime1.me` 填在前面就永远搜不到。
+        """
+        scraper = self._scraper()
+        domains = self.opt_list("site_domains") or split_option_list(
+            DEFAULT_SITE_DOMAINS
+        )
+        ordered = [domain for domain in domains if "hanimeone" in domain] + [
+            domain for domain in domains if "hanimeone" not in domain
+        ]
+        last_error: Exception | None = None
+        for domain in ordered:
+            url = build_page_url(domain, comic_search_path(keyword))
+            try:
+                document = await asyncio.to_thread(scraper.fetch_text, url)
+            except ChannelError as exc:
+                last_error = exc
+                logger.warning(
+                    f"[{PLUGIN_NAME}] Hanime1 搜索页抓取失败，换下一个域名：{exc}"
+                )
+                continue
+            hits = parse_comic_search(document)
+            if not hits:
+                continue
+            items = [
+                SearchItem(
+                    channel=self.name,
+                    comic_id=hit.comic_id,
+                    title=hit.title,
+                    cover_url=hit.cover_url,
+                )
+                for hit in hits[: max(1, limit)]
+            ]
+            return SearchPage(
+                channel=self.name,
+                keyword=keyword,
+                items=items,
+                has_more=len(hits) > len(items),
+            )
+        if last_error is not None:
+            raise ChannelError(f"Hanime1 搜索失败：{last_error}") from last_error
+        return SearchPage(channel=self.name, keyword=keyword)
 
     def _build_downloader(self) -> ImageDownloader:
         site = self._single_option("site_domains", DEFAULT_SITE_DOMAINS)

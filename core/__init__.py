@@ -16,6 +16,7 @@ from .registry import (
     describe_websites,
     resolve_link,
 )
+from .search import SearchOutcome, SearchService
 from .task import DownloadOutcome, DownloadTask
 
 __all__ = [
@@ -28,6 +29,8 @@ __all__ = [
     "Packer",
     "ProgressHeartbeat",
     "ProgressState",
+    "SearchOutcome",
+    "SearchService",
     "build_channels",
     "command_map",
     "describe_channels",

@@ -26,6 +26,8 @@ from ....domain import (
     DownloadedComic,
     DownloadError,
     PluginSettings,
+    SearchItem,
+    SearchPage,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
@@ -57,6 +59,8 @@ from .site import (
     parse_album,
     parse_chapter_ids,
     parse_gallery_images,
+    parse_search_results,
+    search_path,
 )
 
 
@@ -196,6 +200,30 @@ class WnacgChannel(BaseChannel):
             source_dir=work_dir,
             image_count=totals.success,
             failed_images=totals.failed,
+        )
+
+    # ---- 搜索 ----
+    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+        """站内搜索页；复用 WnacgSite 的镜像降级、限速与 Cloudflare 兜底。"""
+        site = self._site()
+        async with site:
+            document = await site.fetch_page(search_path(keyword))
+        hits, has_more = parse_search_results(document)
+        items = [
+            SearchItem(
+                channel=self.name,
+                comic_id=hit.comic_id,
+                title=hit.title,
+                page_count=hit.page_count,
+                cover_url=hit.cover_url,
+            )
+            for hit in hits[: max(1, limit)]
+        ]
+        return SearchPage(
+            channel=self.name,
+            keyword=keyword,
+            items=items,
+            has_more=has_more or len(hits) > len(items),
         )
 
     def cancel_downloads(self) -> list[str]:

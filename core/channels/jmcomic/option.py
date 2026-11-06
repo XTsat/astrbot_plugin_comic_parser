@@ -38,6 +38,7 @@ def build_option(
     domains: list[str] | None = None,
     retry_times: int | None = None,
     request_timeout: int | None = None,
+    impl: str | None = None,
 ) -> Any:
     """把渠道配置翻译成 jmcomic 的 option。
 
@@ -49,7 +50,8 @@ def build_option(
     坏节点会用满重试次数把整轮测速拖成十几秒。
     """
     client_type = channel.opt_str("client_type", "api")
-    impl = "html" if client_type.startswith("html") else "api"
+    if impl is None:
+        impl = "html" if client_type.startswith("html") else "api"
     option_dict: dict[str, Any] = {
         "dir_rule": {"base_dir": str(base_dir), "rule": "Bd/Aid/Pindex"},
         "download": {

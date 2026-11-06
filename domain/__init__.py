@@ -10,8 +10,11 @@ from .errors import (
     DownloadPaused,
     PackError,
     PluginError,
+    SearchError,
+    SearchTimeoutError,
+    SearchUnsupportedError,
 )
-from .models import ComicMeta, DownloadedComic, PackResult
+from .models import ComicMeta, DownloadedComic, PackResult, SearchItem, SearchPage
 
 __all__ = [
     "ChannelError",
@@ -27,4 +30,9 @@ __all__ = [
     "PackResult",
     "PluginError",
     "PluginSettings",
+    "SearchError",
+    "SearchItem",
+    "SearchPage",
+    "SearchTimeoutError",
+    "SearchUnsupportedError",
 ]

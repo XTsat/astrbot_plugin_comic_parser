@@ -9,6 +9,8 @@ from typing import Final
 # 官方 API v2：作品详情与图床清单。实测无需凭据、不触发 Cloudflare 挑战
 GALLERY_API_PATH: Final = "/api/v2/galleries/{gallery_id}"
 CDN_API_PATH: Final = "/api/v2/cdn"
+# 搜索：官方 API v2 原生支持，匿名可用；匿名限流约 10 次/分钟，超限 429
+SEARCH_API_PATH: Final = "/api/v2/search"
 
 # 站点域名：官方站与镜像站结构一致，一行一个、从上到下依次降级
 DEFAULT_SITE_DOMAINS: Final = "nhentai.net"

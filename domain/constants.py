@@ -5,7 +5,7 @@ from typing import Final
 PLUGIN_NAME: Final = "astrbot_plugin_comic_parser"
 PLUGIN_DISPLAY_NAME: Final = "漫画下载器"
 PLUGIN_DESC: Final = (
-    "多渠道漫画下载插件：按 ID 下载整本漫画，统一打包发送，支持密码加密"
+    "多渠道漫画下载与搜索插件：贴作品链接、给 ID 或在聊天里搜索后下载整本漫画，统一打包发送，支持密码加密"
 )
 PLUGIN_VERSION: Final = "v0.2.3"
 PLUGIN_AUTHOR: Final = "XTsat"
@@ -32,6 +32,27 @@ DEFAULT_PROBE_TIMEOUT: Final = 10
 DEFAULT_PROBE_MIN_SPEED: Final = 150
 # 测速结果缓存时长（秒）：同一批候选在有效期内复用排名，避免每本都重测，0 表示不缓存
 DEFAULT_PROBE_CACHE_TTL: Final = 600
+
+# 搜索：命令后面跟这些词时把剩余文本当关键词（`/jm sou 名字`、`/comic sou 名字`）。
+# 中英文都留，避免用户按站点习惯敲 `search` 时被当成作品 ID。
+SEARCH_WORDS: Final = frozenset({"sou", "search", "find", "搜索", "搜"})
+DEFAULT_SEARCH_ENABLED: Final = True
+# 单渠道搜索超时（秒）：聚合搜索里某个渠道卡住时，到点就跳过它，不拖住整条命令
+DEFAULT_SEARCH_TIMEOUT: Final = 10
+# 单渠道搜索结果展示条数上限
+DEFAULT_SEARCH_PAGE_SIZE: Final = 5
+# 全渠道聚合搜索一次最多展示多少条（各渠道轮流取，避免一个渠道占满）
+DEFAULT_SEARCH_AGGREGATE_LIMIT: Final = 8
+# 结果缓存时长（秒）：翻页/同一关键词重复搜索不重复打上游；0 表示不缓存
+DEFAULT_SEARCH_CACHE_TTL: Final = 60
+# 同会话搜索冷却（秒）：搜索比下载轻，但仍要防止一个人连续刷上游
+DEFAULT_SEARCH_COOLDOWN: Final = 3
+# 关键词最大长度：防止把超长串拼进 URL
+SEARCH_MAX_KEYWORD_LENGTH: Final = 64
+# 搜索结果文本上限：聊天消息过长会被平台截断，超过就少显示几条
+SEARCH_MAX_TEXT_CHARS: Final = 1800
+# 搜索缓存最多保留多少条（同一关键词 × 渠道 × 页码）
+SEARCH_CACHE_MAX_ENTRIES: Final = 256
 
 # 渠道私有常量（域名清单、单请求超时与重试默认值等）不放这里，
 # 一律跟着渠道走：`core/channels/<渠道名>/constants.py`

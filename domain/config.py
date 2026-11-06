@@ -22,6 +22,12 @@ from .constants import (
     DEFAULT_PROGRESS_STYLE,
     DEFAULT_RESUME_TTL,
     DEFAULT_RETRY_TIMES,
+    DEFAULT_SEARCH_AGGREGATE_LIMIT,
+    DEFAULT_SEARCH_CACHE_TTL,
+    DEFAULT_SEARCH_COOLDOWN,
+    DEFAULT_SEARCH_ENABLED,
+    DEFAULT_SEARCH_PAGE_SIZE,
+    DEFAULT_SEARCH_TIMEOUT,
     DEFAULT_SEGMENT_TIMEOUT,
     FILENAME_TEMPLATES,
     PACK_FORMATS,
@@ -101,6 +107,13 @@ class PluginSettings:
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
     probe_min_speed: int = DEFAULT_PROBE_MIN_SPEED
     probe_cache_ttl: int = DEFAULT_PROBE_CACHE_TTL
+    # 搜索：独立成一组；超时是聚合搜索不被单个慢渠道拖住的关键
+    search_enabled: bool = DEFAULT_SEARCH_ENABLED
+    search_timeout: int = DEFAULT_SEARCH_TIMEOUT
+    search_page_size: int = DEFAULT_SEARCH_PAGE_SIZE
+    search_aggregate_limit: int = DEFAULT_SEARCH_AGGREGATE_LIMIT
+    search_cache_ttl: int = DEFAULT_SEARCH_CACHE_TTL
+    search_cooldown: int = DEFAULT_SEARCH_COOLDOWN
     proxy: str = ""
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -111,6 +124,7 @@ class PluginSettings:
         download = _section(data, "download")
         access = _section(data, "access")
         probe = _section(data, "probe")
+        search = _section(data, "search")
 
         pack_format = _as_str(
             packing.get("pack_format"), DEFAULT_PACK_FORMAT
@@ -196,6 +210,29 @@ class PluginSettings:
             ),
             probe_cache_ttl=_as_int(
                 probe.get("cache_ttl"), DEFAULT_PROBE_CACHE_TTL, minimum=0
+            ),
+            search_enabled=_as_bool(search.get("enable"), DEFAULT_SEARCH_ENABLED),
+            # 超时给下限 1 秒、上限 120 秒：配成 0 会让每次搜索立刻判超时
+            search_timeout=min(
+                _as_int(search.get("timeout"), DEFAULT_SEARCH_TIMEOUT, minimum=1), 120
+            ),
+            search_page_size=min(
+                _as_int(search.get("page_size"), DEFAULT_SEARCH_PAGE_SIZE, minimum=1),
+                20,
+            ),
+            search_aggregate_limit=min(
+                _as_int(
+                    search.get("aggregate_limit"),
+                    DEFAULT_SEARCH_AGGREGATE_LIMIT,
+                    minimum=1,
+                ),
+                30,
+            ),
+            search_cache_ttl=_as_int(
+                search.get("cache_ttl"), DEFAULT_SEARCH_CACHE_TTL, minimum=0
+            ),
+            search_cooldown=_as_int(
+                search.get("cooldown"), DEFAULT_SEARCH_COOLDOWN, minimum=0
             ),
             proxy=_as_str(download.get("proxy")),
             channels=_parse_channels(data.get("channels")),

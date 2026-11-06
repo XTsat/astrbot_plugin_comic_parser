@@ -21,12 +21,13 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from astrbot.api import logger
 
 from ....domain import ChannelError
 from ....domain.constants import PLUGIN_NAME
-from .constants import PAGE_REQUESTS_PER_MINUTE, USER_AGENT
+from .constants import PAGE_REQUESTS_PER_MINUTE, SEARCH_PATH, USER_AGENT
 
 if TYPE_CHECKING:  # 仅为类型标注；运行时按下面的惰性分支处理依赖缺失
     import aiohttp
@@ -70,6 +71,16 @@ _ALBUM_IN_TEXT = re.compile(
 
 
 @dataclass(slots=True)
+class SearchHit:
+    """搜索结果里的一条作品：只留展示与下载入口需要的字段。"""
+
+    comic_id: str
+    title: str = ""
+    page_count: int = 0
+    cover_url: str = ""
+
+
+@dataclass(slots=True)
 class AlbumPage:
     """一次详情页解析的结果。"""
 
@@ -79,6 +90,66 @@ class AlbumPage:
     chapter_ids: list[tuple[str, str]] = field(default_factory=list)
     # 章节列表自身的页数（合辑章节多时才 >1）
     chapter_last_page: int = 1
+
+
+# 搜索结果条目：`<li class="li gallary_item">…</li>`，标题与封面都在 title/src 属性里
+_SEARCH_ITEM = re.compile(
+    r'<li[^>]*class="[^"]*\bgallary_item\b[^"]*"[^>]*>(.*?)</li>',
+    re.DOTALL | re.IGNORECASE,
+)
+_SEARCH_AID = re.compile(r"/photos-index-aid-(\d+)\.html")
+_SEARCH_TITLE_ATTR = re.compile(r'title="([^"]*)"', re.IGNORECASE)
+_SEARCH_COVER = re.compile(r'<img[^>]+src="([^"]+)"', re.IGNORECASE)
+_SEARCH_PAGE_COUNT = re.compile(r"(\d+)\s*張圖片")
+_SEARCH_MAX_PAGE = re.compile(r"search/index\.php[^\"']*?[?&]p=(\d+)")
+
+
+def search_path(keyword: str, page: int = 1) -> str:
+    """站内搜索页路径；关键词必须 URL 编码（中文/空格/& 都会破坏查询串）。"""
+    return SEARCH_PATH.format(
+        keyword=quote(keyword, safe=""), page=max(1, int(page))
+    )
+
+
+def parse_search_results(document: str) -> tuple[list[SearchHit], bool]:
+    """解析搜索结果页，返回（条目，是否还有下一页）。
+
+    列表页没有作者与标签，页数是「N張圖片」；解析不到条目时返回空列表而不是抛错，
+    由调用方按「没搜到」展示——站点改版不该让整条搜索命令报未预期错误。
+    """
+    hits: list[SearchHit] = []
+    for block in _SEARCH_ITEM.findall(document):
+        matched_aid = _SEARCH_AID.search(block)
+        if matched_aid is None:
+            continue
+        matched_title = _SEARCH_TITLE_ATTR.search(block)
+        title = ""
+        if matched_title is not None:
+            title = _WHITESPACE.sub(
+                " ", html_module.unescape(matched_title.group(1))
+            ).strip()
+        cover = ""
+        matched_cover = _SEARCH_COVER.search(block)
+        if matched_cover is not None:
+            cover = matched_cover.group(1).strip()
+            if cover.startswith("//"):
+                cover = f"https:{cover}"
+        page_count = 0
+        matched_count = _SEARCH_PAGE_COUNT.search(block)
+        if matched_count is not None:
+            page_count = int(matched_count.group(1))
+        hits.append(
+            SearchHit(
+                comic_id=matched_aid.group(1),
+                title=title,
+                page_count=page_count,
+                cover_url=cover,
+            )
+        )
+
+    pages = [int(value) for value in _SEARCH_MAX_PAGE.findall(document)]
+    has_more = max(pages) > 1 if pages else len(hits) >= 20
+    return hits, has_more
 
 
 def chapter_page_count(document: str) -> int:

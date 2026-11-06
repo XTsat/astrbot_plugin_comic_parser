@@ -17,6 +17,18 @@ class ChannelUnavailableError(ChannelError):
     """渠道当前不可用：未启用、依赖缺失或配置不全。"""
 
 
+class SearchError(PluginError):
+    """搜索失败，message 是可直接发给用户的中文文案。"""
+
+
+class SearchUnsupportedError(SearchError):
+    """渠道没有实现搜索能力。"""
+
+
+class SearchTimeoutError(SearchError):
+    """搜索超时：聚合搜索时单个渠道超时不应该拖垮整次结果。"""
+
+
 class DownloadError(PluginError):
     """下载过程失败，或下载不完整到无法继续打包。"""
 

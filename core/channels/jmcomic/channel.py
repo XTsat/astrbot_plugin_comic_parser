@@ -7,13 +7,21 @@ from __future__ import annotations
 
 import asyncio
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, ClassVar
 
 from astrbot.api import logger
 
-from ....domain import ChannelError, ComicMeta, DownloadError, DownloadedComic
+from ....domain import (
+    ChannelError,
+    ComicMeta,
+    DownloadError,
+    DownloadedComic,
+    SearchItem,
+    SearchPage,
+)
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
 from ....utils import format_size, split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
@@ -216,6 +224,61 @@ class JMComicChannel(BaseChannel):
         finally:
             unregister_session(session)
 
+    # ---- 搜索 ----
+    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+        """站内搜索；强制走 API 客户端（HTML 搜索页在 Cloudflare 后面，实测 403）。
+
+        搜索不需要先测速：jmcomic 自己会按域名清单重试，测速反而会让搜索多等一轮。
+        """
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+
+        option = await asyncio.to_thread(
+            build_option,
+            self,
+            jmcomic,
+            Path(tempfile.gettempdir()),
+            impl="api",
+        )
+        page = await asyncio.to_thread(
+            self._search_sync, option, keyword
+        )
+        items: list[SearchItem] = []
+        for album_id, info in getattr(page, "content", [])[: max(1, limit)]:
+            if not isinstance(info, dict):
+                continue
+            items.append(
+                SearchItem(
+                    channel=self.name,
+                    comic_id=str(album_id),
+                    title=str(info.get("name") or ""),
+                    author=_author_text(info.get("author")),
+                    tags=[
+                        str(tag)
+                        for tag in (info.get("tags") or [])
+                        if str(tag).strip()
+                    ],
+                )
+            )
+        total = _to_int(getattr(page, "total", 0))
+        return SearchPage(
+            channel=self.name,
+            keyword=keyword,
+            items=items,
+            total=total,
+            has_more=_to_int(getattr(page, "page_count", 1)) > 1
+            or total > len(items),
+        )
+
+    def _search_sync(self, option: Any, keyword: str) -> Any:
+        """在线程里跑 jmcomic 的同步搜索；库异常统一翻译成用户文案。"""
+        try:
+            client = option.new_jm_client()
+            return client.search_site(keyword, page=1)
+        except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，统一转 ChannelError
+            raise ChannelError(f"JM 搜索失败：{exc}") from exc
+
     def cancel_downloads(self) -> list[str]:
         """插件卸载时调用：取消本渠道正在跑的下载并返回其状态（供上层写日志）。"""
         return cancel_active_downloads()
@@ -282,3 +345,16 @@ class JMComicChannel(BaseChannel):
             # 章节级失败意味着该章图片一张都没拿到，同样计入「失败」让用户知道产物不完整
             failed_images=failed_images + failed_photos,
         )
+
+
+def _author_text(raw: object) -> str:
+    if isinstance(raw, (list, tuple)):
+        return "、".join(str(item).strip() for item in raw if str(item).strip())
+    return str(raw or "").strip()
+
+
+def _to_int(raw: object) -> int:
+    try:
+        return max(0, int(str(raw)))
+    except (TypeError, ValueError):
+        return 0

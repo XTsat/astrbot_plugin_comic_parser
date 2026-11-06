@@ -235,6 +235,74 @@
       }
     }
   },
+  "search": {
+    "type": "object",
+    "description": "搜索",
+    "hint": "在命令后面加 sou 触发搜索：/jm sou 关键词 只搜 JM，/comic sou 关键词 一次搜所有支持的渠道；聚合搜索时某个渠道超时会自动跳过，不会拖住整条命令",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用搜索",
+        "hint": "关闭后 /jm sou、/comic sou 会提示搜索未启用；下载功能不受影响",
+        "default": true
+      },
+      "timeout": {
+        "type": "int",
+        "description": "单渠道搜索超时（秒）",
+        "hint": "每个渠道单独计时；聚合搜索时某个渠道超过这个时间还没回就被跳过，其余渠道的结果照常显示",
+        "default": 10,
+        "slider": {
+          "min": 3,
+          "max": 60,
+          "step": 1
+        }
+      },
+      "page_size": {
+        "type": "int",
+        "description": "单渠道结果条数",
+        "hint": "只搜一个渠道时最多展示多少条；全渠道搜索从每个渠道轮流取，总数见「聚合结果条数」",
+        "default": 5,
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        }
+      },
+      "aggregate_limit": {
+        "type": "int",
+        "description": "聚合结果条数",
+        "hint": "全渠道搜索一次最多展示多少条：按渠道轮流取，避免某一个渠道占满整条消息",
+        "default": 8,
+        "slider": {
+          "min": 1,
+          "max": 30,
+          "step": 1
+        }
+      },
+      "cache_ttl": {
+        "type": "int",
+        "description": "结果缓存时长（秒）",
+        "hint": "同一渠道、同一关键词在有效期内复用上次结果，避免重复打上游；0 表示不缓存",
+        "default": 60,
+        "slider": {
+          "min": 0,
+          "max": 600,
+          "step": 10
+        }
+      },
+      "cooldown": {
+        "type": "int",
+        "description": "搜索冷却（秒）",
+        "hint": "同一会话两次搜索之间至少间隔这么久，防止连续刷搜索；0 表示不限制",
+        "default": 3,
+        "slider": {
+          "min": 0,
+          "max": 60,
+          "step": 1
+        }
+      }
+    }
+  },
   "access": {
     "type": "object",
     "description": "会话与限制",
