@@ -21,11 +21,13 @@ from ....domain import (
     DownloadedComic,
     SearchItem,
     SearchPage,
+    SearchQuery,
 )
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
 from ....utils import format_size, split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat, ProgressState
+from ...search_query import field_label
 from .constants import (
     DEFAULT_API_DOMAINS,
     DEFAULT_HTML_DOMAINS,
@@ -44,6 +46,14 @@ from .speed import build_probe
 
 _ALBUM_IN_TEXT = re.compile(r"/(?:album|photo)/(\d+)")
 _FIRST_DIGITS = re.compile(r"\d+")
+
+# jmcomic 的 search_* 方法按 main_tag 区分搜索域：0 综合 / 1 作品 / 2 作者 / 3 标签 / 4 角色
+_NATIVE_SEARCH_METHODS = {
+    "tag": "search_tag",
+    "author": "search_author",
+    "actor": "search_actor",
+    "work": "search_work",
+}
 
 
 def _count_downloaded_images(downloader: Any, source_dir: Path) -> int:
@@ -226,16 +236,20 @@ class JMComicChannel(BaseChannel):
 
     # ---- 搜索 ----
     async def search(
-        self, keyword: str, limit: int = 5, page: int = 1
+        self, query: SearchQuery, limit: int = 5, page: int = 1
     ) -> SearchPage:
         """站内搜索；强制走 API 客户端（HTML 搜索页在 Cloudflare 后面，实测 403）。
 
-        搜索不需要先测速：jmcomic 自己会按域名清单重试，测速反而会让搜索多等一轮。
+        JM 的 ``main_tag`` 一次只能选一个搜索域：只有一个字段、且没有附加关键词时走原生
+        ``search_tag`` / ``search_author`` / ``search_actor`` / ``search_work``；多字段、
+        附加关键词或跨字段排除时退回综合搜索（``-`` 排除在综合搜索里仍然生效），并在结果
+        里说明。搜索不需要先测速：jmcomic 自己会按域名清单重试，测速反而会让搜索多等一轮。
         """
         jmcomic = import_jmcomic()
         if jmcomic is None:
             raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
 
+        keyword, method, note = self._build_search(query)
         option = await asyncio.to_thread(
             build_option,
             self,
@@ -244,7 +258,7 @@ class JMComicChannel(BaseChannel):
             impl="api",
         )
         result = await asyncio.to_thread(
-            self._search_sync, option, keyword, page
+            self._search_sync, option, keyword, page, method
         )
         items: list[SearchItem] = []
         for album_id, info in getattr(result, "content", [])[: max(1, limit)]:
@@ -267,17 +281,58 @@ class JMComicChannel(BaseChannel):
         page_count = _to_int(getattr(result, "page_count", 1))
         return SearchPage(
             channel=self.name,
-            keyword=keyword,
+            keyword=query.raw,
             items=items,
             total=total,
             has_more=page_count > page,
+            note=note,
         )
 
-    def _search_sync(self, option: Any, keyword: str, page: int) -> Any:
+    @staticmethod
+    def _build_search(query: SearchQuery) -> tuple[str, str, str]:
+        """返回（搜索串，jmcomic 方法名，降级说明）。"""
+        positives = list(query.includes)
+        negatives = list(query.excludes)
+        keyword = query.keyword
+
+        if not positives:
+            terms = [keyword] if keyword else []
+            terms.extend(f"-{item.value}" for item in negatives)
+            return " ".join(terms), "search_site", ""
+
+        fields = {item.field for item in positives}
+        field = next(iter(fields)) if len(fields) == 1 else ""
+        native = field in _NATIVE_SEARCH_METHODS
+        same_field_negatives = all(item.field == field for item in negatives)
+        if native and not keyword and same_field_negatives:
+            terms = [item.value for item in positives]
+            terms.extend(f"-{item.value}" for item in negatives)
+            return " ".join(terms), _NATIVE_SEARCH_METHODS[field], ""
+
+        terms = [item.value for item in positives]
+        if keyword:
+            terms.append(keyword)
+        terms.extend(f"-{item.value}" for item in negatives)
+        if not field:
+            note = "已按综合搜索（JM 单次只能按一个字段精确搜索）"
+        elif not native:
+            note = f"JM 不支持按{field_label(field)}筛选，已按综合搜索"
+        elif keyword:
+            note = "已按综合搜索（同时搜索关键词）"
+        elif not same_field_negatives:
+            note = "已按综合搜索（排除条件跨字段）"
+        else:
+            note = "已按综合搜索（JM 单次只能按一个字段精确搜索）"
+        return " ".join(terms), "search_site", note
+
+    def _search_sync(
+        self, option: Any, keyword: str, page: int, method: str
+    ) -> Any:
         """在线程里跑 jmcomic 的同步搜索；库异常统一翻译成用户文案。"""
         try:
             client = option.new_jm_client()
-            return client.search_site(keyword, page=max(1, int(page)))
+            search = getattr(client, method, None) or client.search_site
+            return search(keyword, page=max(1, int(page)))
         except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，统一转 ChannelError
             raise ChannelError(f"JM 搜索失败：{exc}") from exc
 

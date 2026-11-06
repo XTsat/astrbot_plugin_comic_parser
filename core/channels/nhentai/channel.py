@@ -23,11 +23,13 @@ from ....domain import (
     PluginSettings,
     SearchItem,
     SearchPage,
+    SearchQuery,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat
+from ...search_query import fallback_note, plain_search_text
 from ...domain_race import ProbeFn, http_probe
 from .api import GalleryNotFound, NhentaiApi
 from .constants import (
@@ -189,9 +191,14 @@ class NhentaiChannel(BaseChannel):
 
     # ---- 搜索 ----
     async def search(
-        self, keyword: str, limit: int = 5, page: int = 1
+        self, query: SearchQuery, limit: int = 5, page: int = 1
     ) -> SearchPage:
-        """官方 API v2 搜索；结果只有标题/页数，没有作者（作者是站内 tag，需另查）。"""
+        """官方 API v2 搜索；结果只有标题/页数，没有作者（作者是站内 tag，需另查）。
+
+        官方接口只接受一个 ``query`` 字符串，没有字段筛选参数；带前缀的条件按关键词搜索，
+        并在结果里说明，避免用户误以为做了精确筛选。
+        """
+        keyword = plain_search_text(query)
         payload = await self._api().search(keyword, page=page)
         raw = payload.get("result")
         items: list[SearchItem] = []
@@ -218,10 +225,11 @@ class NhentaiChannel(BaseChannel):
         total = _as_int_optional(payload.get("total"))
         return SearchPage(
             channel=self.name,
-            keyword=keyword,
+            keyword=query.raw,
             items=items,
             total=total,
             has_more=_as_int(payload.get("num_pages")) > max(1, int(page)),
+            note=fallback_note(query),
         )
 
     # ---- 内部 ----

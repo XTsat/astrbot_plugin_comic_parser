@@ -28,11 +28,13 @@ from ....domain import (
     PluginSettings,
     SearchItem,
     SearchPage,
+    SearchQuery,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback
 from ...progress import ProgressHeartbeat
+from ...search_query import fallback_note, plain_search_text
 from .constants import (
     DEFAULT_IMAGE_CONCURRENCY,
     DEFAULT_IMAGE_RETRY_TIMES,
@@ -204,9 +206,13 @@ class WnacgChannel(BaseChannel):
 
     # ---- 搜索 ----
     async def search(
-        self, keyword: str, limit: int = 5, page: int = 1
+        self, query: SearchQuery, limit: int = 5, page: int = 1
     ) -> SearchPage:
-        """站内搜索页；复用 WnacgSite 的镜像降级、限速与 Cloudflare 兜底。"""
+        """站内搜索页；复用 WnacgSite 的镜像降级、限速与 Cloudflare 兜底。
+
+        搜索页只收 ``q`` 一个关键词，没有字段筛选参数；前缀条件按关键词搜索并标注。
+        """
+        keyword = plain_search_text(query)
         site = self._site()
         async with site:
             document = await site.fetch_page(search_path(keyword, page=page))
@@ -223,9 +229,10 @@ class WnacgChannel(BaseChannel):
         ]
         return SearchPage(
             channel=self.name,
-            keyword=keyword,
+            keyword=query.raw,
             items=items,
             has_more=has_more or len(hits) > len(items),
+            note=fallback_note(query),
         )
 
     def cancel_downloads(self) -> list[str]:

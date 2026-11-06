@@ -25,6 +25,10 @@ class SearchUnsupportedError(SearchError):
     """渠道没有实现搜索能力。"""
 
 
+class SearchQueryError(SearchError):
+    """搜索条件写法不合法：message 直接展示给用户。"""
+
+
 class SearchTimeoutError(SearchError):
     """搜索超时：聚合搜索时单个渠道超时不应该拖垮整次结果。"""
 

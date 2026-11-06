@@ -23,11 +23,13 @@ from ....domain import (
     PluginSettings,
     SearchItem,
     SearchPage,
+    SearchQuery,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat
+from ...search_query import fallback_note, plain_search_text
 from ...domain_race import ProbeFn, http_probe
 from .constants import (
     DEFAULT_FETCH_PROXY,
@@ -396,13 +398,15 @@ class Hanime1Channel(BaseChannel):
 
     # ---- 搜索 ----
     async def search(
-        self, keyword: str, limit: int = 5, page: int = 1
+        self, query: SearchQuery, limit: int = 5, page: int = 1
     ) -> SearchPage:
         """漫画区搜索；视频搜索页不返回漫画，所以固定走 `/comics/search`。
 
         `hanime1.me` 的漫画区已迁走，搜索只在 `hanimeone.me` 有内容；域名按配置顺序试，
         某个域名返回 0 条时继续试下一个，避免用户把 `hanime1.me` 填在前面就永远搜不到。
+        搜索页只收 ``query`` 一个关键词，没有字段筛选参数；前缀条件按关键词搜索并标注。
         """
+        keyword = plain_search_text(query)
         scraper = self._scraper()
         domains = self.opt_list("site_domains") or split_option_list(
             DEFAULT_SITE_DOMAINS
@@ -435,14 +439,19 @@ class Hanime1Channel(BaseChannel):
             ]
             return SearchPage(
                 channel=self.name,
-                keyword=keyword,
+                keyword=query.raw,
                 items=items,
                 has_more=len(hits) > len(items)
                 or search_has_more(document, page, len(hits)),
+                note=fallback_note(query),
             )
         if last_error is not None:
             raise ChannelError(f"Hanime1 搜索失败：{last_error}") from last_error
-        return SearchPage(channel=self.name, keyword=keyword)
+        return SearchPage(
+            channel=self.name,
+            keyword=query.raw,
+            note=fallback_note(query),
+        )
 
     def _build_downloader(self) -> ImageDownloader:
         site = self._single_option("site_domains", DEFAULT_SITE_DOMAINS)

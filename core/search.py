@@ -26,6 +26,7 @@ from ..domain import (
     PluginSettings,
     SearchItem,
     SearchPage,
+    SearchQuery,
     SearchUnsupportedError,
 )
 from ..domain.constants import (
@@ -36,6 +37,7 @@ from ..domain.constants import (
     SEARCH_UPSTREAM_FETCH_LIMIT,
 )
 from .channel import BaseChannel
+from .search_query import parse_search_query
 
 _WHITESPACE = re.compile(r"\s+")
 # 标题/作者的展示上限：搜索结果里常有整段宣传语，原样发出去会刷屏
@@ -69,7 +71,7 @@ class _SearchSession:
     """
 
     stored_at: float
-    keyword: str
+    query: SearchQuery
     aggregate: bool
     order: list[str]  # 渠道名，决定轮流取与展示的顺序
     page: int = 1
@@ -98,6 +100,10 @@ class SearchService:
         self._sessions: dict[str, _SearchSession] = {}
 
     # ---- 能力与冷却 ----
+    def parse_query(self, raw: str) -> SearchQuery:
+        """解析用户输入；语法错误由调用方按 `SearchQueryError` 展示。"""
+        return parse_search_query(raw)
+
     def searchable(self) -> list[BaseChannel]:
         """启用且实现了搜索的渠道，保持注册顺序（结果展示顺序也与之一致）。"""
         return [
@@ -133,12 +139,12 @@ class SearchService:
 
     # ---- 单渠道搜索 ----
     async def search_one(
-        self, channel: BaseChannel, keyword: str, page: int = 1
+        self, channel: BaseChannel, query: SearchQuery, page: int = 1
     ) -> SearchOutcome:
         """搜一个渠道的上游第 ``page`` 页；超时/失败都收成 outcome，绝不向聚合层抛异常。"""
         started = time.monotonic()
         page = max(1, int(page))
-        cache_key = (channel.name, keyword.casefold(), page)
+        cache_key = (channel.name, query.cache_key, page)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return SearchOutcome(
@@ -156,7 +162,7 @@ class SearchService:
                 cached = self._cache_get(cache_key)
                 if cached is not None:
                     return cached
-                return await channel.search(keyword, limit=limit, page=page)
+                return await channel.search(query, limit=limit, page=page)
 
         try:
             result = await asyncio.wait_for(execute(), timeout=float(timeout))
@@ -166,7 +172,7 @@ class SearchService:
             )
         except asyncio.TimeoutError:
             logger.warning(
-                f"[{PLUGIN_NAME}] {channel.display_name} 搜索超时（{timeout}s）：{keyword}"
+                f"[{PLUGIN_NAME}] {channel.display_name} 搜索超时（{timeout}s）：{query.raw}"
             )
             return SearchOutcome(
                 channel=channel,
@@ -196,7 +202,7 @@ class SearchService:
                 elapsed=time.monotonic() - started,
             )
 
-    async def search_all(self, keyword: str) -> list[SearchOutcome]:
+    async def search_all(self, query: SearchQuery) -> list[SearchOutcome]:
         """并发搜所有可用渠道的上游第一页；每个渠道各自超时，互不阻塞。"""
         channels = self.searchable()
         if not channels:
@@ -205,7 +211,7 @@ class SearchService:
             )
         return list(
             await asyncio.gather(
-                *(self.search_one(channel, keyword) for channel in channels)
+                *(self.search_one(channel, query) for channel in channels)
             )
         )
 
@@ -240,7 +246,7 @@ class SearchService:
 
     def _build_session(
         self,
-        keyword: str,
+        query: SearchQuery,
         aggregate: bool,
         pages: list[tuple[BaseChannel, SearchPage]],
     ) -> _SearchSession | None:
@@ -254,7 +260,7 @@ class SearchService:
         order = [channel.name for channel, _ in usable]
         return _SearchSession(
             stored_at=time.monotonic(),
-            keyword=keyword,
+            query=query,
             aggregate=aggregate,
             order=order,
             buffers={channel.name: list(page.items) for channel, page in usable},
@@ -325,7 +331,9 @@ class SearchService:
         }
         outcomes = await asyncio.gather(
             *(
-                self.search_one(channel, session.keyword, page=next_pages[channel.name])
+                self.search_one(
+                    channel, session.query, page=next_pages[channel.name]
+                )
                 for channel in targets
             )
         )
@@ -420,7 +428,7 @@ class SearchService:
 
     # ---- 渲染 ----
     async def render_one(
-        self, outcome: SearchOutcome, keyword: str, session_id: str = ""
+        self, outcome: SearchOutcome, query: SearchQuery, session_id: str = ""
     ) -> str:
         """只搜一个渠道时的结果文案；失败也直接给出原因，不吞掉。"""
         channel = outcome.channel
@@ -432,23 +440,26 @@ class SearchService:
         page = outcome.page
         if page is None or page.empty:
             self._drop_session(session_id)
-            return (
-                f"🔎 {channel.display_name} 没有找到「{keyword}」的结果\n"
-                "换个关键词，或 /漫画网站 到站内搜作品、找 ID"
-            )
+            lines = [
+                f"🔎 {channel.display_name} 没有找到「{query.raw}」的结果",
+                "换个关键词，或 /漫画网站 到站内搜作品、找 ID",
+            ]
+            if page is not None and page.note:
+                lines.append(f"ℹ️ {page.note}")
+            return "\n".join(lines)
 
-        session = self._build_session(keyword, False, [(channel, page)])
+        session = self._build_session(query, False, [(channel, page)])
         if session is None:
             self._drop_session(session_id)
-            return f"🔎 {channel.display_name} 没有找到「{keyword}」的结果"
+            return f"🔎 {channel.display_name} 没有找到「{query.raw}」的结果"
         session.elapsed = outcome.elapsed
         self._store_session(session_id, session)
         # 第一页也要补满：上游一页可能比展示页小，不补会把后面的条目挤到翻页之外
         await self._ensure_entries(session, self._page_size(session))
-        return self._render_session(session)
+        return self._render_session(session, extra=self._note_lines([outcome]))
 
     async def render_all(
-        self, outcomes: list[SearchOutcome], keyword: str, session_id: str = ""
+        self, outcomes: list[SearchOutcome], query: SearchQuery, session_id: str = ""
     ) -> str:
         """全渠道搜索结果：按渠道轮流取，避免第一个渠道占满整条消息。"""
         buckets = [
@@ -458,23 +469,32 @@ class SearchService:
         ]
         if not buckets:
             self._drop_session(session_id)
-            lines = [f"🔎 全渠道搜索「{keyword}」", ""]
+            lines = [f"🔎 全渠道搜索「{query.raw}」", ""]
             lines.append("没有渠道返回结果；换个关键词，或 /漫画网站 到站内搜作品、找 ID")
-            failures = self._failure_lines(outcomes)
-            if failures:
-                lines.append(failures)
+            extra = "\n".join(
+                part
+                for part in (self._failure_lines(outcomes), self._note_lines(outcomes))
+                if part
+            )
+            if extra:
+                lines.append(extra)
             return self._bounded("\n".join(lines))
 
-        session = self._build_session(keyword, True, buckets)
+        session = self._build_session(query, True, buckets)
         if session is None:
             self._drop_session(session_id)
-            lines = [f"🔎 全渠道搜索「{keyword}」", ""]
+            lines = [f"🔎 全渠道搜索「{query.raw}」", ""]
             lines.append("没有渠道返回结果；换个关键词，或 /漫画网站 到站内搜作品、找 ID")
             return self._bounded("\n".join(lines))
         session.elapsed = max((outcome.elapsed for outcome in outcomes), default=0.0)
         self._store_session(session_id, session)
         await self._ensure_entries(session, self._page_size(session))
-        return self._render_session(session, extra=self._failure_lines(outcomes))
+        extra = "\n".join(
+            part
+            for part in (self._failure_lines(outcomes), self._note_lines(outcomes))
+            if part
+        )
+        return self._render_session(session, extra=extra)
 
     def _render_session(self, session: _SearchSession, extra: str = "") -> str:
         size = self._page_size(session)
@@ -510,10 +530,10 @@ class SearchService:
 
     def _session_title(self, session: _SearchSession) -> str:
         if session.aggregate:
-            return f"🔎 全渠道搜索「{session.keyword}」"
+            return f"🔎 全渠道搜索「{session.query.raw}」"
         channel = self.channels.get(session.order[0]) if session.order else None
         name = channel.display_name if channel else (session.order[0] if session.order else "")
-        return f"🔎 {name} 搜索「{session.keyword}」"
+        return f"🔎 {name} 搜索「{session.query.raw}」"
 
     def _session_footer(self, session: _SearchSession) -> str:
         parts: list[str] = []
@@ -570,6 +590,19 @@ class SearchService:
             name = channel.display_name if channel else item.channel
             tag = f"[{name}] "
         return [f"{index}. {tag}{title}{meta}　ID：{comic_id}"]
+
+    @staticmethod
+    def _note_lines(outcomes: list[SearchOutcome]) -> str:
+        """把各渠道的降级说明按文案分组，避免同一句话重复四遍。"""
+        grouped: dict[str, list[str]] = {}
+        for outcome in outcomes:
+            page = outcome.page
+            if page is None or not page.note:
+                continue
+            grouped.setdefault(page.note, []).append(outcome.channel.display_name)
+        return "\n".join(
+            f"ℹ️ {'、'.join(names)}：{note}" for note, names in grouped.items()
+        )
 
     @staticmethod
     def _failure_lines(outcomes: list[SearchOutcome]) -> str:

@@ -46,6 +46,7 @@ from .domain import (
     DownloadPaused,
     PluginError,
     PluginSettings,
+    SearchQueryError,
 )
 from .domain.constants import (
     PACK_FORMATS,
@@ -340,6 +341,14 @@ class ComicParserPlugin(Star):
             )
         else:
             search_desc = "当前没有支持搜索的渠道"
+        search_filter_desc = (
+            "搜索筛选：tag:标签 author:作者 actor:角色 work:作品 "
+            "parody:原作 group:社团 language:语言\n"
+            "（前缀前加 - 表示排除，值含空格用引号；JM 支持 tag/author/actor/work，"
+            "E-Hentai 支持全部（tag/work 为近似），其余渠道按关键词搜索、排除不生效）\n"
+            if self.settings.search_enabled and searchable
+            else ""
+        )
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)
         index_hint = (
             f"搜索后下载：直接发 /comic <序号>（如 /comic 1），"
@@ -362,6 +371,7 @@ class ComicParserPlugin(Star):
             f"群文件：{group_file_desc}\n"
             f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>\n"
             f"搜索：{search_desc}\n"
+            f"{search_filter_desc}"
             f"{index_hint}"
             f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
             f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
@@ -625,26 +635,24 @@ class ComicParserPlugin(Star):
 
         keyword = (keyword or "").strip()
         if not keyword:
-            if channel is not None:
-                hint = channel.display_command
-                yield event.plain_result(
-                    f"用法：/{hint} sou <关键词>\n示例：/{hint} sou 触手"
-                )
-            else:
-                searchable = self.search_service.searchable()
-                names = "、".join(
-                    f"/{item.display_command}" for item in searchable
-                ) or "（没有支持搜索的渠道）"
-                yield event.plain_result(
-                    "用法：/comic sou <关键词>（一次搜索所有支持搜索的渠道）\n"
-                    f"可搜索的渠道：{names}\n"
-                    "也可以只搜一个：/<渠道命令> sou <关键词>"
-                )
+            yield event.plain_result(self._search_usage(channel))
             return
 
         if len(keyword) > SEARCH_MAX_KEYWORD_LENGTH:
             yield event.plain_result(
-                f"❌ 关键词太长了，最多 {SEARCH_MAX_KEYWORD_LENGTH} 个字符"
+                f"❌ 搜索条件太长了，最多 {SEARCH_MAX_KEYWORD_LENGTH} 个字符"
+            )
+            return
+
+        try:
+            query = self.search_service.parse_query(keyword)
+        except SearchQueryError as exc:
+            yield event.plain_result(f"❌ {exc}")
+            return
+        if query.empty:
+            yield event.plain_result(
+                "❌ 只有排除条件不构成一次搜索：请再给一个关键词或正向前缀，"
+                "例如 /comic sou tag:巨乳 -tag:NTR"
             )
             return
 
@@ -664,19 +672,45 @@ class ComicParserPlugin(Star):
                     f"❌ {channel.display_name} 暂不支持搜索"
                 )
                 return
-            outcome = await self.search_service.search_one(channel, keyword)
+            outcome = await self.search_service.search_one(channel, query)
             yield event.plain_result(
-                await self.search_service.render_one(outcome, keyword, session_id)
+                await self.search_service.render_one(outcome, query, session_id)
             )
             return
 
         try:
-            outcomes = await self.search_service.search_all(keyword)
+            outcomes = await self.search_service.search_all(query)
         except PluginError as exc:
             yield event.plain_result(f"❌ {exc}")
             return
         yield event.plain_result(
-            await self.search_service.render_all(outcomes, keyword, session_id)
+            await self.search_service.render_all(outcomes, query, session_id)
+        )
+
+    def _search_usage(self, channel: BaseChannel | None) -> str:
+        """搜索用法提示：前缀写法、引号规则与一个组合示例。"""
+        prefix_hint = (
+            "类型前缀：tag:标签 author:作者 actor:角色 work:作品 "
+            "parody:原作 group:社团 language:语言\n"
+            "前缀前加 - 表示排除；值含空格时用引号，如 tag:\"big breasts\""
+        )
+        if channel is not None:
+            hint = channel.display_command
+            return (
+                f"用法：/{hint} sou <关键词>\n"
+                f"{prefix_hint}\n"
+                f"示例：/{hint} sou tag:巨乳 -tag:NTR 堕落"
+            )
+        searchable = self.search_service.searchable()
+        names = "、".join(
+            f"/{item.display_command}" for item in searchable
+        ) or "（没有支持搜索的渠道）"
+        return (
+            "用法：/comic sou <关键词>（一次搜索所有支持搜索的渠道）\n"
+            f"{prefix_hint}\n"
+            f"可搜索的渠道：{names}\n"
+            "也可以只搜一个：/<渠道命令> sou <关键词>\n"
+            "示例：/comic sou tag:巨乳 -tag:NTR 堕落"
         )
 
     async def _handle_turn_page(

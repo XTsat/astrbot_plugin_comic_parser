@@ -33,6 +33,7 @@ from ....domain import (
     PluginSettings,
     SearchItem,
     SearchPage,
+    SearchQuery,
 )
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
 from ....utils import (
@@ -222,13 +223,16 @@ class EHentaiChannel(BaseChannel):
 
     # ---- 搜索 ----
     async def search(
-        self, keyword: str, limit: int = 5, page: int = 1
+        self, query: SearchQuery, limit: int = 5, page: int = 1
     ) -> SearchPage:
         """站内搜索页；匿名可用，exhentai 需要登录 Cookie。
 
-        搜索页是 HTML（站点没有搜索 API），解析失败按「没搜到」返回空列表，
-        被风控/封禁时才报错——站点改版不应该让整条搜索命令炸掉。
+        E-Hentai 的搜索语法本身支持命名空间与 ``-`` 排除，所以前缀直接翻译成原生查询：
+        ``author:`` → ``artist:``、``actor:`` → ``character:``，``tag:``/``work:`` 用裸词
+        （站点没有只搜标签或标题的语法，只能近似）。搜索页是 HTML（站点没有搜索 API），
+        解析失败按「没搜到」返回空列表，被风控/封禁时才报错——站点改版不该让整条命令炸掉。
         """
+        keyword = self._build_search_text(query)
         hosts = self._search_hosts()
         last_error: Exception | None = None
         upstream_page = max(1, int(page)) - 1  # 站点分页是 0 基
@@ -264,17 +268,46 @@ class EHentaiChannel(BaseChannel):
                     ]
                     return SearchPage(
                         channel=self.name,
-                        keyword=keyword,
+                        keyword=query.raw,
                         items=items,
                         has_more=has_more or len(hits) > len(items),
                     )
                 if "No hits found" in document:
-                    return SearchPage(channel=self.name, keyword=keyword)
+                    return SearchPage(channel=self.name, keyword=query.raw)
                 last_error = ChannelError("搜索页没有解析到结果")
 
         if last_error is not None:
             raise ChannelError(f"E-Hentai 搜索失败：{last_error}") from last_error
-        return SearchPage(channel=self.name, keyword=keyword)
+        return SearchPage(channel=self.name, keyword=query.raw)
+
+    @staticmethod
+    def _build_search_text(query: SearchQuery) -> str:
+        """把结构化条件翻译成 E-Hentai 的搜索串。"""
+        terms = [
+            EHentaiChannel._search_term(item.field, item.value)
+            for item in query.includes
+        ]
+        terms.extend(
+            "-" + EHentaiChannel._search_term(item.field, item.value)
+            for item in query.excludes
+        )
+        if query.keyword:
+            terms.append(query.keyword)
+        return " ".join(term for term in terms if term)
+
+    @staticmethod
+    def _search_term(field: str, value: str) -> str:
+        if field == "language":
+            return f"language:{_language_value(value)}"
+        quoted = _quote_search_value(value)
+        if field in {"tag", "work"}:
+            # EH 没有只搜标签/标题的语法：裸词会同时命中标签与标题，只能近似
+            return quoted
+        if field == "author":
+            return f"artist:{quoted}"
+        if field == "actor":
+            return f"character:{quoted}"
+        return f"{field}:{quoted}"
 
     def _search_hosts(self) -> list[str]:
         """搜索只认配置里的站点域名；没登录时跳过 exhentai（会返回 Sad Panda）。"""
@@ -781,6 +814,43 @@ class EHentaiChannel(BaseChannel):
     def cancel_downloads(self) -> list[str]:
         """插件卸载时调用：让进行中的下载尽快收工并返回其状态（供上层写日志）。"""
         return cancel_active_downloads()
+
+
+# 语言字段的中文写法映射到 E-Hentai 的 language 标签值；其它值按小写透传
+_LANGUAGE_ALIASES = {
+    "中文": "chinese",
+    "汉化": "chinese",
+    "漢化": "chinese",
+    "简中": "chinese",
+    "繁中": "chinese",
+    "日文": "japanese",
+    "日语": "japanese",
+    "日語": "japanese",
+    "英文": "english",
+    "英语": "english",
+    "英語": "english",
+    "韩文": "korean",
+    "韩语": "korean",
+    "韓文": "korean",
+    "韓語": "korean",
+}
+
+
+def _language_value(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return text
+    return _LANGUAGE_ALIASES.get(text) or _LANGUAGE_ALIASES.get(text.lower()) or text.lower()
+
+
+def _quote_search_value(value: str) -> str:
+    """含空格的值用引号包起来，避免 E-Hentai 把它拆成多个 AND 词。"""
+    text = (value or "").strip()
+    if not text:
+        return text
+    if any(char.isspace() for char in text) and '"' not in text:
+        return f'"{text}"'
+    return text
 
 
 def _split_comic_id(comic_id: str) -> tuple[str, str]:

@@ -46,6 +46,47 @@ class SearchItem:
 
 
 @dataclass(slots=True)
+class SearchFilter:
+    """一条结构化搜索条件：``field`` 是规范化字段名，``value`` 是用户填的值。"""
+
+    field: str
+    value: str
+
+
+@dataclass(slots=True)
+class SearchQuery:
+    """一次搜索请求：保留原始输入，同时拆出正/负向条件与自由关键词。
+
+    之所以要在命令层先解析成结构，而不是把 ``tag:xxx`` 原样交给每个渠道：
+    各站上游的筛选语法完全不同（JM 靠 ``main_tag``，E-Hentai 靠命名空间，
+    其余渠道只收一个关键词），解析一次再各自翻译才能保证行为一致。
+    """
+
+    raw: str
+    keyword: str = ""
+    includes: tuple[SearchFilter, ...] = ()
+    excludes: tuple[SearchFilter, ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        """没有关键词也没有正向条件时视为空查询；只有排除项不构成一次搜索。"""
+        return not self.keyword and not self.includes
+
+    @property
+    def has_filters(self) -> bool:
+        return bool(self.includes or self.excludes)
+
+    @property
+    def cache_key(self) -> str:
+        """缓存键：把条件规范化，避免 ``Tag:X`` 与 ``tag:x`` 命中不同缓存。"""
+
+        def encode(items: tuple[SearchFilter, ...]) -> str:
+            return "\x1f".join(f"{item.field}\x1e{item.value}" for item in items)
+
+        return f"{self.keyword}\x1d{encode(self.includes)}\x1d{encode(self.excludes)}"
+
+
+@dataclass(slots=True)
 class SearchPage:
     """某渠道一次搜索的结果页；搜索没有分页，``items`` 已是截断后的展示集。"""
 
@@ -54,6 +95,7 @@ class SearchPage:
     items: list[SearchItem] = field(default_factory=list)
     total: int | None = None  # 上游给出的总结果数；没有时为 None
     has_more: bool = False  # 上游这一页之后还有结果（本地翻页用）
+    note: str = ""  # 该渠道对筛选条件的处理说明（降级/不支持时给用户看）
 
     @property
     def empty(self) -> bool:

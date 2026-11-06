@@ -24,11 +24,13 @@ from ....domain import (
     PluginSettings,
     SearchItem,
     SearchPage,
+    SearchQuery,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, sanitize_filename, split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback
 from ...progress import ProgressHeartbeat, ProgressState, emit
+from ...search_query import fallback_note, plain_search_text
 from .api import PicaClient, image_url
 from .constants import (
     DEFAULT_MAX_CONCURRENT_IMAGES,
@@ -151,14 +153,18 @@ class PicacgChannel(BaseChannel):
 
     # ---- 搜索 ----
     async def search(
-        self, keyword: str, limit: int = 5, page: int = 1
+        self, query: SearchQuery, limit: int = 5, page: int = 1
     ) -> SearchPage:
-        """哔咔搜索必须登录；没填账号密码时给明确提示，而不是让用户以为「搜不到」。"""
+        """哔咔搜索必须登录；没填账号密码时给明确提示，而不是让用户以为「搜不到」。
+
+        上游进阶搜索只有关键词与分类参数，没有标签/作者字段；前缀条件按关键词搜索并标注。
+        """
         if not self.opt_str("account") or not self.opt_str("password"):
             raise ChannelError(
                 "哔咔搜索需要账号：请先在渠道配置里填写哔咔账号与密码"
             )
 
+        keyword = plain_search_text(query)
         async with self._session() as client:
             payload = await client.search(keyword, page=page)
         comics = (payload.get("data") or {}).get("comics") or {}
@@ -187,10 +193,11 @@ class PicacgChannel(BaseChannel):
         pages = _as_int(comics.get("pages"), 1) if isinstance(comics, dict) else 1
         return SearchPage(
             channel=self.name,
-            keyword=keyword,
+            keyword=query.raw,
             items=items,
             total=total or None,
             has_more=pages > max(1, int(page)),
+            note=fallback_note(query),
         )
 
     def _meta(self, comic_id: str, comic: Mapping[str, Any]) -> ComicMeta:

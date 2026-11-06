@@ -47,8 +47,8 @@ DEFAULT_SEARCH_AGGREGATE_LIMIT: Final = 8
 DEFAULT_SEARCH_CACHE_TTL: Final = 60
 # 同会话搜索冷却（秒）：搜索比下载轻，但仍要防止一个人连续刷上游
 DEFAULT_SEARCH_COOLDOWN: Final = 3
-# 关键词最大长度：防止把超长串拼进 URL
-SEARCH_MAX_KEYWORD_LENGTH: Final = 64
+# 搜索条件最大长度：除了关键词还可能有多个类型前缀与排除项，防止把超长串拼进 URL
+SEARCH_MAX_KEYWORD_LENGTH: Final = 96
 # 搜索结果文本上限：聊天消息过长会被平台截断，超过就少显示几条
 SEARCH_MAX_TEXT_CHARS: Final = 1800
 # 搜索缓存最多保留多少条（同一关键词 × 渠道 × 页码）

@@ -9,7 +9,7 @@
 
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: hand over a comic ID or link and get the whole comic
-- **Search right in the chat**: `/jm sou <keyword>` searches JM only, while `/comic sou <keyword>` searches every channel that supports search. Each channel is timed separately, so one slow site is skipped instead of holding up the whole command. Hits are numbered continuously and each line only shows the title, author/page count and ID, with a single download example at the end; reply with the number to download (e.g. `/comic 1` or `/jm 1`). Longer result sets are split into pages: send `/comic 下一页` or `/jm 下一页` for the next page (`上一页` goes back; `next` / `prev` also work), numbers continue across pages, and everything stays valid for 10 minutes
+- **Search right in the chat**: `/jm sou <keyword>` searches JM only, while `/comic sou <keyword>` searches every channel that supports search. Each channel is timed separately, so one slow site is skipped instead of holding up the whole command. Add a type prefix such as `tag:` or `author:` before the keyword, and prefix it with `-` to exclude. Hits are numbered continuously and each line only shows the title, author/page count and ID, with a single download example at the end; reply with the number to download (e.g. `/comic 1` or `/jm 1`). Longer result sets are split into pages: send `/comic 下一页` or `/jm 下一页` for the next page (`上一页` goes back; `next` / `prev` also work), numbers continue across pages, and everything stays valid for 10 minutes
 - **E-Hentai channel**: `/eh <gid:token or link>` (full name `/ehentai`) downloads a whole E-Hentai gallery. Without a cookie it fetches the 1280px-wide resampled images anonymously; originals are only used once you add a cookie and keep "prefer originals" on, and each original is charged against the site's image quota by file size. The quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so send the same command again to continue — long galleries usually take a few passes
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
@@ -27,8 +27,8 @@
 | Command | Permission | Description |
 |---------|------------|-------------|
 | `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded (works for every channel below) |
-| `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; hits are numbered continuously, and `/comic <number>` downloads the matching one |
-| `/jm sou <keyword>` (same for `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜`; after a search, send `/<channel command> <number>` to download |
+| `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; type prefixes such as `tag:` and `author:` plus `-` exclusions are supported; hits are numbered continuously, and `/comic <number>` downloads the matching one |
+| `/jm sou <keyword>` (same for `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜`; type prefixes and `-` exclusions are supported; after a search, send `/<channel command> <number>` to download |
 | `/jm 下一页` (also `/jm next`; go back with `/jm 上一页` or `/jm prev`) | Everyone (subject to whitelist/blacklist) | Turn the page of the latest search in this session; `/comic 下一页` and `/comic 上一页` work the same way; numbers continue across pages and still download by number |
 | `/jm <ID or link>` (full name `/jmcomic`) | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
 | `/nh <ID or link>` (full name `/nhentai`) | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
@@ -65,9 +65,11 @@ Examples:
 /eh 4306312:0123456789
 /eh https://e-hentai.org/g/4306312/0123456789/
 /comic sou tentacles
+/comic sou tag:"big breasts" -tag:NTR corruption
 /comic 1
 /comic 下一页
 /jm sou 無職転生
+/jm sou tag:"big breasts"
 /jm 1
 /jm 下一页
 /nh sou tentacles
@@ -79,6 +81,19 @@ Examples:
 > An E-Hentai ID has two parts, gid and token (e.g. `4306312:0123456789`); a bare number is rejected with a hint. `gid:token`, `gid/token`, and `gid-token` are all accepted, with or without a trailing slash. Copying the gallery link from your browser's address bar is the easiest way.
 > Do not know where to find the ID? Send `/漫画网站` to see each site's homepage plus a sample work-page link (`<ID>` placeholder); once you find the comic there, replace `<ID>` with the number in the link.
 > Search results show only title, author/page count and ID; a hit is not a promise that it can be downloaded (it may need a login, be delisted, or be region-locked). Open the work page to confirm, then download it by number or ID.
+
+### Search filters
+
+Add a type prefix before the search term; both positive and negative filters (prefix the field with `-`) are supported:
+
+- `tag:` tag; `author:` author (also `artist:`); `actor:` character (also `character:`); `work:` title (also `title:`); `parody:` original work; `group:` circle; `language:` language
+- The matching Chinese prefixes also work: `标签:`, `作者:`, `角色:`, `作品:`, `原作:`, `社团:`, `语言:`
+- A prefix is only recognised at the start of a token, case-insensitive, with either a half-width or full-width colon. Quote values that contain spaces, e.g. `tag:"big breasts"`
+- Any remaining words are still searched as ordinary keywords, so a type condition and extra keywords can be combined: `/comic sou tag:"big breasts" -tag:NTR corruption`
+
+Coverage: JM supports native filtering for `tag` / `author` / `actor` / `work`; E-Hentai supports all seven fields through its native syntax (`tag` / `work` are approximated with bare words). nhentai, PicaACG, wnacg and Hanime1 only accept a single keyword upstream, so they search by keyword and say so in the results; exclusions have no effect on those channels.
+
+A JM field search can only target one field at a time. When extra keywords, multiple fields or cross-field exclusions are present, JM falls back to its general search and says so in the results; E-Hentai can combine all of these natively.
 
 ## Configuration
 
@@ -283,5 +298,6 @@ Examples:
 **The download stopped halfway and the message says "send it again to continue" — what does that mean?** A request that keeps downloading too long (continuous download per request, 15 minutes by default) pauses first and keeps the images in the temporary directory, so nothing is packed or sent this time; send the same command again and it resumes, without refetching the pages already saved, then packs and delivers as usual. The images expire after the breakpoint lifetime (2 hours by default), and a request after that starts from scratch; if "clean temp on startup" is on, reloading the plugin clears breakpoints too.
 
 **Why do some channels show no results or a timeout when searching?** An all-channel search times each channel separately (per-channel search timeout, 10 seconds by default); a channel that is slow or blocked is skipped with a note under the results while the others are still shown. Raise the timeout, or search one channel with `/jm sou` instead. The PicaACG channel also needs an account and password in its settings, and reports that explicitly when they are missing.
+
 
 **Why did the file end up in the group file root instead of the configured folder?** That happens when the group has no such folder and the bot could not create it: creating a group file folder requires the bot to be a group admin or owner, so a regular member cannot do it, and the plugin still uploads to the root instead of wasting the download. Make the bot an admin, or create the folder yourself in the group files.

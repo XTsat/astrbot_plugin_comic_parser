@@ -27,6 +27,7 @@ from ..domain import (
     DownloadedComic,
     PluginSettings,
     SearchPage,
+    SearchQuery,
     SearchUnsupportedError,
 )
 from .domain_race import (
@@ -287,12 +288,13 @@ class BaseChannel(ABC):
         return type(self).search is not BaseChannel.search
 
     async def search(
-        self, keyword: str, limit: int = 5, page: int = 1
+        self, query: SearchQuery, limit: int = 5, page: int = 1
     ) -> SearchPage:
-        """按关键词搜索本渠道第 ``page`` 页（从 1 开始），返回至多 ``limit`` 条结果。
+        """按结构化的 ``query`` 搜索本渠道第 ``page`` 页（从 1 开始），返回至多 ``limit`` 条。
 
         默认抛 `SearchUnsupportedError`：未实现搜索的渠道仍然能正常下载，也不需要写 stub。
-        搜索结果只用于展示与给出下载入口，不进入 `DownloadTask`。
+        支持筛选的渠道把条件翻译成上游语法；不支持的渠道至少要把正向条件的值当关键词搜，
+        并在 `SearchPage.note` 里说明降级方式，避免用户误以为做了精确筛选。
         """
         raise SearchUnsupportedError(f"{self.display_name} 暂不支持搜索")
 

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 新增
+- **搜索支持类型前缀与排除**：搜索词前可以加 `tag:`、`author:`、`actor:`、`work:`、`parody:`、`group:`、`language:`（也认中文前缀），前缀前加 `-` 表示排除；JM 与 E-Hentai 按字段原生筛选（E-Hentai 的标签/标题用裸词近似），nhentai、哔咔、紳士漫畫、Hanime1 按关键词搜索并在结果里说明。前缀之外的关键词照常保留，例如 `/comic sou tag:巨乳 -tag:NTR 堕落`；含空格的值用引号，例如 `tag:"big breasts"`
+
 ## v0.3.0 (2026-11-06)
 
 > 聊天内漫画搜索：按序号下载、分页翻页与全渠道聚合
