@@ -225,7 +225,9 @@ class JMComicChannel(BaseChannel):
             unregister_session(session)
 
     # ---- 搜索 ----
-    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+    async def search(
+        self, keyword: str, limit: int = 5, page: int = 1
+    ) -> SearchPage:
         """站内搜索；强制走 API 客户端（HTML 搜索页在 Cloudflare 后面，实测 403）。
 
         搜索不需要先测速：jmcomic 自己会按域名清单重试，测速反而会让搜索多等一轮。
@@ -241,11 +243,11 @@ class JMComicChannel(BaseChannel):
             Path(tempfile.gettempdir()),
             impl="api",
         )
-        page = await asyncio.to_thread(
-            self._search_sync, option, keyword
+        result = await asyncio.to_thread(
+            self._search_sync, option, keyword, page
         )
         items: list[SearchItem] = []
-        for album_id, info in getattr(page, "content", [])[: max(1, limit)]:
+        for album_id, info in getattr(result, "content", [])[: max(1, limit)]:
             if not isinstance(info, dict):
                 continue
             items.append(
@@ -261,21 +263,21 @@ class JMComicChannel(BaseChannel):
                     ],
                 )
             )
-        total = _to_int(getattr(page, "total", 0))
+        total = _to_int(getattr(result, "total", 0))
+        page_count = _to_int(getattr(result, "page_count", 1))
         return SearchPage(
             channel=self.name,
             keyword=keyword,
             items=items,
             total=total,
-            has_more=_to_int(getattr(page, "page_count", 1)) > 1
-            or total > len(items),
+            has_more=page_count > page,
         )
 
-    def _search_sync(self, option: Any, keyword: str) -> Any:
+    def _search_sync(self, option: Any, keyword: str, page: int) -> Any:
         """在线程里跑 jmcomic 的同步搜索；库异常统一翻译成用户文案。"""
         try:
             client = option.new_jm_client()
-            return client.search_site(keyword, page=1)
+            return client.search_site(keyword, page=max(1, int(page)))
         except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，统一转 ChannelError
             raise ChannelError(f"JM 搜索失败：{exc}") from exc
 

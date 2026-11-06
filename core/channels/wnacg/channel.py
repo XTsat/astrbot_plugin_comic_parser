@@ -203,12 +203,14 @@ class WnacgChannel(BaseChannel):
         )
 
     # ---- 搜索 ----
-    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+    async def search(
+        self, keyword: str, limit: int = 5, page: int = 1
+    ) -> SearchPage:
         """站内搜索页；复用 WnacgSite 的镜像降级、限速与 Cloudflare 兜底。"""
         site = self._site()
         async with site:
-            document = await site.fetch_page(search_path(keyword))
-        hits, has_more = parse_search_results(document)
+            document = await site.fetch_page(search_path(keyword, page=page))
+        hits, has_more = parse_search_results(document, page=page)
         items = [
             SearchItem(
                 channel=self.name,

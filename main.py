@@ -60,6 +60,8 @@ from .domain.constants import (
     PROGRESS_STALL_INTERVAL,
     PROGRESS_STEP_PERCENT,
     SEARCH_MAX_KEYWORD_LENGTH,
+    SEARCH_NEXT_WORDS,
+    SEARCH_PREV_WORDS,
     SEARCH_RESULT_TTL,
     SEARCH_WORDS,
     STOP_ALL_WORDS,
@@ -341,7 +343,8 @@ class ComicParserPlugin(Star):
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)
         index_hint = (
             f"搜索后下载：直接发 /comic <序号>（如 /comic 1），"
-            f"也可以 /<渠道命令> <序号>；序号在搜索后 {index_minutes} 分钟内有效\n"
+            f"也可以 /<渠道命令> <序号>；翻页用 /comic 下一页、"
+            f"/<渠道命令> 上一页；序号在搜索后 {index_minutes} 分钟内有效\n"
             if self.settings.search_enabled and searchable
             else ""
         )
@@ -414,6 +417,13 @@ class ComicParserPlugin(Star):
             async for result in self._handle_stop(event, include_all=include_all):
                 yield result
             return
+        if not rest.strip() and (
+            head_lower in SEARCH_NEXT_WORDS or head_lower in SEARCH_PREV_WORDS
+        ):
+            step = 1 if head_lower in SEARCH_NEXT_WORDS else -1
+            async for result in self._handle_turn_page(event, step):
+                yield result
+            return
 
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
         indexed = self.search_service.resolve_index(session_id, text)
@@ -453,14 +463,23 @@ class ComicParserPlugin(Star):
         raw_id: str,
         allow_index: bool = True,
     ) -> AsyncGenerator[MessageEventResult, None]:
+        text = " ".join((raw_id or "").split())
+        head, _, rest = text.partition(" ")
+        head_lower = head.lower()
+        # 翻页看的是本会话上一次搜索，与敲的是哪个渠道命令无关，先于渠道查找处理
+        if not rest.strip() and (
+            head_lower in SEARCH_NEXT_WORDS or head_lower in SEARCH_PREV_WORDS
+        ):
+            step = 1 if head_lower in SEARCH_NEXT_WORDS else -1
+            async for result in self._handle_turn_page(event, step):
+                yield result
+            return
+
         channel = self._commands.get(command)
         if channel is None:
             yield event.plain_result("❌ 该下载渠道未启用，请先在插件配置里添加")
             return
 
-        text = " ".join((raw_id or "").split())
-        head, _, rest = text.partition(" ")
-        head_lower = head.lower()
         if head_lower in SEARCH_WORDS:
             async for result in self._handle_search(
                 event, channel, rest.strip()
@@ -647,7 +666,7 @@ class ComicParserPlugin(Star):
                 return
             outcome = await self.search_service.search_one(channel, keyword)
             yield event.plain_result(
-                self.search_service.render_one(outcome, keyword, session_id)
+                await self.search_service.render_one(outcome, keyword, session_id)
             )
             return
 
@@ -657,8 +676,33 @@ class ComicParserPlugin(Star):
             yield event.plain_result(f"❌ {exc}")
             return
         yield event.plain_result(
-            self.search_service.render_all(outcomes, keyword, session_id)
+            await self.search_service.render_all(outcomes, keyword, session_id)
         )
+
+    async def _handle_turn_page(
+        self, event: AstrMessageEvent, step: int
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """翻上一页/下一页；翻的是本会话最近一次搜索，与敲的是哪个命令无关。"""
+        if not self.settings.search_enabled:
+            yield event.plain_result(
+                "❌ 搜索未启用：请在插件配置的「搜索」里打开「启用搜索」"
+            )
+            return
+
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        denied = self.guard.check_session(session_id)
+        if denied:
+            yield event.plain_result(denied)
+            return
+
+        text = await self.search_service.turn_page(session_id, step)
+        if text is None:
+            yield event.plain_result(
+                "❌ 没有可翻页的搜索结果（可能已过期）："
+                "先用 /comic sou <关键词> 或 /<渠道命令> sou <关键词> 搜一次"
+            )
+            return
+        yield event.plain_result(text)
 
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome

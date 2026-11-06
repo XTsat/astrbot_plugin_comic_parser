@@ -188,9 +188,11 @@ class NhentaiChannel(BaseChannel):
         return cancel_active_downloads()
 
     # ---- 搜索 ----
-    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+    async def search(
+        self, keyword: str, limit: int = 5, page: int = 1
+    ) -> SearchPage:
         """官方 API v2 搜索；结果只有标题/页数，没有作者（作者是站内 tag，需另查）。"""
-        payload = await self._api().search(keyword)
+        payload = await self._api().search(keyword, page=page)
         raw = payload.get("result")
         items: list[SearchItem] = []
         if isinstance(raw, list):
@@ -219,8 +221,7 @@ class NhentaiChannel(BaseChannel):
             keyword=keyword,
             items=items,
             total=total,
-            has_more=_as_int(payload.get("num_pages")) > 1
-            or (total is not None and total > len(items)),
+            has_more=_as_int(payload.get("num_pages")) > max(1, int(page)),
         )
 
     # ---- 内部 ----

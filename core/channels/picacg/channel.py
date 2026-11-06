@@ -150,7 +150,9 @@ class PicacgChannel(BaseChannel):
         return self._meta(comic_id, comic)
 
     # ---- 搜索 ----
-    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+    async def search(
+        self, keyword: str, limit: int = 5, page: int = 1
+    ) -> SearchPage:
         """哔咔搜索必须登录；没填账号密码时给明确提示，而不是让用户以为「搜不到」。"""
         if not self.opt_str("account") or not self.opt_str("password"):
             raise ChannelError(
@@ -158,7 +160,7 @@ class PicacgChannel(BaseChannel):
             )
 
         async with self._session() as client:
-            payload = await client.search(keyword)
+            payload = await client.search(keyword, page=page)
         comics = (payload.get("data") or {}).get("comics") or {}
         docs = comics.get("docs") if isinstance(comics, dict) else None
         items: list[SearchItem] = []
@@ -188,9 +190,7 @@ class PicacgChannel(BaseChannel):
             keyword=keyword,
             items=items,
             total=total or None,
-            has_more=pages > 1
-            or (total > len(items))
-            or (isinstance(docs, list) and len(docs) > len(items)),
+            has_more=pages > max(1, int(page)),
         )
 
     def _meta(self, comic_id: str, comic: Mapping[str, Any]) -> ComicMeta:

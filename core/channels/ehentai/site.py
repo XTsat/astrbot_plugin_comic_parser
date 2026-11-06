@@ -194,11 +194,14 @@ def ehentai_search_url(host: str, keyword: str, page: int = 0) -> str:
     )
 
 
-def parse_search_results(document: str) -> tuple[list[SearchHit], bool]:
+def parse_search_results(
+    document: str, page: int = 0
+) -> tuple[list[SearchHit], bool]:
     """解析搜索页；返回（条目，是否还有下一页）。
 
     行结构缺失时退回「按作品链接找附近标题」的兜底；解析不到就返回空列表，
-    由上层按「没搜到」展示，而不是抛未预期异常。
+    由上层按「没搜到」展示，而不是抛未预期异常。分页链接是 0 基的绝对页码，
+    所以要和当前页比较才能判断后面还有没有。
     """
     hits: list[SearchHit] = []
     seen: set[str] = set()
@@ -243,7 +246,7 @@ def parse_search_results(document: str) -> tuple[list[SearchHit], bool]:
             )
 
     pages = [int(value) for value in _SEARCH_PAGE_LINK.findall(document)]
-    has_more = max(pages) > 0 if pages else len(hits) >= 25
+    has_more = max(pages) > page if pages else len(hits) >= 25
     return hits, has_more
 
 

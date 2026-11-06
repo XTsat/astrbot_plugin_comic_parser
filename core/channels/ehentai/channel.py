@@ -221,7 +221,9 @@ class EHentaiChannel(BaseChannel):
             )
 
     # ---- 搜索 ----
-    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+    async def search(
+        self, keyword: str, limit: int = 5, page: int = 1
+    ) -> SearchPage:
         """站内搜索页；匿名可用，exhentai 需要登录 Cookie。
 
         搜索页是 HTML（站点没有搜索 API），解析失败按「没搜到」返回空列表，
@@ -229,9 +231,10 @@ class EHentaiChannel(BaseChannel):
         """
         hosts = self._search_hosts()
         last_error: Exception | None = None
+        upstream_page = max(1, int(page)) - 1  # 站点分页是 0 基
         async with self._client(self._proxy()) as client:
             for host in hosts:
-                url = ehentai_search_url(host, keyword)
+                url = ehentai_search_url(host, keyword, page=upstream_page)
                 try:
                     document, final_url = await client.get_text(url)
                 except (EHQuotaExceeded, EHLoginRequired, EHBanned) as exc:
@@ -248,7 +251,7 @@ class EHentaiChannel(BaseChannel):
                     last_error = ChannelError("搜索页需要登录")
                     continue
 
-                hits, has_more = parse_search_results(document)
+                hits, has_more = parse_search_results(document, page=upstream_page)
                 if hits:
                     items = [
                         SearchItem(

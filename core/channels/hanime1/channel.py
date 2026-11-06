@@ -59,6 +59,7 @@ from .site import (
     parse_comic_search,
     parse_detail,
     parse_reader,
+    search_has_more,
 )
 
 # 作品页 /comic/<ID>，也兼容 /comic/<ID>/<页> 与分享文本
@@ -394,7 +395,9 @@ class Hanime1Channel(BaseChannel):
         return self._scraper_instance
 
     # ---- 搜索 ----
-    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
+    async def search(
+        self, keyword: str, limit: int = 5, page: int = 1
+    ) -> SearchPage:
         """漫画区搜索；视频搜索页不返回漫画，所以固定走 `/comics/search`。
 
         `hanime1.me` 的漫画区已迁走，搜索只在 `hanimeone.me` 有内容；域名按配置顺序试，
@@ -409,7 +412,7 @@ class Hanime1Channel(BaseChannel):
         ]
         last_error: Exception | None = None
         for domain in ordered:
-            url = build_page_url(domain, comic_search_path(keyword))
+            url = build_page_url(domain, comic_search_path(keyword, page=page))
             try:
                 document = await asyncio.to_thread(scraper.fetch_text, url)
             except ChannelError as exc:
@@ -434,7 +437,8 @@ class Hanime1Channel(BaseChannel):
                 channel=self.name,
                 keyword=keyword,
                 items=items,
-                has_more=len(hits) > len(items),
+                has_more=len(hits) > len(items)
+                or search_has_more(document, page, len(hits)),
             )
         if last_error is not None:
             raise ChannelError(f"Hanime1 搜索失败：{last_error}") from last_error

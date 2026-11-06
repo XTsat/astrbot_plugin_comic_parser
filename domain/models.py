@@ -53,7 +53,7 @@ class SearchPage:
     keyword: str
     items: list[SearchItem] = field(default_factory=list)
     total: int | None = None  # 上游给出的总结果数；没有时为 None
-    has_more: bool = False  # 上游还有更多结果（提示用户换更精确的关键词）
+    has_more: bool = False  # 上游这一页之后还有结果（本地翻页用）
 
     @property
     def empty(self) -> bool:

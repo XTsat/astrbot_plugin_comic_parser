@@ -111,11 +111,14 @@ def search_path(keyword: str, page: int = 1) -> str:
     )
 
 
-def parse_search_results(document: str) -> tuple[list[SearchHit], bool]:
+def parse_search_results(
+    document: str, page: int = 1
+) -> tuple[list[SearchHit], bool]:
     """解析搜索结果页，返回（条目，是否还有下一页）。
 
     列表页没有作者与标签，页数是「N張圖片」；解析不到条目时返回空列表而不是抛错，
     由调用方按「没搜到」展示——站点改版不该让整条搜索命令报未预期错误。
+    分页器里的页码是绝对页码，要和当前页比较才知道后面还有没有。
     """
     hits: list[SearchHit] = []
     for block in _SEARCH_ITEM.findall(document):
@@ -148,7 +151,7 @@ def parse_search_results(document: str) -> tuple[list[SearchHit], bool]:
         )
 
     pages = [int(value) for value in _SEARCH_MAX_PAGE.findall(document)]
-    has_more = max(pages) > 1 if pages else len(hits) >= 20
+    has_more = max(pages) > page if pages else len(hits) >= 20
     return hits, has_more
 
 

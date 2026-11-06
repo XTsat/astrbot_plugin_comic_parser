@@ -131,6 +131,9 @@ _SEARCH_COVER = re.compile(
     r'data-srcset="([^"]+)"|<img[^>]+src="([^"]+)"', re.IGNORECASE
 )
 _SEARCH_COMIC_ID = re.compile(r"/comic/(\d+)")
+# 分页器里的 `page=N` 是绝对页码；没有分页器时退回「满一页就当作还有下一页」
+_SEARCH_PAGE_LINK = re.compile(r"[?&]page=(\d+)", re.IGNORECASE)
+_SEARCH_PAGE_SIZE_HINT = 20
 
 
 @dataclass(slots=True)
@@ -195,6 +198,17 @@ def parse_comic_search(document: str) -> list[SearchHit]:
             )
         )
     return hits
+
+
+def search_has_more(document: str, page: int, hit_count: int) -> bool:
+    """搜索结果页是否还有下一页。
+
+    优先看分页器里的绝对页码；站点没渲染分页器时，按「结果凑满一页」保守判断。
+    """
+    pages = [int(value) for value in _SEARCH_PAGE_LINK.findall(document)]
+    if pages:
+        return max(pages) > max(1, int(page))
+    return hit_count >= _SEARCH_PAGE_SIZE_HINT
 
 
 def _search_title(fragment: str) -> str:

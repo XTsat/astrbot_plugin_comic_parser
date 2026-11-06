@@ -53,11 +53,17 @@ SEARCH_MAX_KEYWORD_LENGTH: Final = 64
 SEARCH_MAX_TEXT_CHARS: Final = 1800
 # 搜索缓存最多保留多少条（同一关键词 × 渠道 × 页码）
 SEARCH_CACHE_MAX_ENTRIES: Final = 256
-# 搜索结果记忆时长（秒）：搜索后可以直接用序号下载，过期后同一个数字按原始 ID 处理。
+# 搜索结果记忆时长（秒）：搜索后可以直接用序号下载、翻页，过期后同一个数字按原始 ID 处理。
 # 时长要覆盖「看完结果再挑一本」的节奏，但也不宜太久，免得用户敲真实 ID 时被旧序号截走
 SEARCH_RESULT_TTL: Final = 600
-# 序号下载的记忆按会话保存，会话数量不可控，超限时先清过期记录
+# 序号下载与翻页的记忆按会话保存，会话数量不可控，超限时先清过期记录
 SEARCH_RESULT_MAX_SESSIONS: Final = 512
+# 上游搜索一次请求最多取回多少条：上游一页通常是 20–50 条，取大值确保整页不丢；
+# 展示层再按「单渠道结果条数 / 聚合结果条数」切片，因此一页上游结果能翻好几页展示页
+SEARCH_UPSTREAM_FETCH_LIMIT: Final = 100
+# 翻页命令词：动作与中文都认，用户不用记英文；匹配的是命令后的整个参数
+SEARCH_NEXT_WORDS: Final = frozenset({"next", "下一页", "下页"})
+SEARCH_PREV_WORDS: Final = frozenset({"prev", "previous", "上一页", "上页"})
 
 # 渠道私有常量（域名清单、单请求超时与重试默认值等）不放这里，
 # 一律跟着渠道走：`core/channels/<渠道名>/constants.py`

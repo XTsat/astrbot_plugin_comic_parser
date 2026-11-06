@@ -286,8 +286,10 @@ class BaseChannel(ABC):
         """
         return type(self).search is not BaseChannel.search
 
-    async def search(self, keyword: str, limit: int = 5) -> SearchPage:
-        """按关键词搜索本渠道，返回至多 ``limit`` 条结果。
+    async def search(
+        self, keyword: str, limit: int = 5, page: int = 1
+    ) -> SearchPage:
+        """按关键词搜索本渠道第 ``page`` 页（从 1 开始），返回至多 ``limit`` 条结果。
 
         默认抛 `SearchUnsupportedError`：未实现搜索的渠道仍然能正常下载，也不需要写 stub。
         搜索结果只用于展示与给出下载入口，不进入 `DownloadTask`。
