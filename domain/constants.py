@@ -16,7 +16,7 @@ DEFAULT_DOWNLOAD_TIMEOUT: Final = 1800
 DEFAULT_RETRY_TIMES: Final = 2
 DEFAULT_MAX_CONCURRENT_TASKS: Final = 1
 
-# 分段下载（秒）：一次请求最多连续下这么久，到点停下并保留断点，重新发命令接着下。
+# 分段下载（秒）：一次请求最多连续下这么久，到点停下并保留断点，发 /comic retry 接着下。
 # 必须小于单本超时才有意义——比它大时按老规矩走硬超时，否则两个值打架行为不可预期。
 DEFAULT_SEGMENT_TIMEOUT: Final = 900
 # 断点保留时长（秒）：过期就在下次下载前清掉，避免改过配置的旧半成品一直占盘；0 表示不留断点
@@ -146,6 +146,15 @@ DEFAULT_PROGRESS_STYLE: Final = "emoji"
 # 手动取消：`/comic stop`（中英文常见写法都认），`全部` 仅管理员可用（取消所有会话的下载）
 STOP_WORDS: Final = frozenset({"stop", "cancel", "取消", "停止", "中止"})
 STOP_ALL_WORDS: Final = frozenset({"all", "全部", "所有"})
+
+# 重试上一条：只在 `/comic` 下生效，用来代替「回去翻自己那条命令再发一遍」
+RETRY_WORDS: Final = frozenset({"retry", "again", "重试", "继续", "再来一次"})
+
+# 查看当前在跑与排队的请求：只读，`全部` 仅管理员可用（看所有会话）
+STATUS_WORDS: Final = frozenset({"status", "queue", "状态", "队列", "排队"})
+
+# 每个会话记一条最近的下载请求；上限按会话数截断，避免长期运行堆积
+LAST_REQUEST_LIMIT: Final = 500
 
 # 取消与超时的巡检间隔（秒）：线程池里的下载只认取消令牌，得靠这个循环把它收掉
 CANCEL_POLL_INTERVAL: Final = 0.5

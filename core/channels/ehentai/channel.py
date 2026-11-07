@@ -801,7 +801,7 @@ class EHentaiChannel(BaseChannel):
             saved = _count_images(work_dir)
         return DownloadPaused(
             f"⏸ {reason}。已保存 {saved}{f'/{total}' if total else ''} 页，断点会保留；"
-            "过几小时或换网络后重发同一命令会接着下",
+            "过几小时或换网络后发 /comic retry 会接着下",
             saved=saved,
             total=total,
         )

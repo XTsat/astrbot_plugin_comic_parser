@@ -119,7 +119,7 @@ class DownloadTask:
         if not pack.success:
             # 图片留着，重发命令只需重新打包，不必整本重下；断点关了就没得留，别乱许诺
             hint = (
-                "\n已下好的图片已保留，重新发一次同样的命令会直接重新打包"
+                "\n已下好的图片已保留，发 /comic retry 会直接重新打包"
                 if self.settings.resume_ttl > 0
                 else ""
             )
@@ -188,7 +188,7 @@ class DownloadTask:
         )
         text = (
             f"{prefix}：已保存 {saved_text}（{format_size(size)}）。\n"
-            f"再发一次同样的命令会从断点接着下，断点保留 "
+            f"发 /comic retry 会从断点接着下，断点保留 "
             f"{_human_span(self.settings.resume_ttl)}"
         )
         return text, saved, size
@@ -224,7 +224,7 @@ class DownloadTask:
         kept = not self.settings.clean_temp_on_start and self.settings.resume_ttl > 0
         if kept:
             tail = (
-                "再发一次同样的命令会从断点接着下，断点保留 "
+                "发 /comic retry 会从断点接着下，断点保留 "
                 f"{_human_span(self.settings.resume_ttl)}"
             )
         else:
@@ -233,7 +233,7 @@ class DownloadTask:
                 if self.settings.clean_temp_on_start
                 else "「断点保留时长」配成了 0"
             )
-            tail = f"{why}，这些图片没能保留，重新发命令会从头下载"
+            tail = f"{why}，这些图片没能保留，发 /comic retry 会从头下载"
         logger.info(
             f"[{PLUGIN_NAME}] {comic_id} 因插件重载中断：{done_text} · "
             f"{format_size(done_size)}，断点{'保留' if kept else '未保留'}"
@@ -256,7 +256,7 @@ class DownloadTask:
         return DownloadPaused(
             f"⏸ 已连续下载 {minutes} 分钟，先停在这里：已保存 {saved_text}"
             f"（{format_size(size)}）。\n"
-            f"再发一次同样的命令会从断点接着下，断点保留 "
+            f"发 /comic retry 会从断点接着下，断点保留 "
             f"{_human_span(self.settings.resume_ttl)}",
             saved=saved,
             total=meta.page_count,

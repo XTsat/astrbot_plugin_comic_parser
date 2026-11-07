@@ -58,6 +58,7 @@ from .domain import (
     SearchQueryError,
 )
 from .domain.constants import (
+    PACK_FORMAT_ALIASES,
     PACK_FORMATS,
     PLUGIN_AUTHOR,
     PLUGIN_DESC,
@@ -68,8 +69,11 @@ from .domain.constants import (
     PROGRESS_MIN_INTERVAL,
     PROGRESS_REACTIONS,
     PROGRESS_STALL_INTERVAL,
+    LAST_REQUEST_LIMIT,
     PROGRESS_STEP_PERCENT,
     RESUME_DIRNAME,
+    RETRY_WORDS,
+    STATUS_WORDS,
     SEARCH_MAX_KEYWORD_LENGTH,
     SEARCH_NEXT_WORDS,
     SEARCH_PREV_WORDS,
@@ -96,7 +100,22 @@ class _RunningTask:
     session_id: str
     cancel: CancelToken
     state: ProgressState | None = field(default=None)
+    # 抢到并发名额才算真在跑；在此之前都是排队，状态查询与排队提示都靠它区分
+    started: bool = False
     cancelled: bool = False
+
+
+@dataclass(slots=True)
+class _LastRequest:
+    """本会话最近一次真正开始下载的请求，`/comic retry` 用它原样重放。
+
+    存的是**规范化之后的 ID**：搜索序号会过期、作品链接可能带分享尾巴，重放时再解析一遍
+    只会多出失败点，不如记已经能直接下手的那个值。
+    """
+
+    command: str  # 渠道命令名（不带斜杠）
+    comic_id: str
+    pack_format: str | None = None
 
 
 def _event_call_action(
@@ -108,6 +127,12 @@ def _event_call_action(
         getattr(bot, "api", None), "call_action", None
     )
     return call_action if callable(call_action) else None
+
+
+def _session_tag(session_id: str) -> str:
+    """会话的可读标签：取统一消息来源的末段（群号 / 用户号），取不到就回原串。"""
+    tail = session_id.rsplit(":", 1)[-1] if session_id else ""
+    return tail or "未知会话"
 
 
 def _event_group_id(event: AstrMessageEvent) -> str:
@@ -209,6 +234,8 @@ class ComicParserPlugin(Star):
         # 正在跑的任务：排队提示与「前面下到哪」都读它
         self._running: dict[int, _RunningTask] = {}
         self._task_seq = 0
+        # 每个会话记一条最近的下载请求，供 `/comic retry` 原样重放
+        self._last_request: dict[str, _LastRequest] = {}
         # 测速排名是上个配置周期的结论：配置改过（域名清单、代理、阈值）就该重新测
         DOMAIN_RACE_CACHE.clear()
         self._clean_temp_on_start()
@@ -455,6 +482,8 @@ class ComicParserPlugin(Star):
             f"{search_filter_desc}"
             f"{index_hint}"
             f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
+            f"接着下上一次：/comic retry（暂停、下载中断或失败后发这一条）\n"
+            f"查看排队：/comic status（管理员可用 /comic status 全部）\n"
             f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
         )
         yield event.plain_result(text)
@@ -492,6 +521,8 @@ class ComicParserPlugin(Star):
                 "或 /comic sou <关键词>（全渠道搜索）\n"
                 "格式可选 zip / pdf / long_img / none，写在最后只对这一次生效\n"
                 "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
+                "接着下上一次：/comic retry（暂停、下载中断或失败后重发这一条即可）\n"
+                "查看排队：/comic status（管理员可加 全部 看所有会话）\n"
                 f"{describe_links(self.channels)}"
             )
             return
@@ -502,12 +533,37 @@ class ComicParserPlugin(Star):
             async for result in self._handle_search(event, None, rest.strip()):
                 yield result
             return
+        if head_lower in STOP_ALL_WORDS and rest.strip().lower() in STATUS_WORDS:
+            # `全部` 既能配 stop 也能配 status：先把 `/comic 全部 status` 认成查看，
+            # 否则它会掉进 stop 分支，看一眼排队就把所有会话的下载全取消了
+            async for result in self._handle_status(event, include_all=True):
+                yield result
+            return
         if head_lower in STOP_WORDS or head_lower in STOP_ALL_WORDS:
             include_all = (
                 head_lower in STOP_ALL_WORDS
                 or rest.strip().lower() in STOP_ALL_WORDS
             )
             async for result in self._handle_stop(event, include_all=include_all):
+                yield result
+            return
+        if head_lower in STATUS_WORDS:
+            include_all = (
+                head_lower in STOP_ALL_WORDS
+                or rest.strip().lower() in STOP_ALL_WORDS
+            )
+            async for result in self._handle_status(event, include_all=include_all):
+                yield result
+            return
+        if head_lower in RETRY_WORDS:
+            override = None
+            if rest.strip():
+                # `/comic retry pdf` 只给这一次重试换个格式，其余参数沿用上次；
+                # 单发一个格式词时 split_pack_format 不认（它只切「有前文 + 末尾」），补一次查表
+                _, override = split_pack_format(rest.strip())
+                if override is None:
+                    override = PACK_FORMAT_ALIASES.get(rest.strip().lower())
+            async for result in self._handle_retry(event, override):
                 yield result
             return
         if not rest.strip() and (
@@ -578,6 +634,17 @@ class ComicParserPlugin(Star):
                 yield result
             return
 
+        if head_lower in RETRY_WORDS:
+            # 重试只认 `/comic retry`：它要知道「上一条」是哪个渠道的，渠道命令无从判断
+            yield event.plain_result(
+                "ℹ️ 重试请用 /comic retry（只重放本会话最近一次下载）；"
+                f"要下新的就发 /{command} <ID 或链接>"
+            )
+            return
+        if head_lower in STATUS_WORDS:
+            yield event.plain_result("ℹ️ 查看在跑与排队的下载请用 /comic status")
+            return
+
         channel = self._commands.get(command)
         if channel is None:
             yield event.plain_result("❌ 该下载渠道未启用，请先在插件配置里添加")
@@ -637,6 +704,11 @@ class ComicParserPlugin(Star):
             yield event.plain_result(f"❌ {exc}")
             return
 
+        # 记下这次要下的东西：之后不管是暂停、重载还是失败，`/comic retry` 都能原样重放
+        self._remember_request(
+            session_id, _LastRequest(channel.command, comic_id, pack_format)
+        )
+
         debounce_key = f"{channel.name}:{comic_id}"
         if self.guard.is_duplicate(session_id, debounce_key):
             yield event.plain_result("⏳ 这个本子刚刚请求过，请稍后再试")
@@ -650,7 +722,7 @@ class ComicParserPlugin(Star):
         result_state = "fail"
         try:
             if self._semaphore.locked():
-                yield event.plain_result(self._queue_notice())
+                yield event.plain_result(self._queue_notice(session_id, slot))
 
             async with self._semaphore:
                 running = self._running.get(slot)
@@ -659,6 +731,8 @@ class ComicParserPlugin(Star):
                         f"⏹ 已取消排队的请求：{channel.display_name} {comic_id}"
                     )
                     return
+                if running is not None:
+                    running.started = True
                 # 贴表情先贴「开始」；贴不上（私聊、协议端不支持）就本次退回文本进度
                 use_reaction, use_text_progress = await self._begin_progress(event)
                 if not use_reaction:
@@ -1110,6 +1184,92 @@ class ComicParserPlugin(Star):
     def _end_running(self, slot: int) -> None:
         self._running.pop(slot, None)
 
+    def _remember_request(self, session_id: str, request: _LastRequest) -> None:
+        """记住本会话最近一次下载请求；只保留最近若干个会话，长时间运行也不会堆积。"""
+        self._last_request.pop(session_id, None)
+        self._last_request[session_id] = request
+        while len(self._last_request) > LAST_REQUEST_LIMIT:
+            self._last_request.pop(next(iter(self._last_request)))
+
+    async def _handle_status(
+        self, event: AstrMessageEvent, *, include_all: bool
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """查看当前在跑与排队的下载；管理员可以用 `全部` 看所有会话。只读，不动任何任务。"""
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        is_admin = bool(getattr(event, "is_admin", None) and event.is_admin())
+        if include_all and not is_admin:
+            yield event.plain_result(
+                "❌ 只有管理员可以查看所有会话的下载；你自己的用 /comic status"
+            )
+            return
+
+        indexes = self._queue_indexes()
+        targets = [
+            (slot, task)
+            for slot, task in sorted(self._running.items())
+            if include_all or task.session_id == session_id
+        ]
+        if not targets:
+            others = sum(1 for task in self._running.values() if task.started)
+            if others:
+                yield event.plain_result(
+                    "ℹ️ 你这里没有在跑或排队的下载；"
+                    f"另有 {others} 个其他会话的下载正在进行"
+                    "（管理员可用 /comic status 全部）"
+                )
+            else:
+                yield event.plain_result("ℹ️ 现在没有下载在跑，也没有排队的请求")
+            return
+
+        running = sum(1 for _, task in targets if task.started)
+        queued = len(targets) - running
+        head = "📊 全部下载状态" if include_all else "📊 当前下载状态"
+        lines = [head]
+        for slot, task in targets:
+            line = self._task_line(task, queue_index=indexes.get(slot))
+            if include_all:
+                # 管理员看全体时要能分辨是谁的，带上会话末尾那段（群号/用户号）
+                line = f"{line} · {_session_tag(task.session_id)}"
+            lines.append(line)
+        minutes = max(1, round(self.settings.download_timeout / 60))
+        lines.append(
+            f"⏱ 在跑 {running} / 排队 {queued} · 单本上限 {minutes} 分钟"
+        )
+        lines.append("⏹ 取消：/comic stop　↻ 接着下：/comic retry")
+        yield event.plain_result("\n".join(lines))
+
+    async def _handle_retry(
+        self, event: AstrMessageEvent, pack_format: str | None = None
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """重放本会话最近一次下载，效果等同「再发一次同样的命令」。
+
+        存的是规范化后的 ID，所以重试不依赖搜索结果是否还在、也不需要用户回去翻原消息。
+        """
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        last = self._last_request.get(session_id)
+        if last is None:
+            yield event.plain_result(
+                "ℹ️ 本会话还没有下载记录，没有可重试的漫画；"
+                "直接发 /comic <作品链接> 或 /<渠道命令> <ID> 开始一本新的"
+            )
+            return
+        channel = self._commands.get(last.command)
+        if channel is None:
+            yield event.plain_result(
+                f"❌ 上次用的渠道（{last.command}）现在没有启用，"
+                "重试前请先在插件配置里加回来"
+            )
+            return
+        async for result in self._handle_download(
+            event,
+            channel.command,
+            last.comic_id,
+            allow_index=False,
+            # 命令里临时指定的格式优先，其次沿用上次那一次的格式
+            pack_format=pack_format or last.pack_format,
+        ):
+            yield result
+
     async def _handle_stop(
         self, event: AstrMessageEvent, *, include_all: bool
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -1152,25 +1312,50 @@ class ComicParserPlugin(Star):
                     f" · {format_size(state.bytes_downloaded)}"
                     f" · 已用 {state.elapsed:.0f}s"
                 )
-        lines.append("已下好的图片会保留，停稳后会再回一条；重新发同一条命令可以接着下")
+        lines.append("已下好的图片会保留，停稳后会再回一条；发 /comic retry 可以接着下")
         yield event.plain_result("\n".join(lines))
 
-    def _queue_notice(self) -> str:
-        """排队提示：带上前面那一本的实时进度，用户才知道要等多久。"""
+    def _task_line(self, task: _RunningTask, *, queue_index: int | None = None) -> str:
+        """一条任务的状态行：在跑的给实时进度，排队的给位次。"""
+        if not task.started:
+            where = "排队中" if queue_index is None else f"排队中（第 {queue_index} 位）"
+            return f" · {task.label}：{where}"
+        state = task.state
+        if state is None:
+            return f" · {task.label}：正在取漫画信息…"
+        return (
+            f" · {task.label}：{state.headline}"
+            f" · {format_size(state.bytes_downloaded)}"
+            f" · 已用 {state.elapsed:.0f}s"
+        )
+
+    def _queue_indexes(self) -> dict[int, int]:
+        """排队位次：按登记顺序（slot 递增）算，先登记者排在前面。"""
+        queued = [
+            slot for slot, task in sorted(self._running.items()) if not task.started
+        ]
+        return {slot: index for index, slot in enumerate(queued, 1)}
+
+    def _queue_notice(self, session_id: str, slot: int) -> str:
+        """排队提示：说清前面跑到哪、还要等这几个，用户才知道大概等多久。
+
+        只列**本会话**的任务：别的会话在下什么属于别人的事，这里最多报个数。
+        """
         lines = ["⏳ 前面的下载还没结束，你的请求已排队"]
-        for running in self._running.values():
-            state = running.state
-            if state is None:
-                lines.append(f" · {running.label}：正在取漫画信息…")
+        indexes = self._queue_indexes()
+        others = 0
+        for other_slot, task in sorted(self._running.items()):
+            if other_slot == slot:
                 continue
-            lines.append(
-                f" · {running.label}：{state.headline}"
-                f" · {format_size(state.bytes_downloaded)}"
-                f" · 已用 {state.elapsed:.0f}s"
-            )
+            if task.session_id != session_id:
+                others += task.started
+                continue
+            lines.append(self._task_line(task, queue_index=indexes.get(other_slot)))
+        if others:
+            lines.append(f" · 另有 {others} 个其他会话的下载正在进行")
         minutes = max(1, round(self.settings.download_timeout / 60))
         lines.append(f"⏱ 单本上限 {minutes} 分钟，前一个任务结束后自动开始")
-        lines.append("⏹ 想取消：发 /comic stop（排队中的请求也会一起取消）")
+        lines.append("📊 看排队情况：/comic status　⏹ 取消：/comic stop")
         return "\n".join(lines)
 
     def _format_outcome(self, outcome: DownloadOutcome) -> str:
