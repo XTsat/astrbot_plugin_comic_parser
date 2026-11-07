@@ -200,8 +200,7 @@ COVER_MAX_BOXES: Final = 64
 
 # 权重不随插件分发：几十 MB 的二进制不适合进 git，用不用得到也因人而异
 NSFW_MODEL_REPO: Final = "erax-ai/EraX-NSFW-V1.0"
-# 只用 ONNX：.pt 要连带装约 1.8G 的 PyTorch，而同一份权重导成 ONNX 后
-# 只要 onnxruntime（约 200M），CPU 推理还更快，因此不再保留 PyTorch 路径。
+# 权重统一用 ONNX：运行时只需 onnxruntime（约 200M 依赖），CPU 推理也够快。
 #
 # 预设 = 档位（n/s/m）× 精度（fp32/int8）。两个维度相互独立：
 # - 档位决定模型容量（nano < small < medium），越大越准也越慢；

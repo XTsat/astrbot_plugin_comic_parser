@@ -33,7 +33,7 @@ def union_coverage(boxes: Sequence[Box], width: int, height: int) -> float:
     try:
         import numpy as np
     except ImportError:
-        # 没有 numpy 就退回面积相加（重叠会高估）；ultralytics 依赖 numpy，正常装不到这一步
+        # 没有 numpy 就退回面积相加（重叠会高估）；onnxruntime 本身就依赖 numpy，正常装不到这一步
         covered = 0.0
         for box in boxes:
             x1, y1, x2, y2 = (float(v) for v in box[:4])

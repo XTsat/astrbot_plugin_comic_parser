@@ -1,7 +1,6 @@
-"""ONNX 后端：不依赖 PyTorch 的 YOLO 检测实现。
+"""ONNX 后端：用 onnxruntime 跑 YOLO 检测，不引入深度学习框架。
 
-`.pt` 走 ultralytics，得连带装 PyTorch（约 1.8G）；把模型导成 `.onnx` 后只需要
-`onnxruntime`（约 200M），实测推理还更快（CPU 816ms vs 1086ms，960 输入）。
+只依赖 `onnxruntime`（约 200M）：实测 960 输入下 CPU 单张约 0.9 秒，够用且装得少。
 
 预处理与后处理必须和 ultralytics 对齐，否则框会整体偏移。两个坑记在这里：
 - 缩放要用「半像素中心 + 落回 uint8」的最近邻双线性（等价 cv2.INTER_LINEAR）；
@@ -29,10 +28,10 @@ from .coverage import union_coverage
 from .detector import Detection, NsfwScore, is_nsfw_label
 from .weights import ModelWeights
 
-# ultralytics 导出 YOLO11 检测头时的类别顺序（模型权重固定，不随导出变化）
+# YOLO11 检测头的固定类别顺序（权重自带，导出前后一致）
 DEFAULT_LABELS = ("anus", "make_love", "nipple", "penis", "vagina")
 
-# NMS 的 IoU 门限与单图保留上限，与 ultralytics 默认值一致
+# NMS 的 IoU 门限与单图保留上限，与模型训练时的默认后处理一致
 NMS_IOU = 0.45
 MAX_DETECTIONS = 300
 PAD_VALUE = 114
@@ -88,7 +87,7 @@ class OnnxDetector:
     # ---- 推理 ----
 
     def analyze(self, image_path: Path, *, threshold: float | None = None) -> NsfwScore:
-        """给单张图打分，返回与 PyTorch 后端同结构的 :class:`NsfwScore`。"""
+        """给单张图打分，返回 :class:`NsfwScore`。"""
         session = self._ensure_session()
         if session is None:
             return NsfwScore.unavailable()

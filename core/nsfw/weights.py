@@ -193,8 +193,9 @@ class ModelWeights:
                 part_path.unlink(missing_ok=True)
 
         logger.error(
-            f"[{PLUGIN_NAME}] 全部 {len(urls)} 个下载源都失败：可在配置「NSFW 模型」的"
-            f"「自定义下载地址」里填镜像或自建直链（支持 {{filename}} 占位），"
+            f"[{PLUGIN_NAME}] 全部 {len(urls)} 个下载源都失败：可在配置"
+            f"「封面与模型 → 模型与检测 → 自定义下载地址」里填镜像或自建直链"
+            f"（支持 {{filename}} 占位），"
             f"或手动把 {filename} 放进插件目录的 models/"
         )
         return None, False

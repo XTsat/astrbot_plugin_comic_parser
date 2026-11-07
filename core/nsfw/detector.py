@@ -1,8 +1,7 @@
 """NSFW 检测的公共类型与后端工厂。
 
-检测只有一条实现路径：**ONNX Runtime**（权重 `.onnx`，依赖约 200M）。
-PyTorch 那条路已经移除——为了跑一个 39MB 的权重去装 1.8G 的 torch 不划算，
-而同一份权重导成 ONNX 后 CPU 推理还更快（实测 960 输入 816ms vs 1086ms）。
+检测走 **ONNX Runtime**（权重 `.onnx`，依赖约 200M）：装得少、CPU 推理也够快
+（实测 960 输入单张约 0.9 秒）。
 """
 
 from __future__ import annotations
