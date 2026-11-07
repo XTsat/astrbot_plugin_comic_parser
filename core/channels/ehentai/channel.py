@@ -186,8 +186,8 @@ class EHentaiChannel(BaseChannel):
 
     async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:
         gid, token = _split_comic_id(comic_id)
-        proxy, _source = self.resolve_proxy()
-        async with self._client(proxy) as client:
+        proxy, source = self.resolve_proxy()
+        async with self._client(proxy, source) as client:
             item = await fetch_gdata(client, gid, token)
         meta = parse_gallery_meta(item)
         meta.gid, meta.token = gid, token
@@ -209,9 +209,9 @@ class EHentaiChannel(BaseChannel):
     ) -> DownloadedComic:
         gid, token = _split_comic_id(comic_id)
         meta = self._meta.pop(comic_id, None)
-        proxy, _source = self.resolve_proxy()
+        proxy, source = self.resolve_proxy()
 
-        async with self._client(proxy) as client:
+        async with self._client(proxy, source) as client:
             if meta is None:
                 # 插件重载或任务重试会走到这里：不依赖前一次 fetch_meta 的缓存
                 item = await fetch_gdata(client, gid, token)
@@ -236,7 +236,8 @@ class EHentaiChannel(BaseChannel):
         hosts = self._search_hosts()
         last_error: Exception | None = None
         upstream_page = max(1, int(page)) - 1  # 站点分页是 0 基
-        async with self._client(self._proxy()) as client:
+        proxy, source = self.resolve_proxy()
+        async with self._client(proxy, source) as client:
             for host in hosts:
                 url = ehentai_search_url(host, keyword, page=upstream_page)
                 try:
@@ -705,9 +706,10 @@ class EHentaiChannel(BaseChannel):
 
     # ---- 内部 ----
 
-    def _client(self, proxy: str) -> EHentaiClient:
+    def _client(self, proxy: str, source: str = "") -> EHentaiClient:
         return EHentaiClient(
             proxy=proxy,
+            proxy_source=source,
             timeout=self.opt_int(
                 "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
             ),
