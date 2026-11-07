@@ -23,7 +23,7 @@ from .constants import (
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_NSFW_AUTO_DOWNLOAD,
     DEFAULT_NSFW_IMGSZ,
-    DEFAULT_NSFW_MODEL_VARIANT,
+    DEFAULT_NSFW_MODEL_PRESET,
     DEFAULT_NSFW_SCORE,
     DEFAULT_NSFW_THRESHOLD,
     DEFAULT_PACK_FORMAT,
@@ -45,7 +45,7 @@ from .constants import (
     DEFAULT_SEGMENT_TIMEOUT,
     FILENAME_TEMPLATES,
     NSFW_IMGSZ_RANGE,
-    NSFW_MODEL_VARIANTS_ONNX,
+    NSFW_MODEL_PRESETS,
     PACK_FORMATS,
     PROGRESS_STYLES,
 )
@@ -158,7 +158,7 @@ class PluginSettings:
     nsfw_score: bool = DEFAULT_NSFW_SCORE
     nsfw_threshold: float = DEFAULT_NSFW_THRESHOLD
     nsfw_imgsz: int = DEFAULT_NSFW_IMGSZ
-    nsfw_model_variant: str = DEFAULT_NSFW_MODEL_VARIANT
+    nsfw_model_preset: str = DEFAULT_NSFW_MODEL_PRESET
     nsfw_auto_download: bool = DEFAULT_NSFW_AUTO_DOWNLOAD
     nsfw_model_url: str = ""
     proxy: str = ""
@@ -192,11 +192,11 @@ class PluginSettings:
         )
         if censor_style not in COVER_CENSOR_STYLES:
             censor_style = DEFAULT_COVER_CENSOR_STYLE
-        model_variant = _as_str(
-            nsfw.get("model_variant"), DEFAULT_NSFW_MODEL_VARIANT
+        model_preset = _as_str(
+            nsfw.get("model_preset"), DEFAULT_NSFW_MODEL_PRESET
         ).lower()
-        if model_variant not in NSFW_MODEL_VARIANTS_ONNX:
-            model_variant = DEFAULT_NSFW_MODEL_VARIANT
+        if model_preset not in NSFW_MODEL_PRESETS:
+            model_preset = DEFAULT_NSFW_MODEL_PRESET
 
         filename_template = _as_str(
             packing.get("filename_template"), DEFAULT_FILENAME_TEMPLATE
@@ -334,7 +334,7 @@ class PluginSettings:
                 ),
                 NSFW_IMGSZ_RANGE[1],
             ),
-            nsfw_model_variant=model_variant,
+            nsfw_model_preset=model_preset,
             nsfw_auto_download=_as_bool(
                 nsfw.get("auto_download_model"), DEFAULT_NSFW_AUTO_DOWNLOAD
             ),

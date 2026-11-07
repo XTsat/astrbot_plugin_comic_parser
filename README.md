@@ -297,7 +297,7 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 | 给封面打分（`score`） | bool | true | 用模型算封面露骨度（检出区域并集占比，0-100%），写进封面说明；没有权重时自动跳过 |
 | 检测阈值（`threshold`） | float | 0.03 | 越低越严格：保留更多弱框、糊得更多，也更容易把干净封面糊到；露骨漫画页的置信度常见 0.02-0.2，调到 0.15 以上基本就漏检 |
 | 推理输入尺寸（`imgsz`） | int | 960 | 默认 960 最稳：640 会在露骨页上吐一个覆盖整幅的粗框（结果就是整张糊），1280 反而掉召回。调大更慢 |
-| 权重档位（`model_variant`） | string | m | nano 约 5MB（最省）/ small 约 18MB / medium 约 39MB（推荐）。ONNX 文件比原 `.pt` 大，因为它是 fp32 |
+| 模型档位与精度（`model_preset`） | string | m_fp32 | 六选一：`m_fp32` 77MB（最准，推荐）/ `m_int8` 20MB / `s_fp32` 36MB（快一倍）/ `s_int8` 10MB / `n_fp32` 10MB（最快）/ `n_int8` 3MB。实测 18 张真实图：`s_fp32` 判定一致 13/18、`n_fp32` 15/18、三个 int8 版都比自己的 fp32 版**更慢**且更易掉档，所以 int8 只作备选 |
 | 缺失时自动下载权重（`auto_download_model`） | bool | false | 开启后插件加载时后台从插件 Release 下载 ONNX 权重到插件目录的 `models/`，失败不影响下载 |
 | 自定义下载地址（`model_download_url`） | string | 空 | 留空用插件 Release（tag `weights-erax-onnx-v1`）；支持 `{filename}` 占位，可换镜像或自建地址 |
 

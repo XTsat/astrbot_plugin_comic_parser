@@ -297,7 +297,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Score the cover (`score`) | bool | true | Report how explicit the cover is (union of detected boxes, 0-100%) in the caption; skipped when no weights are available |
 | Detection threshold (`threshold`) | float | 0.03 | Lower is stricter: more weak boxes survive, more gets censored, and clean covers get blurred too. Explicit manga pages usually score 0.02-0.2, so anything above 0.15 mostly misses |
 | Inference size (`imgsz`) | int | 960 | 960 is the sweet spot: at 640 the model tends to emit one whole-frame box on explicit pages (censoring everything), while 1280 loses recall. Larger is slower |
-| Weight variant (`model_variant`) | string | m | nano (~5MB, lightest) / small (~18MB) / medium (~39MB, recommended). The ONNX file is bigger than the original `.pt` because it is fp32 |
+| Model preset (`model_preset`) | string | m_fp32 | Six choices: `m_fp32` 77MB (most accurate, recommended) / `m_int8` 20MB / `s_fp32` 36MB (twice as fast) / `s_int8` 10MB / `n_fp32` 10MB (fastest) / `n_int8` 3MB. On 18 real images: `s_fp32` agreed 13/18, `n_fp32` 15/18, and every int8 build was **slower** than its own fp32 build with more borderline misses — int8 is a fallback only |
 | Auto-download weights (`auto_download_model`) | bool | false | Download the ONNX weights from the plugin release into `models/` in the background at load time; failures never block downloads |
 | Custom download URL (`model_download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`); supports `{filename}` for mirrors or self-hosting |
 

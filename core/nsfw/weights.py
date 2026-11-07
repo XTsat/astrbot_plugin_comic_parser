@@ -15,10 +15,10 @@ import aiohttp
 from astrbot.api import logger
 
 from ...domain.constants import (
-    DEFAULT_NSFW_MODEL_VARIANT,
+    DEFAULT_NSFW_MODEL_PRESET,
     NSFW_MIN_MODEL_BYTES,
     NSFW_MODEL_DOWNLOAD_TIMEOUT,
-    NSFW_MODEL_VARIANTS_ONNX,
+    NSFW_MODEL_PRESETS,
     NSFW_ONNX_RELEASE_URL,
     PLUGIN_NAME,
 )
@@ -27,14 +27,19 @@ from ...domain.constants import (
 _PROGRESS_STEPS: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0)
 
 
-def variant_key(variant: str) -> str:
-    key = str(variant or "").strip().lower()
-    return key if key in NSFW_MODEL_VARIANTS_ONNX else DEFAULT_NSFW_MODEL_VARIANT
+def preset_key(preset: str) -> str:
+    """把配置里的预设名收敛到合法值（未知值退回默认）。"""
+    key = str(preset or "").strip().lower()
+    return key if key in NSFW_MODEL_PRESETS else DEFAULT_NSFW_MODEL_PRESET
 
 
-def variant_filename(variant: str) -> str:
-    """把配置档位换算成 ONNX 权重文件名，未知档位退回默认档。"""
-    return NSFW_MODEL_VARIANTS_ONNX[variant_key(variant)]
+def preset_filename(preset: str) -> str:
+    """预设 → ONNX 权重文件名。"""
+    return NSFW_MODEL_PRESETS[preset_key(preset)][0]
+
+
+# 兼容旧调用名（external 只是本仓内部用，保留别名免得逐处改）
+variant_filename = preset_filename
 
 
 def find_model_files(models_dir: Path) -> list[Path]:
@@ -64,13 +69,13 @@ def find_model_files(models_dir: Path) -> list[Path]:
     return found
 
 
-def pick_model(models_dir: Path, preferred_variant: str) -> Path | None:
-    """挑一份权重：优先配置档位对应的文件，否则用目录里第一个可用的 .onnx。"""
+def pick_model(models_dir: Path, preferred_preset: str) -> Path | None:
+    """挑一份权重：优先配置预设对应的文件，否则用目录里第一个可用的 .onnx。"""
     candidates = find_model_files(models_dir)
     if not candidates:
         return None
 
-    wanted = variant_filename(preferred_variant).lower()
+    wanted = preset_filename(preferred_preset).lower()
     for path in candidates:
         if path.name.lower() == wanted:
             return path
@@ -84,13 +89,13 @@ class ModelWeights:
         self,
         models_dir: Path,
         *,
-        variant: str = DEFAULT_NSFW_MODEL_VARIANT,
+        preset: str = DEFAULT_NSFW_MODEL_PRESET,
         auto_download: bool = False,
         download_url: str = "",
         proxy: str = "",
     ) -> None:
         self.models_dir = models_dir
-        self.variant = variant_key(variant)
+        self.preset = preset_key(preset)
         self.auto_download = auto_download
         self.download_url = (download_url or "").strip()
         self.proxy = proxy or ""
@@ -98,7 +103,7 @@ class ModelWeights:
 
     def local_model(self) -> Path | None:
         """当前可用的权重（不做任何网络请求）。"""
-        return pick_model(self.models_dir, self.variant)
+        return pick_model(self.models_dir, self.preset)
 
     async def ensure(self) -> tuple[Path | None, bool]:
         """确保本地有权重。
@@ -141,7 +146,7 @@ class ModelWeights:
             logger.error(f"[{PLUGIN_NAME}] 创建模型目录失败 {self.models_dir}: {exc}")
             return None, False
 
-        filename = variant_filename(self.variant)
+        filename = preset_filename(self.preset)
         target = self.models_dir / filename
         part_path = target.with_name(f"{filename}.part")
 

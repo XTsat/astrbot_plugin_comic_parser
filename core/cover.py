@@ -18,7 +18,7 @@ from astrbot.api import logger
 from ..domain.constants import (
     COVER_MIN_SIDE,
     IMAGE_SUFFIXES,
-    NSFW_MODEL_VARIANT_LABELS,
+    NSFW_MODEL_PRESETS,
     PLUGIN_NAME,
 )
 from ..domain.models import ComicMeta
@@ -212,10 +212,10 @@ class CoverService:
         return "\n".join(lines)
 
     @staticmethod
-    def describe_model(detector: Detector, variant: str) -> str:
+    def describe_model(detector: Detector, preset: str) -> str:
         """给帮助文案用的一句话：当前用的是哪份权重、还是根本没配。"""
         model_path = detector.model_path
         if model_path is not None:
             return model_path.name
-        label = NSFW_MODEL_VARIANT_LABELS.get(variant, variant)
-        return f"未配置（可在配置里开启自动下载 {label}）"
+        label = NSFW_MODEL_PRESETS.get(preset, ("", preset))[1]
+        return f"未配置（可在配置里开启自动下载：{label}）"

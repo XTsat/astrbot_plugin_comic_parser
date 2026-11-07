@@ -853,20 +853,26 @@
           "step": 32
         }
       },
-      "model_variant": {
+      "model_preset": {
         "type": "string",
-        "description": "权重档位",
-        "hint": "nano 最省资源、精度略低；medium 是模型作者推荐的平衡档",
-        "default": "m",
+        "description": "模型档位与精度",
+        "hint": "medium 最准（77MB）；small 约 36MB，命中率略降但快一倍；nano 约 10MB 最快，但更爱整张糊。int8 体积小很多，但 CPU 上反而更慢、边缘样本会掉档，不推荐",
+        "default": "m_fp32",
         "options": [
-          "n",
-          "s",
-          "m"
+          "m_fp32",
+          "m_int8",
+          "s_fp32",
+          "s_int8",
+          "n_fp32",
+          "n_int8"
         ],
         "labels": [
-          "nano（约 5MB）",
-          "small（约 18MB）",
-          "medium（约 39MB，推荐）"
+          "medium · 完整精度（77MB，推荐）",
+          "medium · int8（20MB）",
+          "small · 完整精度（36MB）",
+          "small · int8（10MB）",
+          "nano · 完整精度（10MB，最快）",
+          "nano · int8（3MB）"
         ]
       },
       "auto_download_model": {

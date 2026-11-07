@@ -177,7 +177,7 @@ class ComicParserPlugin(Star):
         self.models_dir = Path(__file__).resolve().parent / "models"
         self.model_weights = ModelWeights(
             self.models_dir,
-            variant=self.settings.nsfw_model_variant,
+            preset=self.settings.nsfw_model_preset,
             auto_download=self.settings.nsfw_auto_download,
             download_url=self.settings.nsfw_model_url,
             proxy=self.settings.proxy,
@@ -403,7 +403,7 @@ class ComicParserPlugin(Star):
             cover_desc += "（已打码）" if self.settings.cover_censor else ""
             if self.settings.nsfw_score:
                 model_label = CoverService.describe_model(
-                    self.nsfw_detector, self.settings.nsfw_model_variant
+                    self.nsfw_detector, self.settings.nsfw_model_preset
                 )
                 cover_desc += f"，评分模型：{model_label}"
         else:
