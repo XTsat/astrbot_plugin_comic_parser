@@ -2,7 +2,7 @@ name: astrbot_plugin_comic_parser
 display_name: 漫画下载器
 desc: 多渠道漫画下载与搜索插件：贴作品链接、给 ID 或在聊天里搜索后下载整本漫画，统一打包发送，支持密码加密
 short_desc: 多渠道漫画下载与搜索
-version: v0.3.2
+version: v0.3.3
 author: XTsat
 repo: https://github.com/XTsat/astrbot_plugin_comic_parser
 tags:
