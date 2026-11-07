@@ -103,89 +103,6 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 ## Configuration
 
-### Packing and delivery
-
-<details>
-<summary>Packing and delivery (10)</summary>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Pack format (`pack_format`) | string | zip | One of zip / pdf / long_img / none (keep locally, do not send); for a single download you do not need to change this — just append the format word to the command (e.g. `/jm 123456 pdf`) |
-| Pack password (`pack_password`) | string | empty | Global encryption password; empty means no encryption |
-| Filename template (`filename_template`) | string | id_short_title | Naming pattern for the output file. Presets: [short id]title (default) / [id]title / [id]title+password / title[id] / title[id]+password / ID only / title only / custom (the ID is bracketed). Presets marked "+password" write the password into the filename (visible in chat); the short-ID rule is described in the next row, and other combinations can be built with a custom template |
-| Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{id_short}` `{author}` `{password}`; the `(password)` part disappears when no password is set. `{id_short}` is a shortened ID: E-Hentai drops the token and keeps the gid, PicaACG keeps the last 8 characters of its 24-character ID, and other channels are short enough to match `{id}`. The short form is for filenames only; commands still need the full ID |
-| Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
-| Upload to group files after download (`upload_to_group_file`) | bool | true | Files downloaded in a group go into the target folder of the group's files (created when missing, root only if that fails) and are not sent again in the chat; a failed upload falls back to sending the file; group chats on OneBot (aiocqhttp, e.g. NapCat) only |
-| Group file folder (`group_file_folder`) | string | 漫画 | If the group has a folder with this name the file goes inside it (case-insensitive); when it is missing the next option decides; empty means always the group file root |
-| Create the group file folder when missing (`group_file_create_folder`) | bool | true | Lets the bot create the target folder before uploading (it must be a group admin or owner); if that fails the file simply goes to the root without an error, and turning this off means only existing folders or the root are used |
-| Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
-| Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
-
-</details>
-
-### Download control
-
-<details>
-<summary>Download control (8)</summary>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up and the queue notice shows the running download's live progress |
-| Per-comic timeout (`download_timeout`) | int | 1800 | Seconds allowed for one download attempt before it counts as failed |
-| Download retries (`download_retry_times`) | int | 2 | Retries after a failed download |
-| Continuous download per request (`segment_timeout`) | int | 900 | How long one request may keep downloading before it pauses and keeps the breakpoint; sending the same command again resumes. 0 disables segments |
-| Breakpoint lifetime (`resume_ttl`) | int | 7200 | How long the fetched images are kept after a pause; a new request within that window resumes, 0 keeps nothing |
-| Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
-| Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨 for both downloads and searches. Private chats and clients without reaction support fall back to text progress automatically, and the full-channel search and paging have text progress too |
-| Proxy address (`proxy`) | string | empty | Such as `http://host:port`; only channels with "use proxy" enabled use it. When empty, AstrBot's own `http_proxy` is reused if configured |
-
-</details>
-
-### Probe before download
-
-<details>
-<summary>Probe before download (4)</summary>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Enable probing (`enable`) | bool | true | Probes every candidate domain / image host at once (response time plus a small download sample) and starts from the fastest; when off, candidates are used in the order you typed them |
-| Probe timeout per candidate (`timeout`) | int | 10 | Probes run concurrently and a candidate that misses the deadline counts as slow. Too short kills "slow but usable" sites (cross-border links often need more than 5 seconds); too long wastes time |
-| Slow node threshold (`min_speed`) | int | 150 | Candidates measured below this speed (KB/s) are ranked last but never dropped; 0 ranks by response time only |
-| Ranking cache lifetime (`cache_ttl`) | int | 600 | Ranks are reused for the same candidate set within this window instead of being re-measured on every comic; 0 re-measures every time |
-
-</details>
-
-### Search
-
-<details>
-<summary>Search (8)</summary>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Enable search (`enable`) | bool | true | When off, `/jm sou` and `/comic sou` report that search is disabled; downloading is unaffected |
-| Per-channel search timeout (`timeout`) | int | 10 | Each channel is timed on its own; in an all-channel search a channel that misses this deadline is skipped while the other results are still shown |
-| Results per page, single channel (`page_size`) | int | 5 | Hits shown per page when searching a single channel; paging continues at this same page size |
-| Results per page, all channels (`aggregate_limit`) | int | 8 | Maximum hits shown per page by an all-channel search, taken round-robin so one channel cannot fill the message; paging continues at the same size |
-| Result cache lifetime (`cache_ttl`) | int | 60 | Reuses the previous result for the same channel and keyword within this window; 0 disables caching |
-| Search cooldown (`cooldown`) | int | 3 | Minimum seconds between two searches in the same session; 0 disables the limit |
-| Auto-proxy retry on timeout (`auto_proxy`) | bool | true | When any channel misses the per-channel search timeout, retry once through the global proxy configured in the plugin; has no effect without a global proxy |
-| Extra time for auto-proxy retry (`auto_proxy_timeout`) | int | 15 | The retry has its own time budget and does not consume the per-channel search timeout; only used when auto-proxy is on and a global proxy is configured |
-
-</details>
-
-### Sessions and limits
-
-<details>
-<summary>Sessions and limits (3)</summary>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Whitelist sessions (`whitelist`) | list | empty | When non-empty, only these sessions may download or search; takes priority over the blacklist |
-| Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use download or search commands |
-| Debounce seconds (`debounce_interval`) | int | 60 | Ignores repeated requests for the same comic within this window; 0 disables it |
-
-</details>
-
 ### Download channels
 
 <details>
@@ -296,6 +213,94 @@ A JM field search can only target one field at a time. When extra keywords, mult
 </details>
 
 > The site's image quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so send the same command again to continue; a cookie does not bypass the quota of a shared exit IP. Originals cost far more quota than resampled images, so turn "prefer originals" off if you only want to read.
+
+### Sessions and limits
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Whitelist sessions (`whitelist`) | list | empty | When non-empty, only these sessions may download or search; takes priority over the blacklist |
+| Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use download or search commands |
+| Debounce seconds (`debounce_interval`) | int | 60 | Ignores repeated requests for the same comic within this window; 0 disables it |
+
+### Network and proxy
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Proxy address (`proxy`) | string | empty | The shared outbound proxy for every channel, such as `http://host:port`. Channels with "use proxy" enabled send their requests and probe candidates through it, and the auto-proxy retry after a search timeout uses it too. When empty, AstrBot's own `http_proxy` is reused if configured, otherwise the plugin connects directly |
+
+### Packing and output
+
+<details>
+<summary>Packing and output (7)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Pack format (`pack_format`) | string | pdf | One of zip / pdf / long_img / none (keep locally, do not send); for a single download you do not need to change this — just append the format word to the command (e.g. `/jm 123456 pdf`) |
+| Pack password (`pack_password`) | string | empty | Global encryption password; empty means no encryption |
+| Filename template (`filename_template`) | string | id_short_title | Naming pattern for the output file. Presets: [short id]title (default) / [id]title / [id]title+password / title[id] / title[id]+password / ID only / title only / custom (the ID is bracketed). Presets marked "+password" write the password into the filename (visible in chat); the short-ID rule is described in the next row, and other combinations can be built with a custom template |
+| Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{id_short}` `{author}` `{password}`; the `(password)` part disappears when no password is set. `{id_short}` is a shortened ID: E-Hentai drops the token and keeps the gid, PicaACG keeps the last 8 characters of its 24-character ID, and other channels are short enough to match `{id}`. The short form is for filenames only; commands still need the full ID |
+| Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
+| Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
+| Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
+
+</details>
+
+### Group file delivery
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Upload to group files after download (`upload_to_group_file`) | bool | true | Files downloaded in a group go into the target folder of the group's files (created when missing, root only if that fails) and are not sent again in the chat; a failed upload falls back to sending the file; group chats on OneBot (aiocqhttp, e.g. NapCat) only |
+| Group file folder (`group_file_folder`) | string | 漫画 | If the group has a folder with this name the file goes inside it (case-insensitive); when it is missing the next option decides; empty means always the group file root |
+| Create the group file folder when missing (`group_file_create_folder`) | bool | true | Lets the bot create the target folder before uploading (it must be a group admin or owner); if that fails the file simply goes to the root without an error, and turning this off means only existing folders or the root are used |
+
+### Download control
+
+<details>
+<summary>Download control (7)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up and the queue notice shows the running download's live progress |
+| Per-comic timeout (`timeout`) | int | 1800 | Seconds allowed for one download attempt before it counts as failed |
+| Download retries (`retry_times`) | int | 2 | Retries after a failed download |
+| Continuous download per request (`segment_timeout`) | int | 900 | How long one request may keep downloading before it pauses and keeps the breakpoint; sending the same command again resumes. 0 disables segments |
+| Breakpoint lifetime (`resume_ttl`) | int | 7200 | How long the fetched images are kept after a pause; a new request within that window resumes, 0 keeps nothing |
+| Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
+| Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨 for both downloads and searches. Private chats and clients without reaction support fall back to text progress automatically, and the full-channel search and paging have text progress too |
+
+</details>
+
+### Probe before download
+
+<details>
+<summary>Probe before download (4)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable probing (`enable`) | bool | true | Probes every candidate domain / image host at once (response time plus a small download sample) and starts from the fastest; when off, candidates are used in the order you typed them |
+| Probe timeout per candidate (`timeout`) | int | 10 | Probes run concurrently and a candidate that misses the deadline counts as slow. Too short kills "slow but usable" sites (cross-border links often need more than 5 seconds); too long wastes time |
+| Slow node threshold (`min_speed`) | int | 150 | Candidates measured below this speed (KB/s) are ranked last but never dropped; 0 ranks by response time only |
+| Ranking cache lifetime (`cache_ttl`) | int | 600 | Ranks are reused for the same candidate set within this window instead of being re-measured on every comic; 0 re-measures every time |
+
+</details>
+
+### Search
+
+<details>
+<summary>Search (8)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable search (`enable`) | bool | true | When off, `/jm sou` and `/comic sou` report that search is disabled; downloading is unaffected |
+| Per-channel search timeout (`timeout`) | int | 10 | Each channel is timed on its own; in an all-channel search a channel that misses this deadline is skipped while the other results are still shown |
+| Results per page, single channel (`page_size`) | int | 5 | Hits shown per page when searching a single channel; paging continues at this same page size |
+| Results per page, all channels (`aggregate_limit`) | int | 8 | Maximum hits shown per page by an all-channel search, taken round-robin so one channel cannot fill the message; paging continues at the same size |
+| Result cache lifetime (`cache_ttl`) | int | 60 | Reuses the previous result for the same channel and keyword within this window; 0 disables caching |
+| Search cooldown (`cooldown`) | int | 3 | Minimum seconds between two searches in the same session; 0 disables the limit |
+| Auto-proxy retry on timeout (`auto_proxy`) | bool | true | When any channel misses the per-channel search timeout, retry once through the global proxy configured in the plugin; has no effect without a global proxy |
+| Extra time for auto-proxy retry (`auto_proxy_timeout`) | int | 15 | The retry has its own time budget and does not consume the per-channel search timeout; only used when auto-proxy is on and a global proxy is configured |
+
+</details>
 
 ## Others
 

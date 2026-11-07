@@ -1,355 +1,4 @@
 {
-  "packing": {
-    "type": "object",
-    "description": "打包与交付",
-    "hint": "决定用户最终收到什么：产物形态、加密、文件名，以及发送后的清理",
-    "items": {
-      "pack_format": {
-        "type": "string",
-        "description": "打包格式",
-        "hint": "下载完成后的产物形态：zip 压缩包、pdf 文档、long_img 纵向长图（过长自动分段）、none 仅本地保存不发送",
-        "default": "zip",
-        "options": [
-          "zip",
-          "pdf",
-          "long_img",
-          "none"
-        ],
-        "labels": [
-          "ZIP 压缩包",
-          "PDF 文档",
-          "纵向长图",
-          "仅本地保存"
-        ]
-      },
-      "pack_password": {
-        "type": "string",
-        "description": "打包密码",
-        "hint": "全局统一的加密密码，留空表示不加密。ZIP 使用 AES 加密，PDF 使用 AES-256 加密；设置了密码但缺少加密依赖时会直接报错，不会静默产出未加密文件",
-        "default": "",
-        "secret": true
-      },
-      "filename_template": {
-        "type": "string",
-        "description": "文件名模板",
-        "hint": "决定压缩包/PDF 的文件名，默认「[简写ID]标题」。带「+密码」的模板会把打包密码写进文件名（密码会出现在聊天记录与日志里）。可用占位符：{title} 标题、{id} 完整 ID、{id_short} 简写 ID、{author} 作者、{password} 密码（简写规则见「自定义文件名模板」）",
-        "default": "id_short_title",
-        "options": [
-          "id_short_title",
-          "id_title",
-          "id_title_pw",
-          "title_id",
-          "title_id_pw",
-          "id_only",
-          "title_only",
-          "custom"
-        ],
-        "labels": [
-          "[简写ID]标题",
-          "[ID]标题",
-          "[ID]标题 + 密码",
-          "标题[ID]",
-          "标题[ID] + 密码",
-          "仅 ID",
-          "仅标题",
-          "自定义模板"
-        ]
-      },
-      "filename_custom": {
-        "type": "string",
-        "description": "自定义文件名模板",
-        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {title}-{id_short}；可用 {title} {id} {id_short} {author} {password}，不认识的占位符会留空，密码留空时 (密码) 段自动去掉。{id_short} 是 ID 简写：E-Hentai 去掉 token 只留 gid，哔咔取 24 位 ID 的后 8 位，其它渠道 ID 本身够短、与 {id} 相同；简写只用于文件名，命令里仍要填完整 ID",
-        "default": ""
-      },
-      "download_dir": {
-        "type": "string",
-        "description": "本地保存目录",
-        "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
-        "default": "downloads"
-      },
-      "upload_to_group_file": {
-        "type": "bool",
-        "description": "下载后上传到群文件",
-        "hint": "开启后在群里下完的文件自动传进群文件里的目标文件夹（没有就新建，建不了才放群文件根目录）；群里本来就会出现这条文件消息，聊天里不再重复发；传不上去才直接发文件。仅群聊与 OneBot 协议端适用",
-        "default": true
-      },
-      "group_file_folder": {
-        "type": "string",
-        "description": "群文件目标文件夹",
-        "hint": "想让文件落进群文件里的哪个文件夹，例如「漫画」。群里有同名文件夹就传进去（忽略大小写）；没有时看下一项「自动新建群文件夹」；留空表示总是传群文件根目录",
-        "default": "漫画"
-      },
-      "group_file_create_folder": {
-        "type": "bool",
-        "description": "自动新建群文件夹",
-        "hint": "群文件里没有目标文件夹时，让机器人自己建一个再传进去（机器人需要是群管理员或群主）。建不成就照旧传群文件根目录，不会报错；关闭后一律只传已有的文件夹或根目录",
-        "default": true
-      },
-      "auto_delete_after_send": {
-        "type": "bool",
-        "description": "发送后删除本地文件",
-        "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
-        "default": true
-      },
-      "clean_temp_on_start": {
-        "type": "bool",
-        "description": "启动时清理临时目录",
-        "hint": "插件加载时清空临时目录，避免崩溃或强制重启留下的半成品一直占用磁盘；正常重载与发送完成后本来就会清理。想保留未完成的内容以便排查时可关闭",
-        "default": true
-      }
-    }
-  },
-  "download": {
-    "type": "object",
-    "description": "下载控制",
-    "hint": "下载与搜索的进度提示、并发上限、超时重试与网络出口",
-    "items": {
-      "progress_style": {
-        "type": "string",
-        "description": "进度提示方式",
-        "hint": "贴表情：在命令消息上贴一个爱心 ❤️，下载或搜索完成换成 OK、失败换成 🔨，不刷屏；群聊可用，私聊或协议端不支持表情回应时自动改用文本进度。文本进度：下载按 25% 步进、全渠道搜索按渠道返回进度推送消息，翻页去上游取下一页时也会提示。关闭：不提示进度",
-        "default": "emoji",
-        "options": [
-          "emoji",
-          "text",
-          "none"
-        ],
-        "labels": [
-          "贴表情",
-          "文本进度",
-          "关闭"
-        ]
-      },
-      "show_result_summary": {
-        "type": "bool",
-        "description": "发送下载完成摘要",
-        "hint": "关闭后只发文件，不再附「标题 / 作者 / 图片数 / 耗时」那段说明（仅本地保存模式仍会提示保存路径）",
-        "default": true
-      },
-      "max_concurrent_tasks": {
-        "type": "int",
-        "description": "同时下载任务数",
-        "hint": "全局同时进行的下载任务数量上限，超出的请求排队等待",
-        "default": 1,
-        "slider": {
-          "min": 1,
-          "max": 5,
-          "step": 1
-        }
-      },
-      "download_timeout": {
-        "type": "int",
-        "description": "单本下载超时（秒）",
-        "hint": "一整本漫画从开始下载到结束的超时时间，超时即判失败并重试",
-        "default": 1800,
-        "slider": {
-          "min": 120,
-          "max": 7200,
-          "step": 60
-        }
-      },
-      "download_retry_times": {
-        "type": "int",
-        "description": "下载失败重试次数",
-        "hint": "整本下载失败后的重试次数，0 表示不重试",
-        "default": 2,
-        "slider": {
-          "min": 0,
-          "max": 5,
-          "step": 1
-        }
-      },
-      "segment_timeout": {
-        "type": "int",
-        "description": "单次连续下载时长（秒）",
-        "hint": "一次请求最多连着下这么久，到点先停下并保留断点，重新发一次同样的命令会接着下（已下好的页不重下）。0 表示不分段；配得比「单本下载超时」还长时不生效，仍按超时判失败",
-        "default": 900,
-        "slider": {
-          "min": 0,
-          "max": 3600,
-          "step": 60
-        }
-      },
-      "resume_ttl": {
-        "type": "int",
-        "description": "断点保留时长（秒）",
-        "hint": "分段停下后图片保留这么久，期间重新发命令就接着下；过期在下次下载前自动清掉。0 表示不留断点（每次从零开始）",
-        "default": 7200,
-        "slider": {
-          "min": 0,
-          "max": 86400,
-          "step": 600
-        }
-      },
-      "proxy": {
-        "type": "string",
-        "description": "代理地址",
-        "hint": "形如 http://host:port 或 socks5://host:port；渠道里勾选「使用代理」后才生效。留空时开启代理的渠道会自动用 AstrBot 本体的 http_proxy（如果配了），都没有则直连",
-        "default": ""
-      }
-    }
-  },
-  "probe": {
-    "type": "object",
-    "description": "下载前测速",
-    "hint": "下载前同时探测所有候选域名/图床，把最快的排到最前面；站点镜像「连得上但极慢」时因此不必干等。探测永远只是锦上添花，测不出来就按你填写的顺序依次降级",
-    "items": {
-      "enable": {
-        "type": "bool",
-        "description": "启用测速择优",
-        "hint": "关闭后不再探测，直接按渠道里填写的域名顺序依次降级",
-        "default": true
-      },
-      "timeout": {
-        "type": "int",
-        "description": "单个候选探测超时（秒）",
-        "hint": "探测是并发跑的，等不到就当成慢节点。配得太短会把「慢但能用」的站点判死（跨境线路经常要 5 秒以上才回），配得太长则白等",
-        "default": 10,
-        "slider": {
-          "min": 2,
-          "max": 60,
-          "step": 1
-        }
-      },
-      "min_speed": {
-        "type": "int",
-        "description": "低速节点阈值（KB/s）",
-        "hint": "实测速度低于该值的候选排到最后（不剔除，整批都慢时仍要有域名可用）；0 表示不按速度筛，只看响应时间",
-        "default": 150,
-        "slider": {
-          "min": 0,
-          "max": 2048,
-          "step": 10
-        }
-      },
-      "cache_ttl": {
-        "type": "int",
-        "description": "测速结果缓存时长（秒）",
-        "hint": "同一批候选在有效期内复用上一次的排名，不会每本都重测；0 表示每次都重测",
-        "default": 600,
-        "slider": {
-          "min": 0,
-          "max": 86400,
-          "step": 60
-        }
-      }
-    }
-  },
-  "search": {
-    "type": "object",
-    "description": "搜索",
-    "hint": "在命令后面加 sou 触发搜索：/jm sou 关键词 只搜 JM，/comic sou 关键词 一次搜所有支持的渠道；聚合搜索时某个渠道超时会自动跳过，不会拖住整条命令",
-    "items": {
-      "enable": {
-        "type": "bool",
-        "description": "启用搜索",
-        "hint": "关闭后 /jm sou、/comic sou 会提示搜索未启用；下载功能不受影响",
-        "default": true
-      },
-      "timeout": {
-        "type": "int",
-        "description": "单渠道搜索超时（秒）",
-        "hint": "每个渠道单独计时；聚合搜索时某个渠道超过这个时间还没回就被跳过，其余渠道的结果照常显示",
-        "default": 10,
-        "slider": {
-          "min": 3,
-          "max": 60,
-          "step": 1
-        }
-      },
-      "page_size": {
-        "type": "int",
-        "description": "单渠道每页条数",
-        "hint": "只搜一个渠道时每页展示多少条；用「下一页」继续翻时也按这个条数往后排",
-        "default": 5,
-        "slider": {
-          "min": 1,
-          "max": 20,
-          "step": 1
-        }
-      },
-      "aggregate_limit": {
-        "type": "int",
-        "description": "聚合每页条数",
-        "hint": "全渠道搜索每页最多展示多少条：按渠道轮流取，避免某一个渠道占满整条消息；翻页时接着往后排",
-        "default": 8,
-        "slider": {
-          "min": 1,
-          "max": 30,
-          "step": 1
-        }
-      },
-      "cache_ttl": {
-        "type": "int",
-        "description": "结果缓存时长（秒）",
-        "hint": "同一渠道、同一关键词在有效期内复用上次结果，避免重复打上游；0 表示不缓存",
-        "default": 60,
-        "slider": {
-          "min": 0,
-          "max": 600,
-          "step": 10
-        }
-      },
-      "cooldown": {
-        "type": "int",
-        "description": "搜索冷却（秒）",
-        "hint": "同一会话两次搜索之间至少间隔这么久，防止连续刷搜索；0 表示不限制",
-        "default": 3,
-        "slider": {
-          "min": 0,
-          "max": 60,
-          "step": 1
-        }
-      },
-      "auto_proxy": {
-        "type": "bool",
-        "description": "搜索超时后自动代理重试",
-        "hint": "任意渠道搜索超过「单渠道搜索超时」后，用插件配置的全局代理再试一次；没有配置全局代理时不生效",
-        "default": true
-      },
-      "auto_proxy_timeout": {
-        "type": "int",
-        "description": "自动代理重试额外时间（秒）",
-        "hint": "代理重试单独计时，不占用上面的单渠道搜索超时；只在开启自动代理且配置了全局代理时生效",
-        "default": 15,
-        "slider": {
-          "min": 1,
-          "max": 60,
-          "step": 1
-        }
-      }
-    }
-  },
-  "access": {
-    "type": "object",
-    "description": "会话与限制",
-    "hint": "决定哪些会话能触发下载、多久内不重复下载同一本",
-    "items": {
-      "whitelist": {
-        "type": "list",
-        "description": "白名单会话",
-        "hint": "填写会话 ID（即会话的唯一标识），留空表示不限制。白名单非空时，只有列表内的会话可以使用下载命令，优先级高于黑名单",
-        "default": []
-      },
-      "blacklist": {
-        "type": "list",
-        "description": "黑名单会话",
-        "hint": "黑名单内的会话无法使用下载命令",
-        "default": []
-      },
-      "debounce_interval": {
-        "type": "int",
-        "description": "防抖秒数",
-        "hint": "同一会话在该时间内重复请求同一本漫画时直接忽略，避免刷屏与重复下载；0 表示关闭",
-        "default": 60,
-        "slider": {
-          "min": 0,
-          "max": 600,
-          "step": 10
-        }
-      }
-    }
-  },
   "channels": {
     "type": "template_list",
     "description": "下载渠道",
@@ -868,5 +517,370 @@
         "cookie": ""
       }
     ]
+  },
+  "access": {
+    "type": "object",
+    "description": "会话与限制",
+    "hint": "决定哪些会话能触发下载、多久内不重复下载同一本",
+    "items": {
+      "whitelist": {
+        "type": "list",
+        "description": "白名单会话",
+        "hint": "填写会话 ID（即会话的唯一标识），留空表示不限制。白名单非空时，只有列表内的会话可以使用下载命令，优先级高于黑名单",
+        "default": []
+      },
+      "blacklist": {
+        "type": "list",
+        "description": "黑名单会话",
+        "hint": "黑名单内的会话无法使用下载命令",
+        "default": []
+      },
+      "debounce_interval": {
+        "type": "int",
+        "description": "防抖秒数",
+        "hint": "同一会话在该时间内重复请求同一本漫画时直接忽略，避免刷屏与重复下载；0 表示关闭",
+        "default": 60,
+        "slider": {
+          "min": 0,
+          "max": 600,
+          "step": 10
+        }
+      }
+    }
+  },
+  "network": {
+    "type": "object",
+    "description": "网络与代理",
+    "hint": "所有渠道共用的出站代理，只填一次；具体哪个渠道用不用代理，在「下载渠道」里各自的「使用代理」勾选",
+    "items": {
+      "proxy": {
+        "type": "string",
+        "description": "代理地址",
+        "hint": "渠道里勾选「使用代理」后，渠道请求与下载前测速都走这个地址；搜索超时后的自动代理重试也用它。留空时自动用 AstrBot 本体的 http_proxy（如果配了），都没配就直连",
+        "default": ""
+      }
+    }
+  },
+  "packing": {
+    "type": "object",
+    "description": "打包与产物",
+    "hint": "产物形态、加密与文件名，以及本地保存与清理；群里传文件见「群文件交付」",
+    "items": {
+      "pack_format": {
+        "type": "string",
+        "description": "打包格式",
+        "hint": "下载完成后的产物形态：zip 压缩包、pdf 文档、long_img 纵向长图（过长自动分段）、none 仅本地保存不发送",
+        "default": "pdf",
+        "options": [
+          "zip",
+          "pdf",
+          "long_img",
+          "none"
+        ],
+        "labels": [
+          "ZIP 压缩包",
+          "PDF 文档",
+          "纵向长图",
+          "仅本地保存"
+        ]
+      },
+      "pack_password": {
+        "type": "string",
+        "description": "打包密码",
+        "hint": "全局统一的加密密码，留空表示不加密。ZIP 使用 AES 加密，PDF 使用 AES-256 加密；设置了密码但缺少加密依赖时会直接报错，不会静默产出未加密文件",
+        "default": "",
+        "secret": true
+      },
+      "filename_template": {
+        "type": "string",
+        "description": "文件名模板",
+        "hint": "决定压缩包/PDF 的文件名，默认「[简写ID]标题」。带「+密码」的模板会把打包密码写进文件名（密码会出现在聊天记录与日志里）。可用占位符：{title} 标题、{id} 完整 ID、{id_short} 简写 ID、{author} 作者、{password} 密码（简写规则见「自定义文件名模板」）",
+        "default": "id_short_title",
+        "options": [
+          "id_short_title",
+          "id_title",
+          "id_title_pw",
+          "title_id",
+          "title_id_pw",
+          "id_only",
+          "title_only",
+          "custom"
+        ],
+        "labels": [
+          "[简写ID]标题",
+          "[ID]标题",
+          "[ID]标题 + 密码",
+          "标题[ID]",
+          "标题[ID] + 密码",
+          "仅 ID",
+          "仅标题",
+          "自定义模板"
+        ]
+      },
+      "filename_custom": {
+        "type": "string",
+        "description": "自定义文件名模板",
+        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {title}-{id_short}；可用 {title} {id} {id_short} {author} {password}，不认识的占位符会留空，密码留空时 (密码) 段自动去掉。{id_short} 是 ID 简写：E-Hentai 去掉 token 只留 gid，哔咔取 24 位 ID 的后 8 位，其它渠道 ID 本身够短、与 {id} 相同；简写只用于文件名，命令里仍要填完整 ID",
+        "default": ""
+      },
+      "download_dir": {
+        "type": "string",
+        "description": "本地保存目录",
+        "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
+        "default": "downloads"
+      },
+      "auto_delete_after_send": {
+        "type": "bool",
+        "description": "发送后删除本地文件",
+        "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
+        "default": true
+      },
+      "clean_temp_on_start": {
+        "type": "bool",
+        "description": "启动时清理临时目录",
+        "hint": "插件加载时清空临时目录，避免崩溃或强制重启留下的半成品一直占用磁盘；正常重载与发送完成后本来就会清理。想保留未完成的内容以便排查时可关闭",
+        "default": true
+      }
+    }
+  },
+  "delivery": {
+    "type": "object",
+    "description": "群文件交付",
+    "hint": "群里下完的产物直接传进群文件，聊天里不再重复发；仅群聊与 OneBot（NapCat 等 aiocqhttp）协议端适用",
+    "items": {
+      "upload_to_group_file": {
+        "type": "bool",
+        "description": "下载后上传到群文件",
+        "hint": "开启后在群里下完的文件自动传进群文件里的目标文件夹（没有就新建，建不了才放群文件根目录）；群里本来就会出现这条文件消息，聊天里不再重复发；传不上去才直接发文件。仅群聊与 OneBot 协议端适用",
+        "default": true
+      },
+      "group_file_folder": {
+        "type": "string",
+        "description": "群文件目标文件夹",
+        "hint": "想让文件落进群文件里的哪个文件夹，例如「漫画」。群里有同名文件夹就传进去（忽略大小写）；没有时看下一项「自动新建群文件夹」；留空表示总是传群文件根目录",
+        "default": "漫画"
+      },
+      "group_file_create_folder": {
+        "type": "bool",
+        "description": "自动新建群文件夹",
+        "hint": "群文件里没有目标文件夹时，让机器人自己建一个再传进去（机器人需要是群管理员或群主）。建不成就照旧传群文件根目录，不会报错；关闭后一律只传已有的文件夹或根目录",
+        "default": true
+      }
+    }
+  },
+  "download": {
+    "type": "object",
+    "description": "下载控制",
+    "hint": "下载与搜索的进度提示、并发上限、超时重试与网络出口",
+    "items": {
+      "progress_style": {
+        "type": "string",
+        "description": "进度提示方式",
+        "hint": "贴表情：在命令消息上贴一个爱心 ❤️，下载或搜索完成换成 OK、失败换成 🔨，不刷屏；群聊可用，私聊或协议端不支持表情回应时自动改用文本进度。文本进度：下载按 25% 步进、全渠道搜索按渠道返回进度推送消息，翻页去上游取下一页时也会提示。关闭：不提示进度",
+        "default": "emoji",
+        "options": [
+          "emoji",
+          "text",
+          "none"
+        ],
+        "labels": [
+          "贴表情",
+          "文本进度",
+          "关闭"
+        ]
+      },
+      "show_result_summary": {
+        "type": "bool",
+        "description": "发送下载完成摘要",
+        "hint": "关闭后只发文件，不再附「标题 / 作者 / 图片数 / 耗时」那段说明（仅本地保存模式仍会提示保存路径）",
+        "default": true
+      },
+      "max_concurrent_tasks": {
+        "type": "int",
+        "description": "同时下载任务数",
+        "hint": "全局同时进行的下载任务数量上限，超出的请求排队等待",
+        "default": 1,
+        "slider": {
+          "min": 1,
+          "max": 5,
+          "step": 1
+        }
+      },
+      "timeout": {
+        "type": "int",
+        "description": "单本下载超时（秒）",
+        "hint": "一整本漫画从开始下载到结束的超时时间，超时即判失败并重试",
+        "default": 1800,
+        "slider": {
+          "min": 120,
+          "max": 7200,
+          "step": 60
+        }
+      },
+      "retry_times": {
+        "type": "int",
+        "description": "下载失败重试次数",
+        "hint": "整本下载失败后的重试次数，0 表示不重试",
+        "default": 2,
+        "slider": {
+          "min": 0,
+          "max": 5,
+          "step": 1
+        }
+      },
+      "segment_timeout": {
+        "type": "int",
+        "description": "单次连续下载时长（秒）",
+        "hint": "一次请求最多连着下这么久，到点先停下并保留断点，重新发一次同样的命令会接着下（已下好的页不重下）。0 表示不分段；配得比「单本下载超时」还长时不生效，仍按超时判失败",
+        "default": 900,
+        "slider": {
+          "min": 0,
+          "max": 3600,
+          "step": 60
+        }
+      },
+      "resume_ttl": {
+        "type": "int",
+        "description": "断点保留时长（秒）",
+        "hint": "分段停下后图片保留这么久，期间重新发命令就接着下；过期在下次下载前自动清掉。0 表示不留断点（每次从零开始）",
+        "default": 7200,
+        "slider": {
+          "min": 0,
+          "max": 86400,
+          "step": 600
+        }
+      }
+    }
+  },
+  "probe": {
+    "type": "object",
+    "description": "下载前测速",
+    "hint": "下载前同时探测所有候选域名/图床，把最快的排到最前面；站点镜像「连得上但极慢」时因此不必干等。探测永远只是锦上添花，测不出来就按你填写的顺序依次降级",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用测速择优",
+        "hint": "关闭后不再探测，直接按渠道里填写的域名顺序依次降级",
+        "default": true
+      },
+      "timeout": {
+        "type": "int",
+        "description": "单个候选探测超时（秒）",
+        "hint": "探测是并发跑的，等不到就当成慢节点。配得太短会把「慢但能用」的站点判死（跨境线路经常要 5 秒以上才回），配得太长则白等",
+        "default": 10,
+        "slider": {
+          "min": 2,
+          "max": 60,
+          "step": 1
+        }
+      },
+      "min_speed": {
+        "type": "int",
+        "description": "低速节点阈值（KB/s）",
+        "hint": "实测速度低于该值的候选排到最后（不剔除，整批都慢时仍要有域名可用）；0 表示不按速度筛，只看响应时间",
+        "default": 150,
+        "slider": {
+          "min": 0,
+          "max": 2048,
+          "step": 10
+        }
+      },
+      "cache_ttl": {
+        "type": "int",
+        "description": "测速结果缓存时长（秒）",
+        "hint": "同一批候选在有效期内复用上一次的排名，不会每本都重测；0 表示每次都重测",
+        "default": 600,
+        "slider": {
+          "min": 0,
+          "max": 86400,
+          "step": 60
+        }
+      }
+    }
+  },
+  "search": {
+    "type": "object",
+    "description": "搜索",
+    "hint": "在命令后面加 sou 触发搜索：/jm sou 关键词 只搜 JM，/comic sou 关键词 一次搜所有支持的渠道；聚合搜索时某个渠道超时会自动跳过，不会拖住整条命令",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用搜索",
+        "hint": "关闭后 /jm sou、/comic sou 会提示搜索未启用；下载功能不受影响",
+        "default": true
+      },
+      "timeout": {
+        "type": "int",
+        "description": "单渠道搜索超时（秒）",
+        "hint": "每个渠道单独计时；聚合搜索时某个渠道超过这个时间还没回就被跳过，其余渠道的结果照常显示",
+        "default": 10,
+        "slider": {
+          "min": 3,
+          "max": 60,
+          "step": 1
+        }
+      },
+      "page_size": {
+        "type": "int",
+        "description": "单渠道每页条数",
+        "hint": "只搜一个渠道时每页展示多少条；用「下一页」继续翻时也按这个条数往后排",
+        "default": 5,
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        }
+      },
+      "aggregate_limit": {
+        "type": "int",
+        "description": "聚合每页条数",
+        "hint": "全渠道搜索每页最多展示多少条：按渠道轮流取，避免某一个渠道占满整条消息；翻页时接着往后排",
+        "default": 8,
+        "slider": {
+          "min": 1,
+          "max": 30,
+          "step": 1
+        }
+      },
+      "cache_ttl": {
+        "type": "int",
+        "description": "结果缓存时长（秒）",
+        "hint": "同一渠道、同一关键词在有效期内复用上次结果，避免重复打上游；0 表示不缓存",
+        "default": 60,
+        "slider": {
+          "min": 0,
+          "max": 600,
+          "step": 10
+        }
+      },
+      "cooldown": {
+        "type": "int",
+        "description": "搜索冷却（秒）",
+        "hint": "同一会话两次搜索之间至少间隔这么久，防止连续刷搜索；0 表示不限制",
+        "default": 3,
+        "slider": {
+          "min": 0,
+          "max": 60,
+          "step": 1
+        }
+      },
+      "auto_proxy": {
+        "type": "bool",
+        "description": "搜索超时后自动代理重试",
+        "hint": "任意渠道搜索超过「单渠道搜索超时」后，用插件配置的全局代理再试一次；没有配置全局代理时不生效",
+        "default": true
+      },
+      "auto_proxy_timeout": {
+        "type": "int",
+        "description": "自动代理重试额外时间（秒）",
+        "hint": "代理重试单独计时，不占用上面的单渠道搜索超时；只在开启自动代理且配置了全局代理时生效",
+        "default": 15,
+        "slider": {
+          "min": 1,
+          "max": 60,
+          "step": 1
+        }
+      }
+    }
   }
 }

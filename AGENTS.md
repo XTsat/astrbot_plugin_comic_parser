@@ -315,16 +315,16 @@ class MyPlugin(Star):
 | `packing.filename_template` / `packing.filename_custom` | string / string | 产物文件名（`utils/filename.py`） |
 | `packing.download_dir` | string | 仅本地保存目录 |
 | `packing.auto_delete_after_send` / `packing.clean_temp_on_start` | bool / bool | 交付与清理（`main.py`） |
-| `packing.upload_to_group_file` / `packing.group_file_folder` / `packing.group_file_create_folder` | bool / string / bool | 群文件交付（`core/group_file.py`） |
+| `delivery.upload_to_group_file` / `delivery.group_file_folder` / `delivery.group_file_create_folder` | bool / string / bool | 群文件交付（`core/group_file.py`） |
 | `download.progress_style` / `download.show_result_summary` | string / bool | 进度与结果提示（`main.py`） |
-| `download.max_concurrent_tasks` / `download.download_timeout` / `download.download_retry_times` | int | 调度（`core/task.py`） |
-| `download.proxy` | string | 渠道共用代理地址 |
+| `download.max_concurrent_tasks` / `download.timeout` / `download.retry_times` | int | 调度（`core/task.py`） |
+| `network.proxy` | string | 渠道共用代理地址（渠道请求、测速、搜索自动代理重试都用它） |
 | `search.enable` / `search.timeout` / `search.page_size` / `search.aggregate_limit` | bool / int / int / int | 搜索开关与节奏（`core/search.py`） |
 | `search.cache_ttl` / `search.cooldown` | int / int | 结果缓存与会话冷却（`core/search.py`） |
 | `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |
 
-顶层 key 是 `packing` / `download` / `probe` / `search` / `access` / `channels` 六个分组（前五个是 `object`，WebUI 里各成一块区域）；`domain/config.py` 读分组值时对老的扁平 key 有回退，存量配置不会失效。
+顶层 key 是 `channels` / `access` / `network` / `packing` / `delivery` / `download` / `probe` / `search` 八个分组（`channels` 是 `template_list`，其余是 `object`，WebUI 里各成一块区域；顺序即设置页里的展示顺序，渠道排在最前）；`domain/config.py` 只按当前分组读取，不为改名/换组做兼容回退——配置项改名或换组即视为破坏性变更，升级后老位置的值不再生效，需在 CHANGELOG 里写明要用户重设。
 
 渠道模板里的条目会被 `domain/config.py` 收敛成 `{渠道名: 条目}`，渠道私有字段（如 `client_type`、`image_suffix`）由渠道自己用 `BaseChannel.opt_*` 读取，**不要提升成顶层配置**——否则新增渠道会不断污染顶层 schema。
 

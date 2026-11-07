@@ -125,7 +125,9 @@ class PluginSettings:
     def from_config(cls, config: Mapping[str, Any] | None) -> PluginSettings:
         data: Mapping[str, Any] = config or {}
         packing = _section(data, "packing")
+        delivery = _section(data, "delivery")
         download = _section(data, "download")
+        network = _section(data, "network")
         access = _section(data, "access")
         probe = _section(data, "probe")
         search = _section(data, "search")
@@ -164,13 +166,13 @@ class PluginSettings:
                 packing.get("auto_delete_after_send"), True
             ),
             upload_to_group_file=_as_bool(
-                packing.get("upload_to_group_file"), True
+                delivery.get("upload_to_group_file"), True
             ),
             group_file_folder=_as_str(
-                packing.get("group_file_folder"), DEFAULT_GROUP_FILE_FOLDER
+                delivery.get("group_file_folder"), DEFAULT_GROUP_FILE_FOLDER
             ),
             group_file_create_folder=_as_bool(
-                packing.get("group_file_create_folder"), True
+                delivery.get("group_file_create_folder"), True
             ),
             progress_style=progress_style,
             show_result_summary=_as_bool(
@@ -185,12 +187,12 @@ class PluginSettings:
                 minimum=1,
             ),
             download_timeout=_as_int(
-                download.get("download_timeout"),
+                download.get("timeout"),
                 DEFAULT_DOWNLOAD_TIMEOUT,
                 minimum=60,
             ),
             download_retry_times=_as_int(
-                download.get("download_retry_times"),
+                download.get("retry_times"),
                 DEFAULT_RETRY_TIMES,
                 minimum=0,
             ),
@@ -250,7 +252,7 @@ class PluginSettings:
                 ),
                 120,
             ),
-            proxy=_as_str(download.get("proxy")),
+            proxy=_as_str(network.get("proxy")),
             channels=_parse_channels(data.get("channels")),
         )
 

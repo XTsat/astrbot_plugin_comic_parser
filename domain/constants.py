@@ -72,7 +72,7 @@ SEARCH_PREV_WORDS: Final = frozenset({"prev", "previous", "上一页", "上页"}
 # 渠道私有常量（域名清单、单请求超时与重试默认值等）不放这里，
 # 一律跟着渠道走：`core/channels/<渠道名>/constants.py`
 PACK_FORMATS: Final = ("zip", "pdf", "long_img", "none")
-DEFAULT_PACK_FORMAT: Final = "zip"
+DEFAULT_PACK_FORMAT: Final = "pdf"
 
 # 展示名：帮助、结果摘要与提示文案共用一份，免得各处自己写中文
 PACK_FORMAT_LABELS: Final = {

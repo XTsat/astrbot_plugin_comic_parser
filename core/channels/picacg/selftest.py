@@ -353,7 +353,7 @@ async def _run() -> int:
         settings = PluginSettings.from_config(
             {
                 "packing": {"pack_format": "zip"},
-                "download": {"download_retry_times": 0, "download_timeout": 120},
+                "download": {"retry_times": 0, "timeout": 120},
             }
         )
         task = task_module.DownloadTask(

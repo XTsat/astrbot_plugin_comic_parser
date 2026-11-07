@@ -9,13 +9,13 @@
     "site_domains": {
       "type": "text",
       "description": "站点域名",
-      "hint": "一行一个，从上到下依次降级；官方 API v2 与页面抓取共用这份清单，镜像站换这里即可",
+      "hint": "一行一个，从上到下依次降级；开启「下载前测速择优」时会先测速，把最快的站点域名排到最前面。官方 API v2 与页面抓取共用这份清单，镜像站换这里即可",
       "default": "nhentai.net"
     },
     "image_domains": {
       "type": "text",
       "description": "图床域名",
-      "hint": "留空则自动从站点接口取图床清单（推荐）；也可手填一行一个，取第一个",
+      "hint": "留空则自动从站点接口取图床清单（推荐）；也可手填一行一个，多个候选会按实测速度挑最快的那个",
       "default": ""
     },
     "request_timeout": {
@@ -54,8 +54,8 @@
     "use_proxy": {
       "type": "bool",
       "description": "使用代理",
-      "hint": "开启后使用上方全局代理地址；nhentai 在多数网络环境下需要代理才能访问",
-      "default": false
+      "hint": "按「插件代理 → AstrBot 本体代理 → 直连」取代理；nhentai 在多数网络环境下需要代理才能访问",
+      "default": true
     }
   }
 }
