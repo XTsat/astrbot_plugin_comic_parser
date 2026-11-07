@@ -41,7 +41,12 @@ from .core import (
     describe_websites,
     resolve_link,
 )
-from .core.channel import BaseChannel, CancelToken, ProgressCallback
+from .core.channel import (
+    INTERRUPT_RELOAD,
+    BaseChannel,
+    CancelToken,
+    ProgressCallback,
+)
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
 from .core.packer import Packer
 from .domain import (
@@ -64,6 +69,7 @@ from .domain.constants import (
     PROGRESS_REACTIONS,
     PROGRESS_STALL_INTERVAL,
     PROGRESS_STEP_PERCENT,
+    RESUME_DIRNAME,
     SEARCH_MAX_KEYWORD_LENGTH,
     SEARCH_NEXT_WORDS,
     SEARCH_PREV_WORDS,
@@ -249,11 +255,15 @@ class ComicParserPlugin(Star):
             logger.info(f"[{PLUGIN_NAME}] 启动清理：已删除 {removed} 个临时目录")
 
     async def terminate(self) -> None:
-        """重载/卸载时结束进行中的下载：先取消并记下进度，再清空临时目录。
+        """重载/卸载时结束进行中的下载：先标好中断原因与进度，再按配置清理临时目录。
 
         下载跑在线程池里，插件卸载并不会让它停，结果也无处投递——留着只会继续占带宽与
-        磁盘，所以这里直接取消并清掉；日志里留下「跑到哪、下了多少 MB」备查。
+        磁盘，所以这里取消。取消前要先把「为什么停、停在哪」写进令牌：目录随即会被清掉，
+        任务层再去数只能数出 0，那样给用户的报告就是假的。
         """
+        for running in self._running.values():
+            running.cancel.cancel(INTERRUPT_RELOAD, running.state)
+
         for channel in self.channels.values():
             for summary in channel.cancel_downloads():
                 logger.info(f"[{PLUGIN_NAME}] 重载中断下载：{summary}")
@@ -262,12 +272,20 @@ class ComicParserPlugin(Star):
 
         if not self.temp_root.exists():
             return
+        # 「启动时清理临时目录」开着说明下次加载会把断点一起删掉，留着也没用；关着才留
+        keep_breakpoints = (
+            self.settings.resume_ttl > 0 and not self.settings.clean_temp_on_start
+        )
         removed = 0
         for entry in self.temp_root.iterdir():
+            if keep_breakpoints and entry.name == RESUME_DIRNAME:
+                continue
             Packer.cleanup(entry)
             removed += 1
         if removed:
             logger.info(f"[{PLUGIN_NAME}] 已清理 {removed} 个临时目录")
+        if keep_breakpoints:
+            logger.info(f"[{PLUGIN_NAME}] 断点已保留，重载后可接着下")
 
     # ==================== 命令 ====================
 

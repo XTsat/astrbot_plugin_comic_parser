@@ -17,6 +17,7 @@ from astrbot.api import logger
 from ....domain import (
     ChannelError,
     ComicMeta,
+    DownloadCancelled,
     DownloadError,
     DownloadedComic,
     SearchItem,
@@ -401,8 +402,9 @@ class JMComicChannel(BaseChannel):
             with downloader:
                 album = downloader.download_album(album_id)
         except jmcomic.DownloadCancelledException as exc:
+            # 不是失败而是「被打断」：抛 DownloadCancelled 才不会进重试，进度与去留由任务层说清
             logger.info(f"[{PLUGIN_NAME}] 下载被取消：{session.summary()}")
-            raise DownloadError("下载已被插件重载中断，请重新请求") from exc
+            raise DownloadCancelled("下载已被插件重载中断") from exc
 
         source_dir = Path(option.dir_rule.decide_album_root_dir(album))
         failed_images = len(getattr(downloader, "download_failed_image", []) or [])

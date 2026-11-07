@@ -29,13 +29,20 @@ from ..domain import (
     PluginError,
     PluginSettings,
 )
-from ..domain.constants import CANCEL_POLL_INTERVAL, IMAGE_SUFFIXES, PLUGIN_NAME
+from ..domain.constants import (
+    CANCEL_POLL_INTERVAL,
+    IMAGE_SUFFIXES,
+    PLUGIN_NAME,
+    RESUME_DIRNAME,
+)
 from ..utils import build_package_name, format_size
-from .channel import BaseChannel, CancelToken, ProgressCallback
+from .channel import (
+    INTERRUPT_RELOAD,
+    BaseChannel,
+    CancelToken,
+    ProgressCallback,
+)
 from .packer import Packer
-
-# 断点目录名：放 temp 下的独立子目录，启动清理与手动清理都能一把带走
-RESUME_DIRNAME = "resume"
 
 
 @dataclass(slots=True)
@@ -187,13 +194,54 @@ class DownloadTask:
         return text, saved, size
 
     def _cancelled(
-        self, work_dir: Path, meta: ComicMeta, comic_id: str
+        self, work_dir: Path, meta: ComicMeta, comic_id: str, token: CancelToken
     ) -> DownloadCancelled:
-        text, saved, _ = self._halted_text(
-            work_dir, meta, prefix="⏹ 已取消下载"
-        )
+        """取消：用户按停就照暂停文案说；插件重载另说，因为图可能真的没了。"""
+        if token.reason == INTERRUPT_RELOAD:
+            return self._reload_interrupted(work_dir, meta, comic_id, token)
+        text, saved, _ = self._halted_text(work_dir, meta, prefix="⏹ 已取消下载")
         logger.info(f"[{PLUGIN_NAME}] {comic_id} 被用户取消，断点保留：{saved} 张")
         return DownloadCancelled(text)
+
+    def _reload_interrupted(
+        self, work_dir: Path, meta: ComicMeta, comic_id: str, token: CancelToken
+    ) -> DownloadCancelled:
+        """插件重载/卸载打断下载：如实说停在哪儿，以及这些图到底还在不在。
+
+        不能照抄暂停文案里的「断点保留 X」：重载会按「启动时清理临时目录」清空 temp（含
+        断点），也可能因为断点保留时长被配成 0 而扔掉，此时让用户以为能接着下就是撒谎。
+        """
+        saved, size = self._scan_images(work_dir)
+        state = token.state
+        if state is not None:
+            # 目录可能已经清空，优先用取消那一刻记下的进度，别在这里数出一个 0
+            done_text, done_size = state.headline, state.bytes_downloaded
+        elif meta.page_count:
+            done_text, done_size = f"{saved}/{meta.page_count} 张", size
+        else:
+            done_text, done_size = f"{saved} 张", size
+
+        kept = not self.settings.clean_temp_on_start and self.settings.resume_ttl > 0
+        if kept:
+            tail = (
+                "再发一次同样的命令会从断点接着下，断点保留 "
+                f"{_human_span(self.settings.resume_ttl)}"
+            )
+        else:
+            why = (
+                "「启动时清理临时目录」开着"
+                if self.settings.clean_temp_on_start
+                else "「断点保留时长」配成了 0"
+            )
+            tail = f"{why}，这些图片没能保留，重新发命令会从头下载"
+        logger.info(
+            f"[{PLUGIN_NAME}] {comic_id} 因插件重载中断：{done_text} · "
+            f"{format_size(done_size)}，断点{'保留' if kept else '未保留'}"
+        )
+        return DownloadCancelled(
+            f"⏹ 插件重载，下载中断：停下时已下好 {done_text}"
+            f"（{format_size(done_size)}）。\n{tail}"
+        )
 
     def _paused(self, work_dir: Path, meta: ComicMeta, comic_id: str) -> DownloadPaused:
         saved, size = self._scan_images(work_dir)
@@ -263,8 +311,8 @@ class DownloadTask:
             outcome, error = await self._watch(download, token, timeout)
 
             if outcome == "cancelled":
-                # 用户手动取消：和到点暂停一样留断点，不重试
-                raise self._cancelled(work_dir, meta, comic_id)
+                # 手动取消 / 插件重载：都留断点逻辑由 _cancelled 按原因分流，且不重试
+                raise self._cancelled(work_dir, meta, comic_id, token)
             if outcome == "timeout":
                 if pause_on_deadline:
                     raise self._paused(work_dir, meta, comic_id)
@@ -272,8 +320,14 @@ class DownloadTask:
             elif error is None:
                 return download.result()
             elif isinstance(error, asyncio.CancelledError):
-                # 下载在非「到点」的情况下被叫停（外部取消）：同样留断点
-                raise self._cancelled(work_dir, meta, comic_id)
+                # 下载在非「到点」的情况下被叫停（外部取消 / 插件卸载）：同样留断点
+                raise self._cancelled(work_dir, meta, comic_id, token)
+            elif (
+                isinstance(error, DownloadCancelled)
+                and token.reason == INTERRUPT_RELOAD
+            ):
+                # 渠道自己先发现「插件在重载」时只报了半句话，进度与去留由任务层统一说清
+                raise self._cancelled(work_dir, meta, comic_id, token)
             elif isinstance(error, (DownloadPaused, DownloadCancelled)):
                 # 暂停/取消不是失败：配额或封禁状态下重试只会再撞一次，
                 # 直接交给上层展示「断点已保留」

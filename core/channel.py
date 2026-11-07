@@ -45,6 +45,12 @@ from .progress import ProgressState
 ProgressCallback = Callable[[ProgressState], Awaitable[None]]
 
 
+# 中断原因：命令层的文案必须区分「用户自己按停」与「插件被重载打断」——前者断点一定还在，
+# 后者要看重载时会不会清空临时目录，照抄暂停文案会把「能接着下」说成假话
+INTERRUPT_USER = "user"
+INTERRUPT_RELOAD = "reload"
+
+
 class CancelToken:
     """一次任务独享的取消信号。
 
@@ -55,8 +61,17 @@ class CancelToken:
 
     def __init__(self) -> None:
         self.event = threading.Event()
+        self.reason = INTERRUPT_USER
+        # 重载时临时目录随后会被清掉，任务层事后数不出下了多少，只能由取消方在那一刻记下
+        self.state: ProgressState | None = None
 
-    def cancel(self) -> None:
+    def cancel(
+        self, reason: str = INTERRUPT_USER, state: ProgressState | None = None
+    ) -> None:
+        """置位取消；先到的那次说了算，免得超时/重载互相覆盖掉真实原因。"""
+        if not self.event.is_set():
+            self.reason = reason
+            self.state = state
         self.event.set()
 
     @property
