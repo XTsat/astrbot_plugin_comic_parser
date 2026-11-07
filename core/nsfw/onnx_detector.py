@@ -91,7 +91,7 @@ class OnnxDetector:
         """给单张图打分，返回与 PyTorch 后端同结构的 :class:`NsfwScore`。"""
         session = self._ensure_session()
         if session is None:
-            return NsfwScore.empty()
+            return NsfwScore.unavailable()
 
         conf = self.threshold if threshold is None else threshold
         try:
@@ -99,7 +99,7 @@ class OnnxDetector:
             raw = session.run(None, {self._input_name(session): blob})[0]
         except Exception as exc:
             logger.warning(f"[{PLUGIN_NAME}] ONNX 推理失败 {Path(image_path).name}: {exc}")
-            return NsfwScore.empty()
+            return NsfwScore.unavailable()
 
         detections = self.decode(raw, size, scale, pad, conf)
         if not detections:

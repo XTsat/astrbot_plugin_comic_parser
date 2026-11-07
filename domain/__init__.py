@@ -4,6 +4,7 @@ from .config import PluginSettings
 from .constants import PACK_FORMATS, PLUGIN_NAME
 from .errors import (
     ChannelError,
+    CoverCensorError,
     ChannelUnavailableError,
     DownloadCancelled,
     DownloadError,
@@ -27,6 +28,7 @@ from .models import (
 
 __all__ = [
     "ChannelError",
+    "CoverCensorError",
     "ChannelUnavailableError",
     "ComicMeta",
     "DownloadCancelled",

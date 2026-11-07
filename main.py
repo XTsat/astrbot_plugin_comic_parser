@@ -45,6 +45,7 @@ from .core.channel import BaseChannel, CancelToken, ProgressCallback
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
 from .core.packer import Packer
 from .domain import (
+    CoverCensorError,
     DownloadCancelled,
     DownloadPaused,
     PluginError,
@@ -897,6 +898,11 @@ class ComicParserPlugin(Star):
                 outcome.source_dir,
                 channel=outcome.meta.channel,
             )
+        except CoverCensorError as exc:
+            # 开了打码却没打成：宁可少发一张封面，也不能把没糊的图发出去
+            logger.warning(f"[{PLUGIN_NAME}] 封面未发送：{exc}")
+            yield event.plain_result(f"⚠️ 封面未发送：{exc}")
+            return
         except Exception as exc:
             logger.warning(f"[{PLUGIN_NAME}] 生成封面失败（忽略）: {exc}")
             return

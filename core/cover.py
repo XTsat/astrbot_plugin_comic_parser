@@ -21,6 +21,7 @@ from ..domain.constants import (
     NSFW_MODEL_PRESETS,
     PLUGIN_NAME,
 )
+from ..domain.errors import CoverCensorError
 from ..domain.models import ComicMeta
 from .nsfw import Detection, Detector, NsfwScore, censor_cover
 
@@ -113,50 +114,62 @@ class CoverService:
     ) -> CoverResult | None:
         """准备好待发送的封面；没有封面图时返回 None。
 
-        评分与打码都是可选能力：模型缺失、推理失败都只影响这两项，封面照旧发出。
+        **打码是硬要求**：开了打码就必须真的糊过图才发，否则抛
+        :class:`CoverCensorError` 打断这次封面发送——用户要的是「打码后的封面」，
+        发一张没糊的图等于骗他。评分仍是可选能力，模型缺失只影响是否显示露骨度。
+
+        Raises:
+            CoverCensorError: 已开启打码，但模型缺失或检测没能执行。
         """
         cover = self.pick_cover(source_dir)
         if cover is None:
             logger.debug(f"[{PLUGIN_NAME}] 下载目录里没有可用图片，跳过封面：{source_dir}")
             return None
 
+        # 先判模型是否就位，避免为一个注定发不出去的封面白复制文件
+        if self.censor and self.detector.model_path is None:
+            raise CoverCensorError(
+                "已开启「给封面打码」，但没有可用的 NSFW 模型，本次不发送封面"
+                "（把 .onnx 放进插件目录的 models/，或在「NSFW 模型」里开启「缺失时自动下载权重」）"
+            )
+
         await asyncio.to_thread(self._cleanup_old_files)
-        target = await asyncio.to_thread(self._stage_cover, cover, channel or meta.channel, meta.comic_id)
+        target = await asyncio.to_thread(
+            self._stage_cover, cover, channel or meta.channel, meta.comic_id
+        )
 
         # 关掉评分又不开打码时，连推理都不必做——省下每本几百毫秒
         score = NsfwScore.empty()
         detections: list[Detection] = []
         if self.detector.model_path is not None and (self.censor or self.score_enabled):
             analysis = await asyncio.to_thread(self.detector.analyze, target)
+            if self.censor and analysis.failed:
+                # 检测没跑成 ≠ 图是干净的，不能当作「无需打码」放行
+                target.unlink(missing_ok=True)
+                raise CoverCensorError(
+                    "封面 NSFW 检测执行失败，本次不发送封面（详情见日志）"
+                )
             detections = list(analysis.detections)
             if self.score_enabled:
                 score = analysis
 
         censored = False
         full_censored = False
-        if self.censor:
-            boxes = [item.box for item in detections]
-            if not boxes and self.detector.model_path is None:
-                # 打码默认打开，但没权重时整张糊掉比不打码更糟：跳过并提示配置模型
-                logger.warning(
-                    f"[{PLUGIN_NAME}] 没有可用的 NSFW 权重，本次跳过封面打码；"
-                    "在「NSFW 模型」里放好 .pt 或开启自动下载即可生效"
-                )
-            if boxes:
-                censored, coverage = await asyncio.to_thread(
-                    censor_cover,
-                    target,
-                    boxes,
-                    style=self.censor_style,
-                    block=self.censor_block,
-                    padding=self.censor_padding,
-                    full_area=self.full_censor_area,
-                )
-                full_censored = bool(
-                    censored
-                    and self.full_censor_area > 0
-                    and coverage >= self.full_censor_area
-                )
+        if self.censor and detections:
+            censored, coverage = await asyncio.to_thread(
+                censor_cover,
+                target,
+                [item.box for item in detections],
+                style=self.censor_style,
+                block=self.censor_block,
+                padding=self.censor_padding,
+                full_area=self.full_censor_area,
+            )
+            full_censored = bool(
+                censored
+                and self.full_censor_area > 0
+                and coverage >= self.full_censor_area
+            )
 
         return CoverResult(
             path=target,

@@ -55,3 +55,11 @@ class DownloadPaused(PluginError):
 
 class DownloadCancelled(PluginError):
     """用户手动取消（`/comic stop`）：与到点暂停一样保留断点，重发命令即可接着下。"""
+
+
+class CoverCensorError(PluginError):
+    """封面打码已开启但无法执行。
+
+    此时**不发送封面**：用户明确要求打码，把未打码的图发出去违背意图，
+    宁可少发一张图，也不能漏发一张没糊的图。
+    """

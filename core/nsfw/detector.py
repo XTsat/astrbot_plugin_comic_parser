@@ -40,6 +40,9 @@ class NsfwScore:
     value: float = 0.0
     coverage: float = 0.0
     detections: tuple[Detection, ...] = ()
+    # 检测压根没跑起来（没模型 / 推理报错）。区别于 failed=False 且 detections 为空
+    # 的「跑了但图上没检出」——后者是安全的，前者不能当「干净」处理。
+    failed: bool = False
 
     @property
     def boxes(self) -> list[tuple[float, float, float, float]]:
@@ -52,7 +55,13 @@ class NsfwScore:
 
     @classmethod
     def empty(cls) -> "NsfwScore":
+        """跑过检测，图上没有露骨部位。"""
         return cls()
+
+    @classmethod
+    def unavailable(cls) -> "NsfwScore":
+        """检测没能执行（无模型或推理失败），结论未知。"""
+        return cls(failed=True)
 
 
 class Detector(Protocol):

@@ -279,7 +279,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download; turn off to send files only |
-| Censor the cover (`censor`) | bool | true | Censor the areas found by the NSFW model; without usable weights this cover is sent uncensored and a hint is logged |
+| Censor the cover (`censor`) | bool | true | Censor the areas found by the NSFW model. If the model is missing or the detection run fails, **this cover is not sent at all** with a hint (an uncensored image is never posted); a successful run that finds nothing is treated as a clean image and sent as-is |
 | Censor style (`censor_style`) | string | mosaic | Mosaic / Gaussian blur / black bar |
 | Censor padding (`censor_padding`) | int | 12 | Expand every box so nothing leaks at the edges |
 | Mosaic block size (`censor_block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
@@ -341,7 +341,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 Cover scoring and censoring rely on a local YOLO detection model: [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) is recommended (Apache-2.0, classes anus / make_love / nipple / penis / vagina). The plugin uses an **ONNX model with `onnxruntime` (~200M) only**: drop the `.onnx` into the plugin's `models/` directory, or turn on "Auto-download weights" under "NSFW model" (fetched from the plugin release). **PyTorch is no longer needed** — the old `.pt` + ultralytics path has been removed, saving ~1.8G of dependencies.
 
-Without any model the plugin still downloads and still sends the cover, it just cannot report how explicit it is and the cover is not censored (a hint is logged). Put the weights into `models/` first if you want censoring to take effect.
+Without any model the plugin still downloads and still delivers the file, but it will **not send the cover** (censoring is on by default, and no cover is sent unless it was actually censored). Put the weights into `models/` first, or turn on "Auto-download weights"; if you just want to see covers without a model, turn "Censor the cover" off.
 
 ### Troubleshooting
 
@@ -354,6 +354,8 @@ Without any model the plugin still downloads and still sends the cover, it just 
 **Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy the search takes about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds.
 
 After a search timeout, the plugin automatically retries through the global proxy configured in the plugin and notes "搜索超时后已用代理重试" in the results. This does not change the proxy setting used for downloads. The retry is on by default and can be disabled with "auto-proxy retry on timeout" in Search, or tuned with its extra-time setting.
+
+**Why did I get "封面未发送：已开启给封面打码，但没有可用的 NSFW 模型"?** Censoring is enabled but no weights are available, and the plugin would rather skip the cover than post an uncensored image. Either drop the `.onnx` into the plugin's `models/` directory, or turn on "Auto-download weights" and reload; if you do not want the model yet, just turn "Censor the cover" off and covers will be sent as-is without an explicitness score.
 
 **What if the weights will not download?** The plugin tries GitHub directly, then falls back to built-in accelerator mirrors. If all of them fail, drop the `.onnx` into the plugin's `models/` directory manually (file names map to the preset list above), or put your own mirror / object-storage link under "Custom download URL" — one per line, `{filename}` is supported.
 
