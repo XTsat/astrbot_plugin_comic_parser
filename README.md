@@ -1,4 +1,5 @@
 <div align="center">
+<img src="logo.png" alt="漫画下载器" width="160" />
 <h1>漫画下载器</h1>
 <p><strong>多渠道漫画下载与搜索插件：贴作品链接、给 ID 或在聊天里搜索后下载整本漫画，统一打包发送，支持密码加密</strong></p>
 <p><sub>禁漫天堂 &nbsp;&nbsp; nhentai &nbsp;&nbsp; 搜索 &nbsp;&nbsp; 紳士漫畫</sub></p>

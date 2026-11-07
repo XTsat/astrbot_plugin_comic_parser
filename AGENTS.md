@@ -5,7 +5,7 @@
 >
 > 适用项目：`astrbot_plugin_comic_parser`（AstrBot 插件，Python）。
 >
-> **模板版本**：v0.1.7（2026-11-04） —— 本行标记本文件对应的 `astrbot-plugin` 模板版本。回填项目内容时**不要改动本行**；只有从上游合并到新版本时才把它更新为合并到的版本。
+> **模板版本**：v0.1.12（2026-11-08） —— 本行标记本文件对应的 `astrbot-plugin` 模板版本。回填项目内容时**不要改动本行**；只有从上游合并到新版本时才把它更新为合并到的版本。
 > **来源**：本文件是 [agent-templates](https://github.com/XTsat/agent-templates) 的 `templates/astrbot-plugin/AGENTS.md` 副本，已回填本项目的功能清单、架构选型、目录结构、配置项与命令表。最新版见该仓库 `main` 分支。
 > 用户说「更新 AGENTS」时按此流程：① 打开来源仓库该模板的 `AGENTS.md`，比对头部「模板版本」与本地是否一致——一致说明已是最新，直接结束，不必拉取逐节比对 → ② 不一致才拉取来源模板最新版 → ③ 与本地逐节比对 → ④ 合并（保留本项目已回填的插件名、命令前缀、目录结构与项目特有约定）→ ⑤ 展示 diff 与改动清单，等用户确认后再落盘，并把头部「模板版本」同步改为合并到的版本。**禁止整文件覆盖**。
 
@@ -32,7 +32,7 @@
 | 文件 | 必选 | 职责 |
 |------|------|------|
 | `main.py` | ✅ | 插件主体，全部后端逻辑 |
-| `metadata.yaml` | ✅ | 插件元数据（必填 `name`/`desc`/`version`/`author`；推荐 `display_name`/`repo`；可选 `support_platforms`/`tags`（**全量**关键词，README 头部只挑代表）/`short_desc`，`astrbot_version` 只在能明确最低版本时才填） |
+| `metadata.yaml` | ✅ | 插件元数据（必填 `name`/`desc`/`version`/`author`；推荐 `display_name`/`repo`；可选 `support_platforms`/`tags`（**全量、单概念**关键词，README 头部只挑重点）/`short_desc`，`astrbot_version` 只在能明确最低版本时才填） |
 | `_conf_schema.json` | ✅ | WebUI 配置 Schema（扁平 `{key: {type, description, default, ...}}`，定义所有可配置项） |
 | `README.md` | ✅ | 中文文档（功能说明、命令表、配置说明） |
 | `CHANGELOG.md` | ✅ | 变更日志 |
@@ -158,6 +158,7 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 - **AstrBot API**：`astrbot.api.star`（Context, Star, register, StarTools）、`astrbot.api.event`（filter, AstrMessageEvent）、`astrbot.api`（logger, AstrBotConfig）
 - **依赖管理**：`requirements.txt` 中声明，复杂依赖优先 **惰性 import**（在方法内 import，避免启动时强制加载）
 - **禁止引入**：不引入与原功能无关的依赖；非必要不新增 `requirements.txt` 声明
+- **日志库**：唯一来源是 `from astrbot.api import logger`（AstrBot 官方插件文档要求「使用 `astrbot.api` 的 logger，而不是 `logging` 模块」）。**禁止** `import logging` / `logging.getLogger(...)` / `logging.basicConfig(...)`，也禁止 `loguru` 等第三方日志库、禁止把日志库写进 `requirements.txt`。理由与分层项目的写法见 4.5
 - AstrBot 运行时已自带的依赖（如 `aiohttp`、`certifi`）可在惰性 import 中引用，import 失败时优雅降级
 
 ---
@@ -222,6 +223,9 @@ class MyPlugin(Star):
 
 ### 4.5 日志
 
+- **日志来源唯一**：`from astrbot.api import logger`。**禁止** `import logging` / `logging.getLogger(...)`（含「SDK 缺失时退回标准库 logging」这类降级分支），也**禁止** `loguru` 等第三方日志库——AstrBot 官方插件文档原文是「请务必使用 `from astrbot.api import logger` 来获取日志对象，而不是使用 `logging` 模块」。
+- **为什么自建 logger 不行**：`astrbot.api.logger` 按**调用位置**路由到本插件专属 logger（`astrbot.plugin.<插件名>`）。插件内任意模块直接 `from astrbot.api import logger` 就会自动归属本插件，不需要自建、也不需要把 logger 当参数层层传递。自建 `logging.getLogger("astrbot_plugin_x.xxx")` 的名字对不上这条链路：日志没有插件归属、插件详情页的独立日志等级与面板的按插件筛选都不生效。
+- **分层多文件项目里要「脱离 AstrBot 单测」的层**（如 `core/`、`webapi/` 的非适配模块）：**不要**为了不 import `astrbot` 就退回标准库 logging；在该层只留一个可注入的日志出口（如 `core/logger.py` 暴露 `get_logger()` / `set_logger()`），由 `main.py` 在 `initialize()` 里注入 `astrbot.api.logger`；未注入时直接写 stderr 兜底，同样不 import `logging`。用一条 AST 测试守住「全仓无 `import logging` / `loguru`」。
 - 统一 `logger.info/warning/error`，**必须带 `[{PLUGIN_NAME}]` 前缀**
 - 错误信息带 emoji 前缀（如 `❌`、`⚠️`）
 - 精确捕获异常类型（`asyncio.TimeoutError`），禁止空 `except: pass`（除非注释说明理由）
@@ -428,7 +432,7 @@ async def on_message(
 
 ## 7. 文档维护规范（强制，不可省略）
 
-> 本项目的**硬性要求**：任何改动在合并前，必须同步维护 `README.md` 与 `CHANGELOG.md`。未同步文档 = 任务未完成。
+> 本项目的**硬性要求**：任何改动在合并前，必须同步维护 `README.md` 与 `CHANGELOG.md`。未同步文档 = 任务未完成。这里的「同步」= 追加 / 合并 / 删除条目，按改动性质选择：新增改动追加条目，同一变化合并成一条，发版前被撤销的改动删掉其条目（见 7.1 流程）。
 
 ### 7.1 CHANGELOG 维护
 
@@ -436,6 +440,8 @@ async def on_message(
 
 - 日常改动先记在 `## [Unreleased]` 段（顶部固定）。**发版时**再把内容移动到带版本号的新段。
 - **先记后合**：记录阶段同一工作周期内的改动各自独立记入 `[Unreleased]`（同一功能的多处调整也先各记一条，避免遗漏）；提交或发版前的整理阶段统一过一遍 `[Unreleased]`，把描述同一件事的多条合并成一条，不相关改动保持独立（判断标准：用户会不会把它当成同一件事，细则见下方「写作视角」）。
+- **「上一版」= 上一次发布**：本文件所说的「上一版」指 `CHANGELOG.md` 中最新的 `## vX.Y.Z` 段，即用户当前实际在用的版本；**不是上一个 commit、也不是 HEAD**。条目只需回答「这个版本和上一版比变了什么」，与中间经历过几次提交无关。
+- **发版前被撤销的改动不留痕**：某改动只在 `[Unreleased]` 里记过、发版前又被移除时，整理阶段**删掉对应条目**即可，不写「新增后又移除」「已取消」「原计划作废」这类叙述——那是开发过程，不是用户能感知的差异。`### 移除` 只用于删除**上一版已发布**过的功能（该情形属破坏性变更，按 SemVer 升 major/minor）。想在中间过程留痕就写 commit message（如 `revert: 移除 X`）和 PR 描述，CHANGELOG 不是 git log。
 - **发版日期**：版本段日期 `(YYYY-MM-DD)` 填**当前日期**（以发版当天的系统时间为准，例如 `2026-09-22`）。
 
 #### 格式
@@ -507,9 +513,18 @@ CHANGELOG 的读者是**插件使用者**（服务器管理员、群成员），
 
 下列位置属于**辅助信息，不是版本源**，不决定版本号（需要「插件版本」时以 `metadata.yaml` 为准）：`main.py` 中 `@register` 传入的版本号、`README.md` / `README_en.md` 的版本徽章与正文版本字样、`.astrbot-plugin/i18n` 中的版本文案。**日常提交不动它们；准备发布时必须逐个同步到同一个新版本号**，不得残留旧版本号或自相矛盾的版本字样。也不要新增此类重复版本号——需要展示版本时从 `metadata.yaml` 读取，不手写。
 
-#### 多会话并行开发
+#### 多会话并行开发（并行修改协议，适用于所有共享文件）
 
-**⚠️ 更新 `CHANGELOG.md` 前必须先读取当前文件内容**，识别并保留其他会话已写入的既有条目（含 `[Unreleased]` 下未提交的功能），只追加自己的条目，**严禁整文件覆盖或删除他人记录**。
+**触发条件**：只有出现下列情况才启用本节，否则按普通流程走，**不增加任何额外动作**——① 仓库里存在他人未提交或进行中的改动；② 用户明确要求并行工作；③ 任务板上存在他人 `in_progress` 任务，或与本会话写域重叠。
+
+1. **先划写域**：动手前列出本会话要改的文件，与并行方比对；有重叠就**停下来问用户**，不自行决定谁先写。
+2. **按冲突面选手段**：不同文件 → 直接并行；同模块下不同文件 → 各自分支、收口时合并；同一文件的同一区块 / 版本号 / schema 变更 → 指定**唯一写者**，其余排队等。
+3. **共享单文件先认领**：改动前在任务板置 `in_progress`，或落 `.locks/<文件名>.lock` 写明会话与时间，写完即释放；未认领就改共享文件 = 违规。`.locks/` 只存本地、**不提交**，发版前清理。
+4. **记录类文件只追加**：CHANGELOG / TODO / 注册表 / 路由表这类文件只做定位式追加，**禁止整文件重写**（整文件写回会连带盖掉他人条目）。
+5. **收口单一 owner**：合并由一个会话执行，其他人只产出分支或 patch，不各自往主干合。
+6. **提交前自查**：`git status --short` 确认只碰本会话写域内的文件；看到别人的改动就停下来问，不顺手清理。
+
+**CHANGELOG 专项**（条目写法见上方「流程」与「写作视角」）：更新 `CHANGELOG.md` 前必须先读取当前文件内容，识别并保留其他会话已写入的既有条目（含 `[Unreleased]` 下未提交的内容），只追加自己的条目，**严禁整文件覆盖或删除他人记录**。边界：本条保护的是**仍然有效**的记录；条目已被撤销、或已在本次发版中并入版本段，可以删除或移动，但删除前须能说清「谁被撤销 / 归并到哪」，不得顺手清理看不惯的内容。
 
 ### 7.2 README 维护
 
@@ -539,9 +554,10 @@ README 的读者是**插件使用者**（服务器管理员、群成员），不
 
 ```html
 <div align="center">
+<img src="logo.png" alt="DisplayName" width="160" />
 <h1>DisplayName</h1>
 <p><strong>插件描述（desc）</strong></p>
-<!-- sub 行只放 2–4 个代表标签（每个主要能力方向各取一个），全量标签留在 metadata.yaml 的 tags -->
+<!-- sub 行只挑插件真正的重点功能（数量不限，可为 metadata tags 的变体），全量标签留在 metadata.yaml 的 tags -->
 <p><sub>标签1 &nbsp;&nbsp; 标签2 &nbsp;&nbsp; 标签3</sub></p>
 <p><strong>中文</strong> &nbsp;/&nbsp; <a href="README_en.md">English</a></p>
 </div>
@@ -551,20 +567,22 @@ README 的读者是**插件使用者**（服务器管理员、群成员），不
 
 ```html
 <div align="center">
+<img src="logo.png" alt="Plugin Name" width="160" />
 <h1>Plugin Name</h1>
 <!-- 英文 h1 取插件名后缀首字母大写：astrbot_plugin_model_status → Model Status -->
 <p><strong>Plugin description</strong></p>
-<!-- only 2–4 representative tags here; the full tag list lives in metadata.yaml -->
+<!-- list only the plugin's headline features here (no fixed count; wording may be a variant of the metadata tags); the full tag list lives in metadata.yaml -->
 <p><sub>tag1 &nbsp;&nbsp; tag2 &nbsp;&nbsp; tag3</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 ```
 
 命名规则：
+- **Logo**：头部第一行固定放插件图标 `<img src="logo.png" alt="插件名" width="160" />`——`logo.png` 与本 README 同目录、用相对路径引用（不写 GitHub raw 绝对链接、不复用 `metadata.yaml` 的远程图标地址）；`alt` 必填（中文版写 `display_name`，英文版写英文插件名），宽度固定 `160`，不加圆角/阴影等额外样式；中英两版都要有。
 - **中文版 h1**：直接取 `metadata.yaml` 的 `display_name` 字段（如 `模型状态检测`、`跨平台消息转发`）。
 - **英文版 h1**：取插件名 `astrbot_plugin_xxx` 中的 `xxx` 部分，拆分为单词后每个首字母大写。例如 `astrbot_plugin_reread` → `Reread`；`astrbot_plugin_model_status` → `Model Status`；`astrbot_plugin_help_panel_typst` → `Help Panel Typst`。
 - **desc**：中文版用 `metadata.yaml` 的 `desc` 字段；英文版做地道翻译。
-- **标签（tags）**：`metadata.yaml` 的 `tags` 是**全量**清单——各能力方向的关键词都列上（供市场分类与搜索），**不因为 README 头部放不下就删减**；README 头部的 `<sub>` 行**只放代表标签（2–4 个）**，按重要性排序、每个主要能力方向各取一个，只能从 `tags` 里挑（不要新增 `tags` 里没有的标签），用 `&nbsp;&nbsp;` 分隔。中文版用中文标签，英文版用英文标签。
+- **标签（tags）**：`metadata.yaml` 的 `tags` 是**全量关键词清单**（供市场分类与搜索），**不因为 README 头部放不下就删减**；并且**每个标签只放一个概念**——复合词要拆开（「消息转发」→「消息」「转发」，「状态检测」→「状态」「检测」），不写「A+B」式复合词、不写整句，这样一个词条能被独立检索命中。README 头部的 `<sub>` 行只挑**插件真正的重点功能**当标签，**数量不硬性限定**（重点少就两三个，重点多可多列），按重要性排序，用 `&nbsp;&nbsp;` 分隔；README 的标签**可以写成 `tags` 的变体**（措辞更短、更面向用户，允许复合短语，如「消息转发」对应 `tags` 里的「消息」「转发」），不必逐字照抄，但必须是插件真实具备、用户能感知的能力，**不虚构、不夸大**。中文版用中文标签，英文版用英文标签。
 
 #### 7.2.3 README 四大结构
 
@@ -633,7 +651,7 @@ README 正文严格按以下 4 大板块组织，但不强制使用 `##` 标题�
 #### 7.2.6 格式与多会话约束
 
 - **禁止无意义的换行**：HTML 头部区块内元素间不留空行；正文长句不要人为软换行（一段文字保持一行，由 Markdown 自动折行显示）；空行只用于分隔标题、表格、列表、代码块等结构性区块。
-- **多会话并行修改**：更新 `README.md` / `README_en.md` 前必须先读取当前文件内容，识别并保留其他会话已写入的既有内容，只追加/修改自己的部分，**严禁整文件覆盖或删除他人记录**。
+- **多会话并行修改**：`README.md` / `README_en.md` 属共享单文件，按 7.1「多会话并行开发（并行修改协议）」执行——先认领，动手前读当前内容，只做定位式修改，不整文件覆盖。
 
 ### 7.3 注释规范
 
@@ -691,11 +709,12 @@ README 正文严格按以下 4 大板块组织，但不强制使用 `##` 标题�
 
 - [ ] 架构：所选风格（单文件 / 分层多文件）与既有代码一致
 - [ ] 注释：只写 non-obvious reason，无残留中间状态、无被注释掉的旧代码
-- [ ] 日志：`[{PLUGIN_NAME}]` 前缀，异常分类记录，无空 catch
-- [ ] CHANGELOG：`[Unreleased]` 已追加条目，**只写相对上一版的变化**、同一变化已合并为一条（无重复条目），条目面向用户（无内部实现细节、无复杂形容即可看懂），保留了他人的既有记录
+- [ ] 日志：来源只有 `astrbot.api` 的 logger（无 `import logging` / `logging.getLogger` / 第三方日志库），`[{PLUGIN_NAME}]` 前缀，异常分类记录，无空 catch
+- [ ] CHANGELOG：`[Unreleased]` 已同步（新增则追加、同一变化则合并、发版前被撤销则删除对应条目，不残留相对上一版不成立的内容），**只写相对上一版（上一次发布）的变化**、同一变化已合并为一条（无重复条目），条目面向用户（无内部实现细节、无复杂形容即可看懂），保留了他人的既有记录
 - [ ] README：涉及用户可见变更时已同步更新，且面向用户书写（无实现原理与内部细节）
+- [ ] README 头部：首行是 `<img src="logo.png" alt="插件名" width="160" />`，中英两版都有，`alt` 已填，头部元素间无空行
 - [ ] README 配置板块：> 4 项时已按类别分组，单类 ≥ 4 项已用 `<details>` 折叠且 summary 自解释，首次必填的关键配置没被藏进折叠（配置表是备查资料，宁折叠勿铺长）
-- [ ] 标签：`metadata.yaml` 的 `tags` 是全量能力关键词（未因 README 只显示代表标签而删减）；中英两份 README 头部只放 2–4 个代表标签，且都能在 `tags` 里找到
+- [ ] 标签：`metadata.yaml` 的 `tags` 是全量关键词且**一个标签一个概念**（复合词已拆开，未因 README 只显示重点而删减）；中英两份 README 头部只列插件真正的重点功能（数量不限，可为 `tags` 的变体，但不虚构能力）
 - [ ] README 安装：未写分步「快速开始/安装」（插件市场/安装页装完即用）；版本与协议端仅在确有明确限制时才写，最低版本能明确时写进 `metadata.yaml` 的 `astrbot_version`（不在 README 重复，也不填估算值）
 - [ ] 许可证：未自行创建 `LICENSE`、README 中无许可证小节/徽章/许可证名（用户明确指定许可证时才建 `LICENSE`，仍不写进 README）
 - [ ] 版本号：日常任务不递增版本号；仅发版任务改 `metadata.yaml` 的 `version`（与 CHANGELOG 新版本段、tag 一致），并把 `@register`、README 徽章、i18n 等辅助位置同步到同一版本号

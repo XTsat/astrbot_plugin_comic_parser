@@ -1,4 +1,5 @@
 <div align="center">
+<img src="logo.png" alt="Comic Parser" width="160" />
 <h1>Comic Parser</h1>
 <p><strong>Multi-channel comic downloader with built-in search: find a work, download the whole comic, then pack and send it in one pipeline — optional password encryption</strong></p>
 <p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; search &nbsp;&nbsp; wnacg</sub></p>
