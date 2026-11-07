@@ -169,3 +169,11 @@ PROGRESS_REACTIONS: Final = {
     "done": ("124", "1"),  # OK（系统表情）
     "fail": ("38", "1"),  # 敲打（系统表情，锤子）
 }
+
+# ---- 封面（下载完成后单独发到聊天的一张图）----
+
+# 封面是附加交付：默认发，但关掉不影响打包与发送文件
+DEFAULT_COVER_SEND: Final = True
+DEFAULT_COVER_CAPTION: Final = True
+# 封面尺寸下限：占位图、图标这类小图不配当封面
+COVER_MIN_SIDE: Final = 200

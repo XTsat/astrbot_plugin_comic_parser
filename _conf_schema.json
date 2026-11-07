@@ -752,6 +752,25 @@
       }
     }
   },
+  "cover": {
+    "type": "object",
+    "description": "封面发送",
+    "hint": "下载完成后先单独发一张封面图，再发文件；封面的评分与打码在「NSFW 模型」里配置",
+    "items": {
+      "send": {
+        "type": "bool",
+        "description": "下载完成后发送封面",
+        "hint": "开启后每次下载成功都会先发一张封面（附带说明由下面一项控制）；关掉只发打包好的文件",
+        "default": true
+      },
+      "caption": {
+        "type": "bool",
+        "description": "封面附带说明",
+        "hint": "在封面图前附一段文字：标题 / 作者 / 页数",
+        "default": true
+      }
+    }
+  },
   "probe": {
     "type": "object",
     "description": "下载前测速",

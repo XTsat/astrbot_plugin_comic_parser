@@ -25,6 +25,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 
 from .core import (
     AccessGuard,
+    CoverService,
     DownloadOutcome,
     DownloadTask,
     GroupFileResult,
@@ -170,6 +171,10 @@ class ComicParserPlugin(Star):
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self.search_service = SearchService(self.channels, self.settings)
+        self.cover_service = CoverService(
+            self.temp_root,
+            send_caption=self.settings.cover_caption,
+        )
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
         # 正在跑的任务：排队提示与「前面下到哪」都读它
         self._running: dict[int, _RunningTask] = {}
@@ -349,6 +354,10 @@ class ComicParserPlugin(Star):
             if self.settings.search_enabled and searchable
             else ""
         )
+        if self.settings.cover_send:
+            cover_desc = "下载完成后先发一张"
+        else:
+            cover_desc = "关闭"
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)
         index_hint = (
             f"搜索后下载：直接发 /comic <序号>（如 /comic 1），"
@@ -369,6 +378,7 @@ class ComicParserPlugin(Star):
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
             f"文件名模板：{template_labels.get(self.settings.filename_template, '[简写ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
+            f"封面：{cover_desc}\n"
             f"下载分段：{resume_desc}\n"
             f"群文件：{group_file_desc}\n"
             f"用法：/comic <作品链接> [格式]，或 /<渠道命令> <ID 或链接> [格式]\n"
@@ -622,6 +632,9 @@ class ComicParserPlugin(Star):
                     return
 
                 try:
+                    if self.settings.cover_send:
+                        async for item in self._deliver_cover(event, outcome):
+                            yield item
                     async for result in self._deliver(event, outcome):
                         yield result
                 finally:
@@ -820,6 +833,33 @@ class ComicParserPlugin(Star):
         finally:
             if use_reaction:
                 await self._react(event, "done" if result_state == "ok" else "fail")
+
+    async def _deliver_cover(
+        self, event: AstrMessageEvent, outcome: DownloadOutcome
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """先发一张封面，再发文件。
+
+        封面是附加交付：出错只记日志、不补话术——用户真正要的是文件，不能被一张封面挡掉。
+        """
+        try:
+            cover = self.cover_service.prepare(
+                outcome.source_dir,
+                channel=outcome.meta.channel,
+                comic_id=outcome.meta.comic_id,
+            )
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 生成封面失败（忽略）: {exc}")
+            return
+
+        if cover is None:
+            return
+
+        chain: list[Any] = []
+        caption = self.cover_service.caption(outcome.meta)
+        if caption:
+            chain.append(Comp.Plain(caption))
+        chain.append(Comp.Image.fromFileSystem(str(cover)))
+        yield event.chain_result(MessageChain(chain).chain)
 
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome

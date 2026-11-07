@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .constants import (
+    DEFAULT_COVER_CAPTION,
+    DEFAULT_COVER_SEND,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_GROUP_FILE_FOLDER,
@@ -118,6 +120,9 @@ class PluginSettings:
     search_cooldown: int = DEFAULT_SEARCH_COOLDOWN
     search_auto_proxy: bool = DEFAULT_SEARCH_AUTO_PROXY
     search_auto_proxy_timeout: int = DEFAULT_SEARCH_AUTO_PROXY_TIMEOUT
+    # 封面：下载完成后单独发一张图
+    cover_send: bool = DEFAULT_COVER_SEND
+    cover_caption: bool = DEFAULT_COVER_CAPTION
     proxy: str = ""
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -131,6 +136,7 @@ class PluginSettings:
         access = _section(data, "access")
         probe = _section(data, "probe")
         search = _section(data, "search")
+        cover = _section(data, "cover")
 
         pack_format = _as_str(
             packing.get("pack_format"), DEFAULT_PACK_FORMAT
@@ -252,6 +258,8 @@ class PluginSettings:
                 ),
                 120,
             ),
+            cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
+            cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),
             proxy=_as_str(network.get("proxy")),
             channels=_parse_channels(data.get("channels")),
         )

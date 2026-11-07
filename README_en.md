@@ -17,6 +17,7 @@
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading or searching → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Download progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages"); a search across all channels also reports how many channels have answered, and pagination tells you when it has to fetch the next upstream page
 - **Pause at the deadline, resume next time**: a request that runs too long stops first and keeps the images it already fetched; send the same command again and it continues from there without refetching those pages. Breakpoints expire after the configured time
 - **Optional result block**: the summary sent with the file (title / author / image count / elapsed) can be turned off
+- **Cover image after each download**: once a download finishes, a cover image is sent before the file, optionally with title / author / page count
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic. Probe timeout, slow-node threshold and cache lifetime are configurable, and the whole thing can be switched off
 - **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host; while waiting you are told what the running download is doing and how far it got
@@ -267,6 +268,18 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Breakpoint lifetime (`resume_ttl`) | int | 7200 | How long the fetched images are kept after a pause; a new request within that window resumes, 0 keeps nothing |
 | Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
 | Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨 for both downloads and searches. Private chats and clients without reaction support fall back to text progress automatically, and the full-channel search and paging have text progress too |
+
+</details>
+
+### Cover image
+
+<details>
+<summary>Cover image (2 options)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Send cover after download (`send`) | bool | true | Send one cover image before the packed file after every successful download; turn off to send files only |
+| Cover caption (`caption`) | bool | true | Put title / author / page count in front of the cover |
 
 </details>
 
