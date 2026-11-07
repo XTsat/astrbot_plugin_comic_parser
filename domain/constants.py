@@ -231,7 +231,18 @@ DEFAULT_NSFW_MODEL_VARIANT: Final = "m"
 
 # 小于这个体积基本可以断定下到的是错误页而不是权重
 NSFW_MIN_MODEL_BYTES: Final = 1024 * 1024
-NSFW_MODEL_DOWNLOAD_TIMEOUT: Final = 600.0
+# 单个源的总时长上限与「卡住」判定：国内直连 GitHub 常出现连得上但只有几 KB/s 的情况，
+# 所以用「多久没收到数据」判死（sock_read），而不是一刀切总时长，避免慢但可用的源被误杀。
+NSFW_MODEL_DOWNLOAD_TIMEOUT: Final = 1800.0
+NSFW_DOWNLOAD_CONNECT_TIMEOUT: Final = 20.0
+NSFW_DOWNLOAD_READ_TIMEOUT: Final = 45.0
+
+# GitHub 直连不通或太慢时的兜底加速代理（第三方公共服务，只做公开权重的中转）。
+# 顺序即降级顺序；{url} 会被替换成完整的 GitHub 下载地址。
+NSFW_MIRROR_SOURCES: Final = (
+    "https://ghfast.top/{url}",
+    "https://gh-proxy.com/{url}",
+)
 
 # EraX-NSFW-V1.0 的类别就是纯部位名，其它导出版本可能带前缀，因此用子串匹配
 NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple")

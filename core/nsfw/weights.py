@@ -16,7 +16,10 @@ from astrbot.api import logger
 
 from ...domain.constants import (
     DEFAULT_NSFW_MODEL_PRESET,
+    NSFW_DOWNLOAD_CONNECT_TIMEOUT,
+    NSFW_DOWNLOAD_READ_TIMEOUT,
     NSFW_MIN_MODEL_BYTES,
+    NSFW_MIRROR_SOURCES,
     NSFW_MODEL_DOWNLOAD_TIMEOUT,
     NSFW_MODEL_PRESETS,
     NSFW_ONNX_RELEASE_URL,
@@ -127,17 +130,28 @@ class ModelWeights:
             return await self._download()
 
     def _candidate_urls(self, filename: str) -> list[str]:
-        # 允许 {filename} 占位，方便换镜像或自建地址
-        try:
-            return [self.download_url.format(filename=filename)]
-        except (KeyError, IndexError):
-            return [self.download_url]
+        """自定义地址：支持多行 / 空格分隔，逐条按顺序尝试。
+
+        允许 ``{filename}`` 占位，方便填镜像或自建地址；写不了占位的地址原样使用。
+        """
+        urls: list[str] = []
+        for raw in self.download_url.replace(",", " ").split():
+            try:
+                urls.append(raw.format(filename=filename))
+            except (KeyError, IndexError):
+                urls.append(raw)
+        return urls
 
     def _download_urls(self, filename: str) -> list[str]:
-        """下载源：自定义地址优先，否则用插件自己的 Release（tag 与插件版本解耦）。"""
-        if self.download_url:
-            return self._candidate_urls(filename)
-        return [NSFW_ONNX_RELEASE_URL.format(filename=filename)]
+        """按顺序给出下载源：配置了自定义地址就只用它，否则 GitHub 直连 + 加速镜像兜底。"""
+        custom = self._candidate_urls(filename)
+        if custom:
+            return custom
+
+        primary = NSFW_ONNX_RELEASE_URL.format(filename=filename)
+        urls = [primary]
+        urls.extend(template.format(url=primary) for template in NSFW_MIRROR_SOURCES)
+        return urls
 
     async def _download(self) -> tuple[Path | None, bool]:
         try:
@@ -150,9 +164,13 @@ class ModelWeights:
         target = self.models_dir / filename
         part_path = target.with_name(f"{filename}.part")
 
-        for url in self._download_urls(filename):
+        urls = self._download_urls(filename)
+        for index, url in enumerate(urls, 1):
+            label = "主源" if index == 1 else f"镜像 {index - 1}"
             try:
-                logger.info(f"[{PLUGIN_NAME}] 开始下载 NSFW 权重 {filename}: {url}")
+                logger.info(
+                    f"[{PLUGIN_NAME}] 开始下载 NSFW 权重 {filename}（{label} {index}/{len(urls)}）: {url}"
+                )
                 size = await self._fetch(url, part_path)
                 if size < NSFW_MIN_MODEL_BYTES:
                     logger.warning(
@@ -171,12 +189,13 @@ class ModelWeights:
                 )
                 return target, True
             except Exception as exc:
-                logger.warning(f"[{PLUGIN_NAME}] 权重下载失败 {url}: {exc}")
+                logger.warning(f"[{PLUGIN_NAME}] 权重下载失败（{label}）{url}: {exc}")
                 part_path.unlink(missing_ok=True)
 
         logger.error(
-            f"[{PLUGIN_NAME}] 所有权重下载源都失败：可在配置「NSFW 模型」里填入可用的"
-            f"下载地址，或手动把 {filename} 放进插件目录的 models/"
+            f"[{PLUGIN_NAME}] 全部 {len(urls)} 个下载源都失败：可在配置「NSFW 模型」的"
+            f"「自定义下载地址」里填镜像或自建直链（支持 {{filename}} 占位），"
+            f"或手动把 {filename} 放进插件目录的 models/"
         )
         return None, False
 
@@ -184,7 +203,11 @@ class ModelWeights:
         """流式下载到 .part，返回写入的字节数。"""
         total = 0
         reported: set[float] = set()
-        timeout = aiohttp.ClientTimeout(total=NSFW_MODEL_DOWNLOAD_TIMEOUT)
+        timeout = aiohttp.ClientTimeout(
+            total=NSFW_MODEL_DOWNLOAD_TIMEOUT,
+            connect=NSFW_DOWNLOAD_CONNECT_TIMEOUT,
+            sock_read=NSFW_DOWNLOAD_READ_TIMEOUT,
+        )
 
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url, proxy=self.proxy or None) as response:

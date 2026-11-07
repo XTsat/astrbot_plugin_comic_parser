@@ -878,13 +878,13 @@
       "auto_download_model": {
         "type": "bool",
         "description": "缺失时自动下载权重",
-        "hint": "开启后插件加载时后台从插件 Release 下载 ONNX 权重到插件目录的 models/",
+        "hint": "开启后插件加载时在后台下载「模型档位与精度」里选中的那个权重到插件目录的 models/；下载失败不影响下载漫画，下次重载插件会再试",
         "default": false
       },
       "model_download_url": {
         "type": "string",
         "description": "自定义下载地址",
-        "hint": "留空走官方源，失败自动换 hf-mirror 镜像；支持 {filename} 与 {repo} 占位",
+        "hint": "留空则用插件 Release（tag weights-erax-onnx-v1），失败自动换内置加速镜像；可填多行（每行一个地址，按顺序尝试），支持 {filename} 占位，适合自建镜像或对象存储",
         "default": ""
       }
     }

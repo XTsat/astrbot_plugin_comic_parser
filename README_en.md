@@ -298,8 +298,8 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Detection threshold (`threshold`) | float | 0.03 | Lower is stricter: more weak boxes survive, more gets censored, and clean covers get blurred too. Explicit manga pages usually score 0.02-0.2, so anything above 0.15 mostly misses |
 | Inference size (`imgsz`) | int | 960 | 960 is the sweet spot: at 640 the model tends to emit one whole-frame box on explicit pages (censoring everything), while 1280 loses recall. Larger is slower |
 | Model preset (`model_preset`) | string | m_fp32 | Six choices: `m_fp32` 77MB (most accurate, recommended) / `m_int8` 20MB / `s_fp32` 36MB (twice as fast) / `s_int8` 10MB / `n_fp32` 10MB (fastest) / `n_int8` 3MB. On 18 real images: `s_fp32` agreed 13/18, `n_fp32` 15/18, and every int8 build was **slower** than its own fp32 build with more borderline misses — int8 is a fallback only |
-| Auto-download weights (`auto_download_model`) | bool | false | Download the ONNX weights from the plugin release into `models/` in the background at load time; failures never block downloads |
-| Custom download URL (`model_download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`); supports `{filename}` for mirrors or self-hosting |
+| Auto-download weights (`auto_download_model`) | bool | false | At **plugin load/reload** the selected preset is fetched into `models/` in the background; skipped when the file already exists. Failures are logged only — downloads and covers keep working, and the next reload retries |
+| Custom download URL (`model_download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`) and **falls back to built-in accelerator mirrors when GitHub is unreachable**; you can also list your own URLs one per line, tried in order, with `{filename}` support |
 
 </details>
 
@@ -354,6 +354,8 @@ Without any model the plugin still downloads and still sends the cover, it just 
 **Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy the search takes about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds.
 
 After a search timeout, the plugin automatically retries through the global proxy configured in the plugin and notes "搜索超时后已用代理重试" in the results. This does not change the proxy setting used for downloads. The retry is on by default and can be disabled with "auto-proxy retry on timeout" in Search, or tuned with its extra-time setting.
+
+**What if the weights will not download?** The plugin tries GitHub directly, then falls back to built-in accelerator mirrors. If all of them fail, drop the `.onnx` into the plugin's `models/` directory manually (file names map to the preset list above), or put your own mirror / object-storage link under "Custom download URL" — one per line, `{filename}` is supported.
 
 **Why is one cover fully mosaic-ed while another is left untouched?** A whole-cover mosaic means the detected area really does cover most of the image — raise "Full-cover area threshold" to 0.8 to be gentler, or set it to 0 to never censor the whole cover. An untouched cover means nothing was detected: manga confidences are low, so try lowering "Detection threshold" to 0.02 or raising "Inference size" to 1280; if it keeps missing, this weight set simply does not fit your image source well.
 
