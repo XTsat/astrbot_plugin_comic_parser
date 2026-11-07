@@ -10,12 +10,24 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .constants import (
+    COVER_CENSOR_STYLES,
     DEFAULT_COVER_CAPTION,
+    DEFAULT_COVER_CENSOR,
+    DEFAULT_COVER_CENSOR_BLOCK,
+    DEFAULT_COVER_CENSOR_PADDING,
+    DEFAULT_COVER_CENSOR_STYLE,
+    DEFAULT_COVER_FULL_CENSOR_AREA,
     DEFAULT_COVER_SEND,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_GROUP_FILE_FOLDER,
     DEFAULT_MAX_CONCURRENT_TASKS,
+    DEFAULT_NSFW_AUTO_DOWNLOAD,
+    DEFAULT_NSFW_DEVICE,
+    DEFAULT_NSFW_MODEL_VARIANT,
+    DEFAULT_NSFW_SAMPLE_PAGES,
+    DEFAULT_NSFW_SCORE,
+    DEFAULT_NSFW_THRESHOLD,
     DEFAULT_PACK_FORMAT,
     DEFAULT_PROBE_CACHE_TTL,
     DEFAULT_PROBE_ENABLED,
@@ -34,6 +46,7 @@ from .constants import (
     DEFAULT_SEARCH_TIMEOUT,
     DEFAULT_SEGMENT_TIMEOUT,
     FILENAME_TEMPLATES,
+    NSFW_MODEL_VARIANTS,
     PACK_FORMATS,
     PROGRESS_STYLES,
 )
@@ -65,6 +78,20 @@ def _as_bool(raw: Any, default: bool) -> bool:
         if lowered in {"false", "0", "no", "off"}:
             return False
     return default
+
+
+def _as_float(
+    raw: Any, default: float, minimum: float | None = None, maximum: float | None = None
+) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and value < minimum:
+        return minimum
+    if maximum is not None and value > maximum:
+        return maximum
+    return value
 
 
 def _as_str(raw: Any, default: str = "") -> str:
@@ -120,9 +147,22 @@ class PluginSettings:
     search_cooldown: int = DEFAULT_SEARCH_COOLDOWN
     search_auto_proxy: bool = DEFAULT_SEARCH_AUTO_PROXY
     search_auto_proxy_timeout: int = DEFAULT_SEARCH_AUTO_PROXY_TIMEOUT
-    # 封面：下载完成后单独发一张图
+    # 封面：下载完成后单独发一张图，打码复用 NSFW 检测框
     cover_send: bool = DEFAULT_COVER_SEND
     cover_caption: bool = DEFAULT_COVER_CAPTION
+    cover_censor: bool = DEFAULT_COVER_CENSOR
+    cover_censor_style: str = DEFAULT_COVER_CENSOR_STYLE
+    cover_censor_padding: int = DEFAULT_COVER_CENSOR_PADDING
+    cover_censor_block: int = DEFAULT_COVER_CENSOR_BLOCK
+    cover_full_censor_area: float = DEFAULT_COVER_FULL_CENSOR_AREA
+    # NSFW 模型与评分：权重默认不随插件分发，由开关按需下载
+    nsfw_score: bool = DEFAULT_NSFW_SCORE
+    nsfw_sample_pages: int = DEFAULT_NSFW_SAMPLE_PAGES
+    nsfw_threshold: float = DEFAULT_NSFW_THRESHOLD
+    nsfw_device: str = DEFAULT_NSFW_DEVICE
+    nsfw_model_variant: str = DEFAULT_NSFW_MODEL_VARIANT
+    nsfw_auto_download: bool = DEFAULT_NSFW_AUTO_DOWNLOAD
+    nsfw_model_url: str = ""
     proxy: str = ""
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -137,6 +177,7 @@ class PluginSettings:
         probe = _section(data, "probe")
         search = _section(data, "search")
         cover = _section(data, "cover")
+        nsfw = _section(data, "nsfw")
 
         pack_format = _as_str(
             packing.get("pack_format"), DEFAULT_PACK_FORMAT
@@ -148,6 +189,17 @@ class PluginSettings:
         )
         if progress_style not in PROGRESS_STYLES:
             progress_style = DEFAULT_PROGRESS_STYLE
+        censor_style = _as_str(
+            cover.get("censor_style"), DEFAULT_COVER_CENSOR_STYLE
+        )
+        if censor_style not in COVER_CENSOR_STYLES:
+            censor_style = DEFAULT_COVER_CENSOR_STYLE
+        model_variant = _as_str(
+            nsfw.get("model_variant"), DEFAULT_NSFW_MODEL_VARIANT
+        ).lower()
+        if model_variant not in NSFW_MODEL_VARIANTS:
+            model_variant = DEFAULT_NSFW_MODEL_VARIANT
+
         filename_template = _as_str(
             packing.get("filename_template"), DEFAULT_FILENAME_TEMPLATE
         )
@@ -260,6 +312,33 @@ class PluginSettings:
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
             cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),
+            cover_censor=_as_bool(cover.get("censor"), DEFAULT_COVER_CENSOR),
+            cover_censor_style=censor_style,
+            cover_censor_padding=_as_int(
+                cover.get("censor_padding"), DEFAULT_COVER_CENSOR_PADDING, minimum=0
+            ),
+            cover_censor_block=_as_int(
+                cover.get("censor_block"), DEFAULT_COVER_CENSOR_BLOCK, minimum=2
+            ),
+            cover_full_censor_area=_as_float(
+                cover.get("full_censor_area"),
+                DEFAULT_COVER_FULL_CENSOR_AREA,
+                minimum=0.0,
+                maximum=1.0,
+            ),
+            nsfw_score=_as_bool(nsfw.get("score"), DEFAULT_NSFW_SCORE),
+            nsfw_sample_pages=_as_int(
+                nsfw.get("sample_pages"), DEFAULT_NSFW_SAMPLE_PAGES, minimum=0
+            ),
+            nsfw_threshold=_as_float(
+                nsfw.get("threshold"), DEFAULT_NSFW_THRESHOLD, minimum=0.01, maximum=0.99
+            ),
+            nsfw_device=_as_str(nsfw.get("device"), DEFAULT_NSFW_DEVICE),
+            nsfw_model_variant=model_variant,
+            nsfw_auto_download=_as_bool(
+                nsfw.get("auto_download_model"), DEFAULT_NSFW_AUTO_DOWNLOAD
+            ),
+            nsfw_model_url=_as_str(nsfw.get("model_download_url")),
             proxy=_as_str(network.get("proxy")),
             channels=_parse_channels(data.get("channels")),
         )

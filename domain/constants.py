@@ -177,3 +177,65 @@ DEFAULT_COVER_SEND: Final = True
 DEFAULT_COVER_CAPTION: Final = True
 # 封面尺寸下限：占位图、图标这类小图不配当封面
 COVER_MIN_SIDE: Final = 200
+
+# ---- 封面打码 ----
+
+COVER_CENSOR_STYLES: Final = ("mosaic", "blur", "bar")
+COVER_CENSOR_STYLE_LABELS: Final = {
+    "mosaic": "马赛克",
+    "blur": "高斯模糊",
+    "bar": "黑条",
+}
+DEFAULT_COVER_CENSOR: Final = False
+DEFAULT_COVER_CENSOR_STYLE: Final = "mosaic"
+DEFAULT_COVER_CENSOR_PADDING: Final = 12
+DEFAULT_COVER_CENSOR_BLOCK: Final = 14
+# 检出区域面积占比达到该值就整张封面打码：模型只框了局部时，
+# 剩下的部分照样可能被平台判违规，这条是故意的「宁可糊整张」
+DEFAULT_COVER_FULL_CENSOR_AREA: Final = 0.2
+
+# 单个封面最多处理这么多个框，误检刷出成百上千个框时不至于把渲染拖死
+COVER_MAX_BOXES: Final = 64
+
+# ---- NSFW 检测模型（YOLO 目标检测）----
+
+# 权重不随插件分发：几十 MB 的二进制不适合进 git，用不用得到也因人而异
+NSFW_MODEL_REPO: Final = "erax-ai/EraX-NSFW-V1.0"
+NSFW_MODEL_VARIANTS: Final = {
+    "n": "erax_nsfw_yolo11n.pt",
+    "s": "erax_nsfw_yolo11s.pt",
+    "m": "erax_nsfw_yolo11m.pt",
+}
+NSFW_MODEL_VARIANT_LABELS: Final = {
+    "n": "nano（约 5MB，最省资源）",
+    "s": "small（约 18MB）",
+    "m": "medium（约 39MB，推荐）",
+}
+DEFAULT_NSFW_MODEL_VARIANT: Final = "m"
+
+# 官方源在前，国内镜像兜底；配置里可整体覆盖
+NSFW_MODEL_SOURCES: Final = (
+    "https://huggingface.co/{repo}/resolve/main/{filename}",
+    "https://hf-mirror.com/{repo}/resolve/main/{filename}",
+)
+# 小于这个体积基本可以断定下到的是错误页而不是权重
+NSFW_MIN_MODEL_BYTES: Final = 1024 * 1024
+NSFW_MODEL_DOWNLOAD_TIMEOUT: Final = 600.0
+
+# EraX-NSFW-V1.0 的类别就是纯部位名，其它导出版本可能带前缀，因此用子串匹配
+NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple")
+# 分类模型（transformers）输出的整页标签里，这些词代表露骨内容
+NSFW_CLASS_KEYWORDS: Final = ("nsfw", "porn", "hentai", "sexual", "explicit", "sex")
+
+DEFAULT_NSFW_SCORE: Final = True
+DEFAULT_NSFW_THRESHOLD: Final = 0.25
+# 0 = 只给封面打分；> 0 = 另外抽样这么多页算整本 NSFW 占比（越多样本越慢）
+DEFAULT_NSFW_SAMPLE_PAGES: Final = 0
+DEFAULT_NSFW_DEVICE: Final = ""
+DEFAULT_NSFW_AUTO_DOWNLOAD: Final = False
+NSFW_DEVICES: Final = ("", "cuda", "cpu")
+NSFW_DEVICE_LABELS: Final = {
+    "": "自动（有显卡用显卡）",
+    "cuda": "显卡（CUDA）",
+    "cpu": "处理器（CPU）",
+}

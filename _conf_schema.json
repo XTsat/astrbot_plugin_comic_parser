@@ -755,19 +755,153 @@
   "cover": {
     "type": "object",
     "description": "封面发送",
-    "hint": "下载完成后先单独发一张封面图，再发文件；封面的评分与打码在「NSFW 模型」里配置",
+    "hint": "下载完成后先单独发一张封面图，再发文件；打码复用 NSFW 模型的检测框",
     "items": {
       "send": {
         "type": "bool",
         "description": "下载完成后发送封面",
-        "hint": "开启后每次下载成功都会先发一张封面（附带说明由下面一项控制）；关掉只发打包好的文件",
+        "hint": "开启后每次下载成功都会先发一张封面（打码与附带说明由下面几项控制）；关掉只发打包好的文件",
         "default": true
       },
       "caption": {
         "type": "bool",
         "description": "封面附带说明",
-        "hint": "在封面图前附一段文字：标题 / 作者 / 页数",
+        "hint": "在封面图前附一段文字：标题 / 作者 / 页数 / 露骨度 / 是否已打码",
         "default": true
+      },
+      "censor": {
+        "type": "bool",
+        "description": "给封面打码",
+        "hint": "用 NSFW 检测模型框出的部位打码；没有模型时整张封面打码，避免露骨封面被平台拦",
+        "default": false
+      },
+      "censor_style": {
+        "type": "string",
+        "description": "打码样式",
+        "hint": "马赛克：方块化；高斯模糊：糊掉；黑条：涂黑",
+        "default": "mosaic",
+        "options": [
+          "mosaic",
+          "blur",
+          "bar"
+        ],
+        "labels": [
+          "马赛克",
+          "高斯模糊",
+          "黑条"
+        ]
+      },
+      "censor_padding": {
+        "type": "int",
+        "description": "打码框外扩像素",
+        "hint": "把每个检测框向外扩一圈，避免贴边漏出",
+        "default": 12,
+        "slider": {
+          "min": 0,
+          "max": 64,
+          "step": 2
+        }
+      },
+      "censor_block": {
+        "type": "int",
+        "description": "马赛克块大小",
+        "hint": "块越大越糊；高斯模糊样式的半径按它换算",
+        "default": 14,
+        "slider": {
+          "min": 4,
+          "max": 48,
+          "step": 2
+        }
+      },
+      "full_censor_area": {
+        "type": "float",
+        "description": "整张打码的面积阈值",
+        "hint": "检出区域占整图的比例达到该值就整张封面打码，防止漏检；0 表示不启用这条兜底",
+        "default": 0.2,
+        "slider": {
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.05
+        }
+      }
+    }
+  },
+  "nsfw": {
+    "type": "object",
+    "description": "NSFW 模型",
+    "hint": "用本地 YOLO 检测模型给封面打分并为打码提供坐标；权重不随插件分发，可按开关自动下载（EraX-NSFW-V1.0，Apache-2.0）",
+    "items": {
+      "score": {
+        "type": "bool",
+        "description": "给封面打分",
+        "hint": "用模型算出封面露骨度（检出面积占比，0-100%），写进封面说明；模型缺失时自动跳过",
+        "default": true
+      },
+      "sample_pages": {
+        "type": "int",
+        "description": "整本抽样页数",
+        "hint": "额外抽样这么多页算整本命中率，写进封面说明；0 表示只给封面打分（抽样越多越慢）",
+        "default": 0,
+        "slider": {
+          "min": 0,
+          "max": 30,
+          "step": 1
+        }
+      },
+      "threshold": {
+        "type": "float",
+        "description": "检测阈值",
+        "hint": "打分与打码共用的置信度下限，越低越敏感、框越多",
+        "default": 0.25,
+        "slider": {
+          "min": 0.05,
+          "max": 0.9,
+          "step": 0.05
+        }
+      },
+      "device": {
+        "type": "string",
+        "description": "推理设备",
+        "hint": "留空自动选：有显卡用显卡，否则处理器",
+        "default": "",
+        "options": [
+          "",
+          "cuda",
+          "cpu"
+        ],
+        "labels": [
+          "自动",
+          "显卡（CUDA）",
+          "处理器（CPU）"
+        ]
+      },
+      "model_variant": {
+        "type": "string",
+        "description": "权重档位",
+        "hint": "nano 最省资源、精度略低；medium 是模型作者推荐的平衡档",
+        "default": "m",
+        "options": [
+          "n",
+          "s",
+          "m"
+        ],
+        "labels": [
+          "nano（约 5MB）",
+          "small（约 18MB）",
+          "medium（约 39MB，推荐）"
+        ]
+      },
+      "auto_download_model": {
+        "type": "bool",
+        "description": "缺失时自动下载权重",
+        "hint": "开启后插件加载时后台下载到插件目录的 models/；失败不影响下载，也可以手动放 .pt",
+        "default": false
+      },
+      "model_download_url": {
+        "type": "string",
+        "description": "自定义下载地址",
+        "hint": "留空走官方源，失败自动换 hf-mirror 镜像；支持 {filename} 与 {repo} 占位",
+        "default": ""
       }
     }
   },

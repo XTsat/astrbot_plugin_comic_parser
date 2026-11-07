@@ -4,11 +4,12 @@
 """
 
 from .channel import BaseChannel
-from .cover import CoverService
+from .cover import CoverResult, CoverService
 from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .packer import Packer
 from .progress import ProgressHeartbeat, ProgressState
+from .nsfw import ModelWeights, NsfwDetector, NsfwScore
 from .registry import (
     build_channels,
     command_map,
@@ -23,11 +24,15 @@ from .task import DownloadOutcome, DownloadTask
 __all__ = [
     "AccessGuard",
     "BaseChannel",
+    "CoverResult",
     "CoverService",
     "DownloadOutcome",
     "DownloadTask",
     "GroupFileResult",
     "GroupFileUploader",
+    "ModelWeights",
+    "NsfwDetector",
+    "NsfwScore",
     "Packer",
     "ProgressHeartbeat",
     "ProgressState",

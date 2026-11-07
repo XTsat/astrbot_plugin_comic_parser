@@ -31,6 +31,8 @@ from .core import (
     GroupFileResult,
     GroupFileUploader,
     ProgressState,
+    ModelWeights,
+    NsfwDetector,
     SearchService,
     build_channels,
     command_map,
@@ -171,9 +173,31 @@ class ComicParserPlugin(Star):
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self.search_service = SearchService(self.channels, self.settings)
+        # 封面：权重默认不随插件分发，缺失时按配置自动下载（见 initialize）
+        self.models_dir = Path(__file__).resolve().parent / "models"
+        self.model_weights = ModelWeights(
+            self.models_dir,
+            variant=self.settings.nsfw_model_variant,
+            auto_download=self.settings.nsfw_auto_download,
+            download_url=self.settings.nsfw_model_url,
+            proxy=self.settings.proxy,
+        )
+        self.nsfw_detector = NsfwDetector(
+            weights=self.model_weights,
+            device=self.settings.nsfw_device,
+            threshold=self.settings.nsfw_threshold,
+        )
         self.cover_service = CoverService(
+            self.nsfw_detector,
             self.temp_root,
             send_caption=self.settings.cover_caption,
+            score_enabled=self.settings.nsfw_score,
+            censor=self.settings.cover_censor,
+            censor_style=self.settings.cover_censor_style,
+            censor_block=self.settings.cover_censor_block,
+            censor_padding=self.settings.cover_censor_padding,
+            full_censor_area=self.settings.cover_full_censor_area,
+            sample_pages=self.settings.nsfw_sample_pages,
         )
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
         # 正在跑的任务：排队提示与「前面下到哪」都读它
@@ -187,6 +211,27 @@ class ComicParserPlugin(Star):
             f"[{PLUGIN_NAME}] 已加载渠道: {', '.join(self.channels) or '无'}；"
             f"保存目录: {self.save_root}"
         )
+
+    async def initialize(self) -> None:
+        """插件激活时按配置预取 NSFW 权重。
+
+        放后台任务里：几十 MB 的下载不该拖住插件加载，也不该挡住其它命令。
+        """
+        if not self.settings.nsfw_auto_download:
+            return
+        self._model_task = asyncio.create_task(self._warm_model())
+
+    async def _warm_model(self) -> None:
+        """下载权重并让检测器重新读目录；失败只记日志，不影响任何命令。"""
+        try:
+            path, downloaded = await self.model_weights.ensure()
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 预取 NSFW 权重失败: {exc}")
+            return
+
+        if downloaded and path is not None:
+            self.nsfw_detector.reset()
+            logger.info(f"[{PLUGIN_NAME}] NSFW 权重已就绪：{path.name}")
 
     def _clean_temp_on_start(self) -> None:
         """按配置在加载时清空临时目录。
@@ -356,6 +401,12 @@ class ComicParserPlugin(Star):
         )
         if self.settings.cover_send:
             cover_desc = "下载完成后先发一张"
+            cover_desc += "（已打码）" if self.settings.cover_censor else ""
+            if self.settings.nsfw_score:
+                model_label = CoverService.describe_model(
+                    self.nsfw_detector, self.settings.nsfw_model_variant
+                )
+                cover_desc += f"，评分模型：{model_label}"
         else:
             cover_desc = "关闭"
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)
@@ -837,28 +888,28 @@ class ComicParserPlugin(Star):
     async def _deliver_cover(
         self, event: AstrMessageEvent, outcome: DownloadOutcome
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """先发一张封面，再发文件。
+        """先发一张封面（可选打码），再发文件。
 
         封面是附加交付：出错只记日志、不补话术——用户真正要的是文件，不能被一张封面挡掉。
         """
         try:
-            cover = self.cover_service.prepare(
+            result = await self.cover_service.prepare(
+                outcome.meta,
                 outcome.source_dir,
                 channel=outcome.meta.channel,
-                comic_id=outcome.meta.comic_id,
             )
         except Exception as exc:
             logger.warning(f"[{PLUGIN_NAME}] 生成封面失败（忽略）: {exc}")
             return
 
-        if cover is None:
+        if result is None:
             return
 
         chain: list[Any] = []
-        caption = self.cover_service.caption(outcome.meta)
+        caption = self.cover_service.caption(outcome.meta, result)
         if caption:
             chain.append(Comp.Plain(caption))
-        chain.append(Comp.Image.fromFileSystem(str(cover)))
+        chain.append(Comp.Image.fromFileSystem(str(result.path)))
         yield event.chain_result(MessageChain(chain).chain)
 
     async def _deliver(

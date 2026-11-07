@@ -17,7 +17,7 @@
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading or searching → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Download progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages"); a search across all channels also reports how many channels have answered, and pagination tells you when it has to fetch the next upstream page
 - **Pause at the deadline, resume next time**: a request that runs too long stops first and keeps the images it already fetched; send the same command again and it continues from there without refetching those pages. Breakpoints expire after the configured time
 - **Optional result block**: the summary sent with the file (title / author / image count / elapsed) can be turned off
-- **Cover image after each download**: once a download finishes, a cover image is sent before the file, optionally with title / author / page count
+- **Cover image after each download**: once a download finishes, a cover image is sent before the file, optionally with title / author / page count / how explicit it looks. If covers keep getting blocked by the platform, let the plugin censor them (mosaic / blur / black bar) using boxes from a local NSFW detection model, falling back to censoring the whole cover when too much of it is flagged
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic. Probe timeout, slow-node threshold and cache lifetime are configurable, and the whole thing can be switched off
 - **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host; while waiting you are told what the running download is doing and how far it got
@@ -274,12 +274,34 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Cover image
 
 <details>
-<summary>Cover image (2 options)</summary>
+<summary>Cover image (7 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Send cover after download (`send`) | bool | true | Send one cover image before the packed file after every successful download; turn off to send files only |
-| Cover caption (`caption`) | bool | true | Put title / author / page count in front of the cover |
+| Cover caption (`caption`) | bool | true | Put title / author / page count / explicitness / censored-or-not in front of the cover |
+| Censor the cover (`censor`) | bool | false | Censor the areas found by the NSFW model; without a usable model the whole cover is censored |
+| Censor style (`censor_style`) | string | mosaic | Mosaic / Gaussian blur / black bar |
+| Censor padding (`censor_padding`) | int | 12 | Expand every box so nothing leaks at the edges |
+| Mosaic block size (`censor_block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
+| Full-cover area threshold (`full_censor_area`) | float | 0.2 | Censor the whole cover once detected boxes cover this share of it; 0 disables the fallback |
+
+</details>
+
+### NSFW model
+
+<details>
+<summary>NSFW model (7 options)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Score the cover (`score`) | bool | true | Use the model to score how explicit the cover is (detected area share, 0-100%) and put it in the caption; skipped when no model is available |
+| Full-gallery sample pages (`sample_pages`) | int | 0 | Additionally sample this many pages to report how many are explicit; 0 scores the cover only |
+| Detection threshold (`threshold`) | float | 0.25 | Confidence floor shared by scoring and censoring; lower means more sensitive |
+| Inference device (`device`) | string | auto | Leave empty to pick automatically: GPU when available, otherwise CPU |
+| Weight variant (`model_variant`) | string | m | nano (~5MB, lightest) / small (~18MB) / medium (~39MB, recommended) |
+| Auto-download weights (`auto_download_model`) | bool | false | Download into the plugin's `models/` in the background at load time; failures never block downloads |
+| Custom download URL (`model_download_url`) | string | empty | Empty uses the official source plus the hf-mirror fallback; supports `{filename}` and `{repo}` |
 
 </details>
 
@@ -317,6 +339,12 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 ## Others
 
+### How the cover features are powered
+
+Cover scoring and censoring rely on a local YOLO detection model: [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) is recommended (Apache-2.0, classes anus / make_love / nipple / penis / vagina). Install `ultralytics` (it brings PyTorch along; CPU works too) and put a `.pt` file into the plugin's `models/` directory — the easiest way is to turn on "Auto-download weights" under "NSFW model".
+
+Without any model the plugin still downloads and still sends the cover, it just cannot report how explicit it is. If "Censor the cover" is on at the same time, the whole cover is censored as a fallback so an explicit cover does not get blocked.
+
 ### Troubleshooting
 
 **Why did I still receive the file in the chat with "upload to group files" turned on?** Two cases fall back to sending the file directly: the upload failed this time (the reason is shown in the message), or the download did not happen in a group / the protocol backend has no group file support. A failed upload is usually an environment problem — when the plugin and the protocol backend do not share the same machine or the same mounted directory, the backend cannot read the plugin's temp path; a bot account without upload permission also fails.
@@ -328,5 +356,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 **Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy the search takes about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds.
 
 After a search timeout, the plugin automatically retries through the global proxy configured in the plugin and notes "搜索超时后已用代理重试" in the results. This does not change the proxy setting used for downloads. The retry is on by default and can be disabled with "auto-proxy retry on timeout" in Search, or tuned with its extra-time setting.
+
+**The cover is censored too much, or not enough?** Censoring is driven by "Detection threshold" and "Full-cover area threshold": lower the threshold, raise "Censor padding", or lower the area threshold (more likely to censor the whole cover) when something still shows; adjust the other way when too much is covered. You can also switch the style to blur or a black bar.
 
 **Why did the file end up in the group file root instead of the configured folder?** That happens when the group has no such folder and the bot could not create it: creating a group file folder requires the bot to be a group admin or owner, so a regular member cannot do it, and the plugin still uploads to the root instead of wasting the download. Make the bot an admin, or create the folder yourself in the group files.
