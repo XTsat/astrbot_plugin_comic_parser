@@ -561,10 +561,7 @@ class ComicParserPlugin(Star):
                     )
                     return
                 # 贴表情先贴「开始」；贴不上（私聊、协议端不支持）就本次退回文本进度
-                use_reaction = await self._react(event, "start")
-                use_text_progress = self.settings.progress_style == "text" or (
-                    self.settings.progress_style == "emoji" and not use_reaction
-                )
+                use_reaction, use_text_progress = await self._begin_progress(event)
                 if not use_reaction:
                     # 贴上了表情就等于「已开始」，不必再多一条消息
                     yield event.plain_result(
@@ -661,6 +658,7 @@ class ComicParserPlugin(Star):
             yield event.plain_result(cooling)
             return
 
+        searchable: list[BaseChannel] = []
         if channel is not None:
             try:
                 channel.ensure_available()
@@ -672,20 +670,55 @@ class ComicParserPlugin(Star):
                     f"❌ {channel.display_name} 暂不支持搜索"
                 )
                 return
-            outcome = await self.search_service.search_one(channel, query)
-            yield event.plain_result(
-                await self.search_service.render_one(outcome, query, session_id)
-            )
-            return
+        else:
+            searchable = self.search_service.searchable()
+            if not searchable:
+                yield event.plain_result(
+                    "❌ 当前没有支持搜索的渠道；可以先用 /漫画网站 到站内搜作品、找 ID"
+                )
+                return
 
+        # 搜索与下载共用同一套进度设置：能贴表情就贴（❤️ 搜索中 → OK / 🔨），
+        # 贴不上（私聊、协议端不支持）或选了文本进度时，改发文字进度。
+        use_reaction, use_text = await self._begin_progress(event)
+        result_state = "fail"
         try:
-            outcomes = await self.search_service.search_all(query)
-        except PluginError as exc:
-            yield event.plain_result(f"❌ {exc}")
-            return
-        yield event.plain_result(
-            await self.search_service.render_all(outcomes, query, session_id)
-        )
+            if channel is not None:
+                if use_text:
+                    yield event.plain_result(
+                        f"🔎 正在搜索 {channel.display_name}「{query.raw}」…"
+                    )
+                outcome = await self.search_service.search_one(channel, query)
+                result_state = "fail" if outcome.error else "ok"
+                yield event.plain_result(
+                    await self.search_service.render_one(outcome, query, session_id)
+                )
+                return
+
+            try:
+                if use_text:
+                    yield event.plain_result(
+                        f"🔎 正在搜索 {len(searchable)} 个渠道「{query.raw}」…"
+                    )
+                outcomes = await self.search_service.search_all(
+                    query,
+                    on_progress=(
+                        self._search_progress_callback(event) if use_text else None
+                    ),
+                )
+            except PluginError as exc:
+                yield event.plain_result(f"❌ {exc}")
+                return
+            # 只要有一个渠道正常返回就算完整跑完；全部超时/报错才贴失败
+            result_state = (
+                "ok" if any(not outcome.error for outcome in outcomes) else "fail"
+            )
+            yield event.plain_result(
+                await self.search_service.render_all(outcomes, query, session_id)
+            )
+        finally:
+            if use_reaction:
+                await self._react(event, "done" if result_state == "ok" else "fail")
 
     def _search_usage(self, channel: BaseChannel | None) -> str:
         """搜索用法提示：前缀写法、引号规则与一个组合示例。"""
@@ -729,14 +762,35 @@ class ComicParserPlugin(Star):
             yield event.plain_result(denied)
             return
 
-        text = await self.search_service.turn_page(session_id, step)
-        if text is None:
-            yield event.plain_result(
-                "❌ 没有可翻页的搜索结果（可能已过期）："
-                "先用 /comic sou <关键词> 或 /<渠道命令> sou <关键词> 搜一次"
+        # 翻页也归在搜索流程里：本地缓冲够翻时一瞬完成，去上游取下一页时才需要提示
+        use_reaction, use_text = await self._begin_progress(event)
+        result_state = "fail"
+
+        async def on_fetch() -> None:
+            if not use_text:
+                return
+            try:
+                await event.send(
+                    MessageChain([Comp.Plain("📄 正在从上游取下一页结果…")])
+                )
+            except Exception as exc:  # 进度发不出去不影响翻页本身
+                logger.debug(f"[{PLUGIN_NAME}] 发送翻页进度失败（忽略）: {exc}")
+
+        try:
+            text = await self.search_service.turn_page(
+                session_id, step, on_fetch=on_fetch
             )
-            return
-        yield event.plain_result(text)
+            if text is None:
+                yield event.plain_result(
+                    "❌ 没有可翻页的搜索结果（可能已过期）："
+                    "先用 /comic sou <关键词> 或 /<渠道命令> sou <关键词> 搜一次"
+                )
+                return
+            result_state = "ok"
+            yield event.plain_result(text)
+        finally:
+            if use_reaction:
+                await self._react(event, "done" if result_state == "ok" else "fail")
 
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome
@@ -817,6 +871,49 @@ class ComicParserPlugin(Star):
         if self.settings.progress_style != "emoji":
             return False
         return await set_progress_reaction(event, status)
+
+    async def _begin_progress(self, event: AstrMessageEvent) -> tuple[bool, bool]:
+        """贴「开始」表情，并决定这一次要不要改用文本进度。
+
+        返回 `(是否贴上了表情, 是否走文本进度)`：贴上了就不再发开始消息，由命令层
+        完成时换成 OK / 🔨；贴不上（私聊、协议端不支持表情回应）或用户选了文本进度时，
+        命令层补一条开始消息，期间按需推送文本进度。
+        """
+        use_reaction = await self._react(event, "start")
+        use_text = self.settings.progress_style == "text" or (
+            self.settings.progress_style == "emoji" and not use_reaction
+        )
+        return use_reaction, use_text
+
+    def _search_progress_callback(
+        self, event: AstrMessageEvent
+    ) -> Callable[[int, int], Awaitable[None]]:
+        """全渠道搜索的文本进度：渠道陆续返回时更新一句，避免刷屏。
+
+        双阈值节流：进度每进 25% 且距上一条消息至少 ``PROGRESS_MIN_INTERVAL`` 秒才发；
+        搜索通常一两秒就结束，这样快搜索只会看到开始与结果两条，慢搜索才补进度。
+        最后一个渠道结束时不再补一句，紧跟着就是结果消息。
+        """
+        box = {"last_pct": -1, "sent_at": time.monotonic()}
+
+        async def on_progress(done: int, total: int) -> None:
+            if total <= 0 or done >= total:
+                return
+            now = time.monotonic()
+            percent = int(done * 100 / total)
+            if percent - box["last_pct"] < PROGRESS_STEP_PERCENT:
+                return
+            if now - box["sent_at"] < PROGRESS_MIN_INTERVAL:
+                return
+            box["last_pct"] = percent
+            box["sent_at"] = now
+            text = f"🔎 搜索中… 已返回 {done}/{total} 个渠道"
+            try:
+                await event.send(MessageChain([Comp.Plain(text)]))
+            except Exception as exc:  # 进度发不出去不影响搜索本身
+                logger.debug(f"[{PLUGIN_NAME}] 发送搜索进度失败（忽略）: {exc}")
+
+        return on_progress
 
     def _progress_callback(
         self, event: AstrMessageEvent, enabled: bool, slot: int

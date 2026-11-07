@@ -16,6 +16,7 @@ import asyncio
 import math
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from astrbot.api import logger
@@ -54,6 +55,12 @@ class SearchOutcome:
     error: str = ""
     timed_out: bool = False
     elapsed: float = 0.0
+
+
+# 聚合搜索的进度回调：(已有结果的渠道数, 渠道总数)；命令层据此决定要不要发文本进度
+SearchProgressCallback = Callable[[int, int], Awaitable[None]]
+# 翻页需要去上游取下一页时的通知；本地缓冲够翻页时不会调用
+SearchFetchCallback = Callable[[], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -281,18 +288,38 @@ class SearchService:
     def _append_note(note: str, extra: str) -> str:
         return f"{note}；{extra}" if note else extra
 
-    async def search_all(self, query: SearchQuery) -> list[SearchOutcome]:
-        """并发搜所有可用渠道的上游第一页；每个渠道各自超时，互不阻塞。"""
+    async def search_all(
+        self,
+        query: SearchQuery,
+        on_progress: SearchProgressCallback | None = None,
+    ) -> list[SearchOutcome]:
+        """并发搜所有可用渠道的上游第一页；每个渠道各自超时，互不阻塞。
+
+        ``on_progress`` 在每个渠道结束时收到（已完成数, 渠道总数），供命令层做文本进度；
+        进度上报失败只记 debug，不能拖慢或中断搜索本身。
+        """
         channels = self.searchable()
         if not channels:
             raise SearchUnsupportedError(
                 "当前没有支持搜索的渠道；可以先用 /漫画网站 到站内搜作品、找 ID"
             )
-        return list(
-            await asyncio.gather(
-                *(self.search_one(channel, query) for channel in channels)
-            )
-        )
+        total = len(channels)
+        outcomes: list[SearchOutcome | None] = [None] * total
+        done = 0
+
+        async def run(index: int, channel: BaseChannel) -> None:
+            nonlocal done
+            outcomes[index] = await self.search_one(channel, query)
+            if on_progress is None:
+                return
+            done += 1
+            try:
+                await on_progress(done, total)
+            except Exception as exc:  # 进度只是锦上添花，不能让它拖垮搜索
+                logger.debug(f"[{PLUGIN_NAME}] 搜索进度上报失败（忽略）: {exc}")
+
+        await asyncio.gather(*(run(i, channel) for i, channel in enumerate(channels)))
+        return [outcome for outcome in outcomes if outcome is not None]
 
     # ---- 缓存 ----
     def _cache_get(self, key: tuple[str, str, int]) -> SearchPage | None:
@@ -393,8 +420,14 @@ class SearchService:
             if not progressed:
                 return
 
-    async def _fetch_more(self, session: _SearchSession) -> None:
-        """给缓冲已消费完且上游还有下一页的渠道各取下一条上游页。"""
+    async def _fetch_more(
+        self, session: _SearchSession, on_fetch: SearchFetchCallback | None = None
+    ) -> None:
+        """给缓冲已消费完且上游还有下一页的渠道各取下一条上游页。
+
+        ``on_fetch`` 只在确实要打上游时通知一次（翻页多半直接用本地缓冲），
+        命令层可以借此提示「正在取下一页」；通知失败不影响翻页。
+        """
         targets = [
             self.channels[name]
             for name in session.order
@@ -404,6 +437,11 @@ class SearchService:
         ]
         if not targets:
             return
+        if on_fetch is not None:
+            try:
+                await on_fetch()
+            except Exception as exc:  # 进度提示只是锦上添花
+                logger.debug(f"[{PLUGIN_NAME}] 翻页进度上报失败（忽略）: {exc}")
         next_pages = {
             channel.name: session.upstream_pages.get(channel.name, 1) + 1
             for channel in targets
@@ -430,9 +468,15 @@ class SearchService:
             session.upstream_pages[name] = next_pages[name]
             session.has_more[name] = bool(outcome.page.has_more)
 
-    async def _ensure_entries(self, session: _SearchSession, target: int) -> None:
+    async def _ensure_entries(
+        self,
+        session: _SearchSession,
+        target: int,
+        on_fetch: SearchFetchCallback | None = None,
+    ) -> None:
         """补到 ``target`` 条：先吃本地缓冲，不够再按需取上游下一页。"""
         self._emit_available(session, target)
+        notified = False
         while len(session.entries) < target:
             if not any(
                 session.has_more.get(name)
@@ -441,7 +485,11 @@ class SearchService:
                 for name in session.order
             ):
                 return
-            await self._fetch_more(session)
+            if on_fetch is not None and not notified:
+                notified = True
+                await self._fetch_more(session, on_fetch)
+            else:
+                await self._fetch_more(session)
             self._emit_available(session, target)
 
     def _has_next(self, session: _SearchSession) -> bool:
@@ -459,7 +507,12 @@ class SearchService:
                 return f"/{channel.display_command}"
         return "/comic"
 
-    async def turn_page(self, session_id: str, step: int) -> str | None:
+    async def turn_page(
+        self,
+        session_id: str,
+        step: int,
+        on_fetch: SearchFetchCallback | None = None,
+    ) -> str | None:
         """翻页：返回新的结果文案；没有可翻的搜索时返回 None，边界单独给文案。"""
         session = self._sessions.get(session_id)
         if session is None:
@@ -473,7 +526,7 @@ class SearchService:
             return "📄 已经是第一页了"
         size = self._page_size(session)
         if step > 0:
-            await self._ensure_entries(session, target * size)
+            await self._ensure_entries(session, target * size, on_fetch)
         if (target - 1) * size >= len(session.entries):
             return f"📄 没有更多结果了（第 {session.page} 页已是最后一页）"
 
