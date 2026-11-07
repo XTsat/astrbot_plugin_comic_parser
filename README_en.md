@@ -12,6 +12,7 @@
 - **Search right in the chat**: `/jm sou <keyword>` searches JM only, while `/comic sou <keyword>` searches every channel that supports search. Each channel is timed separately, so one slow site is skipped instead of holding up the whole command. Add a type prefix such as `tag:` or `author:` before the keyword, and prefix it with `-` to exclude. Hits are numbered continuously and each line only shows the title, author/page count and ID, with a single download example at the end; reply with the number to download (e.g. `/comic 1` or `/jm 1`). Longer result sets are split into pages: send `/comic 下一页` or `/jm 下一页` for the next page (`上一页` goes back; `next` / `prev` also work), numbers continue across pages, and everything stays valid for 10 minutes
 - **E-Hentai channel**: `/eh <gid:token or link>` (full name `/ehentai`) downloads a whole E-Hentai gallery. Without a cookie it fetches the 1280px-wide resampled images anonymously; originals are only used once you add a cookie and keep "prefer originals" on, and each original is charged against the site's image quota by file size. The quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so send the same command again to continue — long galleries usually take a few passes
 - **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
+- **Format per download**: want a different format just this once? Put it at the end of the command (`/jm 123456 pdf`, `/comic <link> long_img`) and it applies to that one download only — no need to flip the setting back and forth
 - **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading or searching → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Download progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages"); a search across all channels also reports how many channels have answered, and pagination tells you when it has to fetch the next upstream page
 - **Pause at the deadline, resume next time**: a request that runs too long stops first and keeps the images it already fetched; send the same command again and it continues from there without refetching those pages. Breakpoints expire after the configured time
@@ -26,7 +27,7 @@
 
 | Command | Permission | Description |
 |---------|------------|-------------|
-| `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded (works for every channel below) |
+| `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded (works for every channel below); an optional pack format can follow the link, see "Pack format per download" below |
 | `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; type prefixes such as `tag:` and `author:` plus `-` exclusions are supported; hits are numbered continuously, and `/comic <number>` downloads the matching one |
 | `/jm sou <keyword>` (same for `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜`; type prefixes and `-` exclusions are supported; after a search, send `/<channel command> <number>` to download |
 | `/jm 下一页` (also `/jm next`; go back with `/jm 上一页` or `/jm prev`) | Everyone (subject to whitelist/blacklist) | Turn the page of the latest search in this session; `/comic 下一页` and `/comic 上一页` work the same way; numbers continue across pages and still download by number |
@@ -36,6 +37,7 @@
 | `/hm <ID or link>` (full name `/hanime1`, also `/ha`, `/hanime`) | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
 | `/ssmh <ID or link>` (full name `/wnacg`, also `/wn`) | Everyone (subject to whitelist/blacklist) | Download a whole WNACG (Shenshi Manhua) gallery |
 | `/eh <gid:token or link>` (full name `/ehentai`) | Everyone (subject to whitelist/blacklist) | Download a whole E-Hentai gallery; the ID has two parts (gid plus token), so a bare number is rejected with a hint (anonymous 1280px; originals need a cookie) |
+| `/jm 123456 pdf` (same for any download command, `/comic` and search hit numbers) | Everyone (subject to whitelist/blacklist) | Sets the pack format for this one download, overriding the "Pack format" setting; the values are `zip` / `pdf` / `long_img` / `none` (save locally only), and the Chinese words `压缩包` / `文档` / `长图` / `本地` work too. Without it the configured format is used |
 | `/comic stop` (also `/jm stop`, `/nh stop`, …) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so sending the same command again resumes. Admins can use `/comic stop all` to cancel every session's downloads |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
 | `/漫画网站` (also `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs; you can also search in chat with `/comic sou` |
@@ -68,6 +70,9 @@ Examples:
 /comic sou tag:"big breasts" -tag:NTR corruption
 /comic 1
 /comic 下一页
+/jm 123456 pdf
+/comic https://nhentai.net/g/123456/ long_img
+/jm 123456 none
 /jm sou 無職転生
 /jm sou tag:"big breasts"
 /jm 1
@@ -75,6 +80,7 @@ Examples:
 /nh sou tentacles
 ```
 
+> To use a different format for one download, put the format word at the very end of the command: `/jm 123456 pdf`, `/comic <link> long_img`, `/jm 1 none`. The values are those of the "Pack format" setting — `zip` / `pdf` / `long_img` / `none` (the Chinese words `压缩包` / `文档` / `长图` / `本地` work as well). It only affects that download and never changes the setting; while searching with `sou`, the trailing word still counts as part of the keyword.
 > Search hits show only the title, author/page count, a continuous number and the ID; the download example is shown once at the end. Send `/comic 1` (or `/jm 1`) to download the first hit, and the channel is picked automatically from the result. A new search replaces the numbers, and they stay valid for 10 minutes.
 > When there is more than one page, the footer shows a next-page hint such as `下一页：/jm 下一页`; `上一页` (or `prev`) goes back. Paging first uses results already fetched and only asks the site for its next page when that buffer runs out, so flipping a page does not run a fresh search. Numbers continue across pages: after moving to page 2, `/jm 9` still downloads the ninth hit.
 > `/comic` only accepts full links (a work page address with a domain) or a number from the latest search: a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead.
@@ -104,7 +110,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Pack format (`pack_format`) | string | zip | One of zip / pdf / long_img / none (keep locally, do not send) |
+| Pack format (`pack_format`) | string | zip | One of zip / pdf / long_img / none (keep locally, do not send); for a single download you do not need to change this — just append the format word to the command (e.g. `/jm 123456 pdf`) |
 | Pack password (`pack_password`) | string | empty | Global encryption password; empty means no encryption |
 | Filename template (`filename_template`) | string | id_short_title | Naming pattern for the output file. Presets: [short id]title (default) / [id]title / [id]title+password / title[id] / title[id]+password / ID only / title only / custom (the ID is bracketed). Presets marked "+password" write the password into the filename (visible in chat); the short-ID rule is described in the next row, and other combinations can be built with a custom template |
 | Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{id_short}` `{author}` `{password}`; the `(password)` part disappears when no password is set. `{id_short}` is a shortened ID: E-Hentai drops the token and keeps the gid, PicaACG keeps the last 8 characters of its 24-character ID, and other channels are short enough to match `{id}`. The short form is for filenames only; commands still need the full ID |

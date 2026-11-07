@@ -76,11 +76,14 @@ class DownloadTask:
         settings: PluginSettings,
         temp_root: Path,
         save_root: Path,
+        pack_format: str | None = None,
     ) -> None:
         self.channel = channel
         self.settings = settings
         self.temp_root = temp_root
         self.save_root = save_root
+        # 单次下载可以指定产物形态（命令末尾加 pdf / 长图 等），不写就跟随全局配置
+        self.pack_format = pack_format or settings.pack_format
 
     async def run(
         self,
@@ -329,10 +332,10 @@ class DownloadTask:
             author=meta.author,
             short_id=self.channel.short_id(meta.comic_id),
         )
-        if self.settings.pack_format == "none":
+        if self.pack_format == "none":
             return self._keep_local(downloaded, base_name)
 
-        packer = Packer(self.settings.pack_format, self.settings.pack_password)
+        packer = Packer(self.pack_format, self.settings.pack_password)
         return packer.pack(downloaded.source_dir, base_name, self.temp_root)
 
     def _keep_local(self, downloaded: DownloadedComic, base_name: str) -> PackResult:

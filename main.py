@@ -68,7 +68,7 @@ from .domain.constants import (
     STOP_ALL_WORDS,
     STOP_WORDS,
 )
-from .utils import format_size
+from .utils import describe_pack_format, format_size, split_pack_format
 
 # 贴表情（set_msg_emoji_like）与群文件上传（upload_group_file）都只有 OneBot(CQHTTP) 协议端提供
 _ONEBOT_PLATFORMS = frozenset({"aiocqhttp"})
@@ -364,12 +364,14 @@ class ComicParserPlugin(Star):
             f"{describe_links(self.channels)}\n\n"
             f"🌐 支持的网站与作品页链接示意（找 ID 用）：/漫画网站\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
+            f"单次改格式：命令末尾加格式词，如 /jm 123456 pdf、/comic <链接> long_img，"
+            f"只对这一次生效（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
             f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
             f"文件名模板：{template_labels.get(self.settings.filename_template, '[简写ID]标题')}\n"
             f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
             f"下载分段：{resume_desc}\n"
             f"群文件：{group_file_desc}\n"
-            f"用法：/comic <作品链接>，或 /<渠道命令> <ID 或链接>\n"
+            f"用法：/comic <作品链接> [格式]，或 /<渠道命令> <ID 或链接> [格式]\n"
             f"搜索：{search_desc}\n"
             f"{search_filter_desc}"
             f"{index_hint}"
@@ -407,8 +409,10 @@ class ComicParserPlugin(Star):
         text = " ".join((args or "").split())
         if not text:
             yield event.plain_result(
-                "用法：/comic <作品链接>、/comic <搜索序号>，"
+                "用法：/comic <作品链接> [格式]、/comic <搜索序号> [格式]，"
                 "或 /comic sou <关键词>（全渠道搜索）\n"
+                "格式可选 zip / pdf / long_img / none，写在最后只对这一次生效\n"
+                "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
                 f"{describe_links(self.channels)}"
             )
             return
@@ -436,12 +440,19 @@ class ComicParserPlugin(Star):
             return
 
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        # 末尾的格式词只改这一次的产物形态（`/comic <链接> pdf`）；搜索与翻页已在上面分流，
+        # 因此关键词里的格式词（如 long_img、长图）不会被当成格式
+        text, pack_format = split_pack_format(text)
         indexed = self.search_service.resolve_index(session_id, text)
         if indexed is not None:
             channel, comic_id = indexed
             # 序号已经解析成渠道 + 规范 ID，不能再让下载入口把它当成新序号
             async for result in self._handle_download(
-                event, channel.command, comic_id, allow_index=False
+                event,
+                channel.command,
+                comic_id,
+                allow_index=False,
+                pack_format=pack_format,
             ):
                 yield result
             return
@@ -463,7 +474,9 @@ class ComicParserPlugin(Star):
             return
 
         channel, _ = resolved
-        async for result in self._handle_download(event, channel.command, text):
+        async for result in self._handle_download(
+            event, channel.command, text, pack_format=pack_format
+        ):
             yield result
 
     async def _handle_download(
@@ -472,6 +485,7 @@ class ComicParserPlugin(Star):
         command: str,
         raw_id: str,
         allow_index: bool = True,
+        pack_format: str | None = None,
     ) -> AsyncGenerator[MessageEventResult, None]:
         text = " ".join((raw_id or "").split())
         head, _, rest = text.partition(" ")
@@ -508,10 +522,16 @@ class ComicParserPlugin(Star):
             # 示例用缩写命令：用户日常敲的就是这个，全称只是注册名
             hint = channel.display_command
             yield event.plain_result(
-                f"用法：/{hint} <ID 或链接>，或 /{hint} sou <关键词>\n"
-                f"示例：/{hint} 123456"
+                f"用法：/{hint} <ID 或链接> [格式]，或 /{hint} sou <关键词>\n"
+                f"示例：/{hint} 123456、/{hint} 123456 pdf（这一次只用 PDF 打包）"
             )
             return
+
+        # 末尾的格式词只改这一次的产物形态（`/jm 123456 pdf`）：搜索与停止已在上面分流，
+        # 所以 `/jm sou 长图` 里的「长图」仍是关键词（格式词放在最后才会被切走）
+        text, override = split_pack_format(text)
+        if override is not None:
+            pack_format = override
 
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
         denied = self.guard.check_session(session_id)
@@ -564,11 +584,20 @@ class ComicParserPlugin(Star):
                 use_reaction, use_text_progress = await self._begin_progress(event)
                 if not use_reaction:
                     # 贴上了表情就等于「已开始」，不必再多一条消息
+                    fmt_note = (
+                        f"（{describe_pack_format(pack_format)}）"
+                        if pack_format
+                        else ""
+                    )
                     yield event.plain_result(
-                        f"⏳ 开始下载 {channel.display_name} {comic_id}…"
+                        f"⏳ 开始下载 {channel.display_name} {comic_id}{fmt_note}…"
                     )
                 task = DownloadTask(
-                    channel, self.settings, self.temp_root, self.save_root
+                    channel,
+                    self.settings,
+                    self.temp_root,
+                    self.save_root,
+                    pack_format=pack_format,
                 )
                 try:
                     outcome = await task.run(
@@ -1041,6 +1070,10 @@ class ComicParserPlugin(Star):
         if outcome.failed_images:
             count_line += f"（{outcome.failed_images} 张失败）"
         lines.append(count_line)
+
+        # 与全局配置不一致说明这次是命令里指定的格式，否则用户会以为配置被改掉了
+        if outcome.pack.fmt != self.settings.pack_format:
+            lines.append(f"打包格式：{describe_pack_format(outcome.pack.fmt)}（本次指定）")
 
         if outcome.pack.fmt == "none":
             lines.append(f"已保存到本地：{outcome.source_dir}")

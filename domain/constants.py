@@ -74,6 +74,30 @@ SEARCH_PREV_WORDS: Final = frozenset({"prev", "previous", "上一页", "上页"}
 PACK_FORMATS: Final = ("zip", "pdf", "long_img", "none")
 DEFAULT_PACK_FORMAT: Final = "zip"
 
+# 展示名：帮助、结果摘要与提示文案共用一份，免得各处自己写中文
+PACK_FORMAT_LABELS: Final = {
+    "zip": "ZIP 压缩包",
+    "pdf": "PDF 文档",
+    "long_img": "纵向长图",
+    "none": "仅本地保存",
+}
+# 单次下载改格式：命令末尾追加这些词即可覆盖全局配置，只对这一次生效。
+# 中英文都收——用户要么按配置里的值敲 zip，要么按聊天习惯敲「长图」「压缩包」。
+PACK_FORMAT_ALIASES: Final = {
+    "zip": "zip",
+    "压缩包": "zip",
+    "压缩": "zip",
+    "pdf": "pdf",
+    "文档": "pdf",
+    "long_img": "long_img",
+    "longimg": "long_img",
+    "长图": "long_img",
+    "none": "none",
+    "本地": "none",
+    "仅本地": "none",
+    "保存": "none",
+}
+
 # 文件名模板：键是配置里的选项值，值是可以带占位符的模板。
 # 带 {password} 的模板才会把密码写进文件名（写成英文括号，例如 标题[ID](密码)）——是否显示由模板决定。
 # 预置只留常用形态：简写与完整 ID 各有一个「ID + 标题」，其余组合用自定义模板。
