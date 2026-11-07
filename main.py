@@ -1166,6 +1166,8 @@ class ComicParserPlugin(Star):
         if outcome.failed_images:
             count_line += f"（{outcome.failed_images} 张失败）"
         lines.append(count_line)
+        if outcome.pack.note:
+            lines.append(f"⚠️ {outcome.pack.note}")
 
         # 与全局配置不一致说明这次是命令里指定的格式，否则用户会以为配置被改掉了
         if outcome.pack.fmt != self.settings.pack_format:

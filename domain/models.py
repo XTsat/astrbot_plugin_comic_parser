@@ -121,3 +121,4 @@ class PackResult:
     fmt: str
     encrypted: bool
     error: str | None = None
+    note: str = ""  # 非致命提示（个别页无法解码已跳过等），写进结果摘要给用户看

@@ -100,7 +100,6 @@ class DownloadTask:
             downloaded = await self._download(
                 comic_id, work_dir, on_progress, meta, cancel
             )
-            pack = await asyncio.to_thread(self._pack, downloaded, meta)
         except (DownloadPaused, DownloadCancelled):
             # 到点暂停 / 手动取消：断点要留着给下一次接着下，绝不能清目录
             raise
@@ -108,9 +107,16 @@ class DownloadTask:
             Packer.cleanup(work_dir)
             raise
 
+        # 打包放在下载的 try 之外：打包失败不该把已经下好的图一起清掉（见下方 PackError）
+        pack = await asyncio.to_thread(self._pack, downloaded, meta)
         if not pack.success:
-            Packer.cleanup(work_dir)
-            raise PackError(pack.error or "打包失败")
+            # 图片留着，重发命令只需重新打包，不必整本重下；断点关了就没得留，别乱许诺
+            hint = (
+                "\n已下好的图片已保留，重新发一次同样的命令会直接重新打包"
+                if self.settings.resume_ttl > 0
+                else ""
+            )
+            raise PackError((pack.error or "打包失败") + hint)
 
         return DownloadOutcome(
             meta=meta,

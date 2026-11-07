@@ -16,12 +16,15 @@ import shutil
 import zipfile
 from pathlib import Path
 
+from astrbot.api import logger
+
 from ..domain import PackResult
 from ..domain.constants import (
     IMAGE_SUFFIXES,
     LONG_IMG_MAX_PER_STRIP,
     LONG_IMG_MAX_STRIP_HEIGHT,
     LONG_IMG_WIDTH,
+    PLUGIN_NAME,
 )
 
 try:  # 加密 ZIP（AES）依赖
@@ -84,19 +87,27 @@ class Packer:
         if not collect_images(source_dir):
             return self._fail("没有可打包的图片，可能全部下载失败")
 
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         if self.fmt == "none":
             # 仅保留本地目录，调用方不发送
             return PackResult(
                 success=True, output_path=source_dir, fmt="none", encrypted=False
             )
-        if self.fmt == "zip":
-            return self._pack_zip(source_dir, base_name, output_dir)
-        if self.fmt == "pdf":
-            return self._pack_pdf(source_dir, base_name, output_dir)
-        if self.fmt == "long_img":
-            return self._pack_long_img(source_dir, base_name, output_dir)
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            if self.fmt == "zip":
+                return self._pack_zip(source_dir, base_name, output_dir)
+            if self.fmt == "pdf":
+                return self._pack_pdf(source_dir, base_name, output_dir)
+            if self.fmt == "long_img":
+                return self._pack_long_img(source_dir, base_name, output_dir)
+        except Exception as exc:
+            # 没有 traceback 就分不清是坏图、依赖缺失还是磁盘问题，排障只能靠猜
+            logger.error(
+                f"[{PLUGIN_NAME}] ❌ 打包异常（{self.fmt}）："
+                f"{type(exc).__name__}: {exc}",
+                exc_info=True,
+            )
+            raise
         return self._fail(f"不支持的打包格式：{self.fmt}")
 
     # ---- 各格式实现 ----
@@ -132,30 +143,87 @@ class Packer:
 
         images = collect_images(source_dir)
         out_path = output_dir / f"{base_name}.pdf"
+        # 先写 .part 再原子改名：中途失败也不会在目标位置留下半截 PDF 被当成成品发出去
+        part_path = output_dir / f"{base_name}.pdf.part"
         doc = fitz.open()
+        skipped: list[str] = []
         try:
             # 让 pymupdf 自己把图片转成单页 PDF 再合并，省掉 PIL 依赖与手工尺寸换算
-            current = images[0]
-            for current in images:
-                page_pdf = self._image_to_pdf_bytes(current)
-                with fitz.open("pdf", page_pdf) as page_doc:
-                    doc.insert_pdf(page_doc)
+            for image in images:
+                try:
+                    page_pdf = self._image_to_pdf_bytes(image)
+                    with fitz.open("pdf", page_pdf) as page_doc:
+                        doc.insert_pdf(page_doc)
+                except Exception as exc:
+                    # 单张坏图不该让整本报废：跳过这一页并记账，结果里如实告诉用户缺了哪几页
+                    skipped.append(image.name)
+                    logger.warning(
+                        f"[{PLUGIN_NAME}] ⚠️ PDF 跳过无法解码的图片 {image.name}："
+                        f"{type(exc).__name__}: {exc}",
+                        exc_info=True,
+                    )
 
-            if self.password:
-                doc.save(
-                    str(out_path),
-                    encryption=fitz.PDF_ENCRYPT_AES_256,
-                    owner_pw=self.password,
-                    user_pw=self.password,
-                )
-            else:
-                doc.save(str(out_path))
-        except Exception as exc:  # 图片解码失败的异常类型由 pymupdf 版本决定，这里统一转成可读文案
-            return self._fail(f"PDF 打包失败：图片 {current.name} 无法解码（{exc}）")
+            if skipped and len(skipped) == len(images):
+                return self._fail("PDF 打包失败：所有图片都无法解码")
+
+            self._save_pdf(doc, part_path)
+            part_path.replace(out_path)
+        except Exception as exc:
+            # 合并/落盘阶段的异常跟具体哪张图无关，别再把它说成「图片 X 无法解码」
+            logger.error(
+                f"[{PLUGIN_NAME}] ❌ PDF 打包失败（合并或落盘阶段）："
+                f"{type(exc).__name__}: {exc}",
+                exc_info=True,
+            )
+            return self._fail(f"PDF 打包失败：{type(exc).__name__}: {exc}")
         finally:
             doc.close()
+            self._drop_partial(part_path)
 
-        return PackResult(True, out_path, "pdf", bool(self.password))
+        note = ""
+        if skipped:
+            shown = "、".join(skipped[:3])
+            tail = f" 等 {len(skipped)} 页" if len(skipped) > 3 else ""
+            note = f"{len(skipped)} 页图片无法解码已跳过（{shown}{tail}），PDF 缺这几页"
+        return PackResult(True, out_path, "pdf", bool(self.password), note=note)
+
+    def _save_pdf(self, doc: fitz.Document, path: Path) -> None:
+        """保存 PDF，系统级失败重试一次。
+
+        pymupdf 在 I/O 或内存吃紧时会抛 `FzErrorSystem`，而 2.x 构造这个异常自身有 bug，
+        用户侧只剩一句 `missing 1 required positional argument`；重试一次能把瞬时故障吃掉，
+        仍然失败就把异常类型一并交给上层记进日志。
+        """
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                if self.password:
+                    doc.save(
+                        str(path),
+                        encryption=fitz.PDF_ENCRYPT_AES_256,
+                        owner_pw=self.password,
+                        user_pw=self.password,
+                    )
+                else:
+                    doc.save(str(path))
+                return
+            except Exception as exc:
+                last_error = exc
+                self._drop_partial(path)
+                logger.warning(
+                    f"[{PLUGIN_NAME}] ⚠️ 写入 PDF 失败（第 {attempt + 1}/2 次）："
+                    f"{type(exc).__name__}: {exc}"
+                )
+        assert last_error is not None
+        raise last_error
+
+    @staticmethod
+    def _drop_partial(path: Path) -> None:
+        """删掉写了一半的产物；路径本身异常（比如被目录占着）不能盖住真正的失败原因。"""
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(f"[{PLUGIN_NAME}] ⚠️ 清理半成品失败：{path}：{exc}")
 
     def _image_to_pdf_bytes(self, image: Path) -> bytes:
         """把一张图片转成单页 PDF 的字节流。
@@ -289,6 +357,7 @@ class Packer:
 
     @staticmethod
     def _fail(message: str) -> PackResult:
+        logger.error(f"[{PLUGIN_NAME}] ❌ 打包失败：{message}")
         return PackResult(
             success=False, output_path=None, fmt="", encrypted=False, error=message
         )
