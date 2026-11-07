@@ -46,18 +46,11 @@ class Detection:
 
 @dataclass(frozen=True, slots=True)
 class NsfwScore:
-    """一次评分的结论。
-
-    ``value`` 统一是 0-100 的「露骨指数」：
-    - 只给封面打分时按**检出面积占比**算（画面上露骨部位越多分越高）；
-    - 抽样整本时按**命中页占比**算（抽到的页里有多少页含露骨内容）。
-    """
+    """一次评分的结论：0-100 的露骨指数（按检出的露骨面积占比算）。"""
 
     value: float = 0.0
     coverage: float = 0.0
     detections: tuple[Detection, ...] = ()
-    pages: int = 0
-    hits: int = 0
 
     @property
     def boxes(self) -> list[tuple[float, float, float, float]]:
@@ -140,46 +133,6 @@ class NsfwDetector:
             value=round(coverage * 100, 1),
             coverage=coverage,
             detections=tuple(detections),
-            pages=1,
-            hits=1 if detections else 0,
-        )
-
-    def analyze_pages(
-        self, image_paths: Sequence[Path], *, threshold: float | None = None
-    ) -> NsfwScore:
-        """抽样若干页算整本露骨程度：按命中页占比计分。
-
-        Args:
-            image_paths: 参与抽样的页（调用方已决定抽多少页）。
-            threshold: 检测置信度阈值，None 表示用配置值。
-
-        Returns:
-            NsfwScore: ``pages`` 为实际评估页数，``hits`` 为其中判为露骨的页数。
-        """
-        model = self._ensure_model()
-        if model is None or not image_paths:
-            return NsfwScore.empty()
-
-        hits = 0
-        total = 0
-        coverage_sum = 0.0
-        for path in image_paths:
-            total += 1
-            detections = self._detect(model, path, threshold)
-            if not detections:
-                continue
-            hits += 1
-            width, height = self._image_size(path)
-            coverage_sum += self._coverage(detections, width, height)
-
-        if total == 0:
-            return NsfwScore.empty()
-
-        return NsfwScore(
-            value=round(hits / total * 100, 1),
-            coverage=coverage_sum / total,
-            pages=total,
-            hits=hits,
         )
 
     # ---- 内部实现 ----

@@ -17,7 +17,7 @@
 - **Visible progress**: by default the bot reacts on your command message (❤️ downloading or searching → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Download progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages"); a search across all channels also reports how many channels have answered, and pagination tells you when it has to fetch the next upstream page
 - **Pause at the deadline, resume next time**: a request that runs too long stops first and keeps the images it already fetched; send the same command again and it continues from there without refetching those pages. Breakpoints expire after the configured time
 - **Optional result block**: the summary sent with the file (title / author / image count / elapsed) can be turned off
-- **Cover image after each download**: once a download finishes, a cover image is sent before the file, optionally with title / author / page count / how explicit it looks. If covers keep getting blocked by the platform, let the plugin censor them (mosaic / blur / black bar) using boxes from a local NSFW detection model, falling back to censoring the whole cover when too much of it is flagged
+- **Cover image after each download** (off by default): turn it on and every finished download sends one cover image before the file, with the explicit parts censored (mosaic / blur / black bar, on by default) using boxes from a local NSFW detection model, falling back to censoring the whole cover when too much of it is flagged; the caption with title / author / page count / explicitness follows "Send download summary"
 - **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic. Probe timeout, slow-node threshold and cache lifetime are configurable, and the whole thing can be switched off
 - **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host; while waiting you are told what the running download is doing and how far it got
@@ -274,13 +274,12 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Cover image
 
 <details>
-<summary>Cover image (7 options)</summary>
+<summary>Cover image (6 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Send cover after download (`send`) | bool | true | Send one cover image before the packed file after every successful download; turn off to send files only |
-| Cover caption (`caption`) | bool | true | Put title / author / page count / explicitness / censored-or-not in front of the cover |
-| Censor the cover (`censor`) | bool | false | Censor the areas found by the NSFW model; without a usable model the whole cover is censored |
+| Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download; turn off to send files only |
+| Censor the cover (`censor`) | bool | true | Censor the areas found by the NSFW model; without usable weights this cover is sent uncensored and a hint is logged |
 | Censor style (`censor_style`) | string | mosaic | Mosaic / Gaussian blur / black bar |
 | Censor padding (`censor_padding`) | int | 12 | Expand every box so nothing leaks at the edges |
 | Mosaic block size (`censor_block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
@@ -291,13 +290,12 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### NSFW model
 
 <details>
-<summary>NSFW model (7 options)</summary>
+<summary>NSFW model (6 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Score the cover (`score`) | bool | true | Use the model to score how explicit the cover is (detected area share, 0-100%) and put it in the caption; skipped when no model is available |
-| Full-gallery sample pages (`sample_pages`) | int | 0 | Additionally sample this many pages to report how many are explicit; 0 scores the cover only |
-| Detection threshold (`threshold`) | float | 0.25 | Confidence floor shared by scoring and censoring; lower means more sensitive |
+| Detection threshold (`threshold`) | float | 0.05 | Confidence floor shared by scoring and censoring. Real images score low (0.03-0.08 is common), so anything above 0.15 mostly misses; lower is safer but censors more |
 | Inference device (`device`) | string | auto | Leave empty to pick automatically: GPU when available, otherwise CPU |
 | Weight variant (`model_variant`) | string | m | nano (~5MB, lightest) / small (~18MB) / medium (~39MB, recommended) |
 | Auto-download weights (`auto_download_model`) | bool | false | Download into the plugin's `models/` in the background at load time; failures never block downloads |
@@ -343,7 +341,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 Cover scoring and censoring rely on a local YOLO detection model: [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) is recommended (Apache-2.0, classes anus / make_love / nipple / penis / vagina). Install `ultralytics` (it brings PyTorch along; CPU works too) and put a `.pt` file into the plugin's `models/` directory — the easiest way is to turn on "Auto-download weights" under "NSFW model".
 
-Without any model the plugin still downloads and still sends the cover, it just cannot report how explicit it is. If "Censor the cover" is on at the same time, the whole cover is censored as a fallback so an explicit cover does not get blocked.
+Without any model the plugin still downloads and still sends the cover, it just cannot report how explicit it is and the cover is not censored (a hint is logged). Put the weights into `models/` first if you want censoring to take effect.
 
 ### Troubleshooting
 

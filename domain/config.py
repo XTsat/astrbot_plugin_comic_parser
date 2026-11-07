@@ -11,7 +11,6 @@ from typing import Any, Mapping
 
 from .constants import (
     COVER_CENSOR_STYLES,
-    DEFAULT_COVER_CAPTION,
     DEFAULT_COVER_CENSOR,
     DEFAULT_COVER_CENSOR_BLOCK,
     DEFAULT_COVER_CENSOR_PADDING,
@@ -25,7 +24,6 @@ from .constants import (
     DEFAULT_NSFW_AUTO_DOWNLOAD,
     DEFAULT_NSFW_DEVICE,
     DEFAULT_NSFW_MODEL_VARIANT,
-    DEFAULT_NSFW_SAMPLE_PAGES,
     DEFAULT_NSFW_SCORE,
     DEFAULT_NSFW_THRESHOLD,
     DEFAULT_PACK_FORMAT,
@@ -147,9 +145,9 @@ class PluginSettings:
     search_cooldown: int = DEFAULT_SEARCH_COOLDOWN
     search_auto_proxy: bool = DEFAULT_SEARCH_AUTO_PROXY
     search_auto_proxy_timeout: int = DEFAULT_SEARCH_AUTO_PROXY_TIMEOUT
-    # 封面：下载完成后单独发一张图，打码复用 NSFW 检测框
+    # 封面：下载完成后单独发一张图，打码复用 NSFW 检测框；
+    # 封面说明跟随「发送下载完成摘要」，不另设开关
     cover_send: bool = DEFAULT_COVER_SEND
-    cover_caption: bool = DEFAULT_COVER_CAPTION
     cover_censor: bool = DEFAULT_COVER_CENSOR
     cover_censor_style: str = DEFAULT_COVER_CENSOR_STYLE
     cover_censor_padding: int = DEFAULT_COVER_CENSOR_PADDING
@@ -157,7 +155,6 @@ class PluginSettings:
     cover_full_censor_area: float = DEFAULT_COVER_FULL_CENSOR_AREA
     # NSFW 模型与评分：权重默认不随插件分发，由开关按需下载
     nsfw_score: bool = DEFAULT_NSFW_SCORE
-    nsfw_sample_pages: int = DEFAULT_NSFW_SAMPLE_PAGES
     nsfw_threshold: float = DEFAULT_NSFW_THRESHOLD
     nsfw_device: str = DEFAULT_NSFW_DEVICE
     nsfw_model_variant: str = DEFAULT_NSFW_MODEL_VARIANT
@@ -311,7 +308,6 @@ class PluginSettings:
                 120,
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
-            cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),
             cover_censor=_as_bool(cover.get("censor"), DEFAULT_COVER_CENSOR),
             cover_censor_style=censor_style,
             cover_censor_padding=_as_int(
@@ -327,9 +323,6 @@ class PluginSettings:
                 maximum=1.0,
             ),
             nsfw_score=_as_bool(nsfw.get("score"), DEFAULT_NSFW_SCORE),
-            nsfw_sample_pages=_as_int(
-                nsfw.get("sample_pages"), DEFAULT_NSFW_SAMPLE_PAGES, minimum=0
-            ),
             nsfw_threshold=_as_float(
                 nsfw.get("threshold"), DEFAULT_NSFW_THRESHOLD, minimum=0.01, maximum=0.99
             ),

@@ -190,14 +190,13 @@ class ComicParserPlugin(Star):
         self.cover_service = CoverService(
             self.nsfw_detector,
             self.temp_root,
-            send_caption=self.settings.cover_caption,
+            send_caption=self.settings.show_result_summary,
             score_enabled=self.settings.nsfw_score,
             censor=self.settings.cover_censor,
             censor_style=self.settings.cover_censor_style,
             censor_block=self.settings.cover_censor_block,
             censor_padding=self.settings.cover_censor_padding,
             full_censor_area=self.settings.cover_full_censor_area,
-            sample_pages=self.settings.nsfw_sample_pages,
         )
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
         # 正在跑的任务：排队提示与「前面下到哪」都读它

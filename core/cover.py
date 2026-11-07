@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import shutil
 import time
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,7 +36,6 @@ class CoverResult:
     score: NsfwScore
     censored: bool
     full_censored: bool
-    whole_score: NsfwScore | None = None
 
 
 class CoverService:
@@ -55,7 +53,6 @@ class CoverService:
         censor_block: int = 14,
         censor_padding: int = 12,
         full_censor_area: float = 0.2,
-        sample_pages: int = 0,
     ) -> None:
         self.detector = detector
         self.temp_root = temp_root
@@ -66,7 +63,6 @@ class CoverService:
         self.censor_block = censor_block
         self.censor_padding = censor_padding
         self.full_censor_area = full_censor_area
-        self.sample_pages = max(0, sample_pages)
 
     # ---- 取图 ----
 
@@ -129,30 +125,23 @@ class CoverService:
 
         # 关掉评分又不开打码时，连推理都不必做——省下每本几百毫秒
         score = NsfwScore.empty()
-        whole_score: NsfwScore | None = None
         detections: list[Detection] = []
         if self.detector.model_path is not None and (self.censor or self.score_enabled):
             analysis = await asyncio.to_thread(self.detector.analyze, target)
             detections = list(analysis.detections)
             if self.score_enabled:
                 score = analysis
-                if self.sample_pages > 0:
-                    sample = self._sample_pages(source_dir, exclude=cover)
-                    if sample:
-                        whole_score = await asyncio.to_thread(
-                            self.detector.analyze_pages, sample
-                        )
 
         censored = False
         full_censored = False
         if self.censor:
             boxes = [item.box for item in detections]
             if not boxes and self.detector.model_path is None:
-                # 用户开了打码但没有模型：宁可整张糊掉，也不能把封面原样发出去
+                # 打码默认打开，但没权重时整张糊掉比不打码更糟：跳过并提示配置模型
                 logger.warning(
-                    f"[{PLUGIN_NAME}] 没有 NSFW 权重，封面按整张打码处理"
+                    f"[{PLUGIN_NAME}] 没有可用的 NSFW 权重，本次跳过封面打码；"
+                    "在「NSFW 模型」里放好 .pt 或开启自动下载即可生效"
                 )
-                boxes = [(0.0, 0.0, 1.0, 1.0)]
             if boxes:
                 censored, coverage = await asyncio.to_thread(
                     censor_cover,
@@ -174,7 +163,6 @@ class CoverService:
             score=score,
             censored=censored,
             full_censored=full_censored,
-            whole_score=whole_score,
         )
 
     def _stage_cover(self, cover: Path, channel: str, comic_id: str) -> Path:
@@ -185,17 +173,6 @@ class CoverService:
         target = covers_dir / f"{channel}-{comic_id}-cover{suffix}"
         shutil.copyfile(cover, target)
         return target
-
-    def _sample_pages(self, source_dir: Path, *, exclude: Path) -> list[Path]:
-        """均匀抽几页做整本评估：从头往后取会把短篇都抽成前几页，均匀摊开更有代表性。"""
-        images = [path for path in self._iter_images(source_dir) if path != exclude]
-        count = min(self.sample_pages, len(images))
-        if count <= 0:
-            return []
-
-        step = max(1, len(images) // count)
-        picked = images[::step][:count]
-        return picked
 
     def _cleanup_old_files(self) -> None:
         """清掉过期的临时代封面：发送是异步的，所以只能按时间清，不能发完就删。"""
@@ -230,11 +207,6 @@ class CoverService:
         if result.score.value > 0:
             labels = "、".join(result.score.labels) or "露骨部位"
             lines.append(f"封面露骨度：{result.score.value:.1f}%（{labels}）")
-        if result.whole_score is not None and result.whole_score.pages > 0:
-            whole = result.whole_score
-            lines.append(
-                f"整本抽样：{whole.pages} 页命中 {whole.hits} 页（{whole.value:.0f}%）"
-            )
         if result.censored:
             lines.append("🔒 封面已打码" + ("（整张）" if result.full_censored else ""))
         return "\n".join(lines)

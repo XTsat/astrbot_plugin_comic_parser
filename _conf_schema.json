@@ -755,25 +755,19 @@
   "cover": {
     "type": "object",
     "description": "封面发送",
-    "hint": "下载完成后先单独发一张封面图，再发文件；打码复用 NSFW 模型的检测框",
+    "hint": "下载完成后先单独发一张封面图，再发文件；封面说明跟随「发送下载完成摘要」，打码与评分在「NSFW 模型」里配置",
     "items": {
       "send": {
         "type": "bool",
         "description": "下载完成后发送封面",
-        "hint": "开启后每次下载成功都会先发一张封面（打码与附带说明由下面几项控制）；关掉只发打包好的文件",
-        "default": true
-      },
-      "caption": {
-        "type": "bool",
-        "description": "封面附带说明",
-        "hint": "在封面图前附一段文字：标题 / 作者 / 页数 / 露骨度 / 是否已打码",
-        "default": true
+        "hint": "默认关闭。开启后每次下载成功都会先发一张封面，再发打包好的文件；关掉只发文件",
+        "default": false
       },
       "censor": {
         "type": "bool",
         "description": "给封面打码",
-        "hint": "用 NSFW 检测模型框出的部位打码；没有模型时整张封面打码，避免露骨封面被平台拦",
-        "default": false
+        "hint": "默认开启。用 NSFW 检测模型框出的部位打码；没有可用权重时本次跳过打码并提示配置模型",
+        "default": true
       },
       "censor_style": {
         "type": "string",
@@ -837,22 +831,11 @@
         "hint": "用模型算出封面露骨度（检出面积占比，0-100%），写进封面说明；模型缺失时自动跳过",
         "default": true
       },
-      "sample_pages": {
-        "type": "int",
-        "description": "整本抽样页数",
-        "hint": "额外抽样这么多页算整本命中率，写进封面说明；0 表示只给封面打分（抽样越多越慢）",
-        "default": 0,
-        "slider": {
-          "min": 0,
-          "max": 30,
-          "step": 1
-        }
-      },
       "threshold": {
         "type": "float",
         "description": "检测阈值",
-        "hint": "打分与打码共用的置信度下限，越低越敏感、框越多",
-        "default": 0.25,
+        "hint": "打分与打码共用的置信度下限，默认 0.05。模型对真实图片给的置信度普遍偏低，调高会漏检、调低会多糊，一般 0.05-0.1",
+        "default": 0.05,
         "slider": {
           "min": 0.05,
           "max": 0.9,

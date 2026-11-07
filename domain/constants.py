@@ -172,9 +172,8 @@ PROGRESS_REACTIONS: Final = {
 
 # ---- 封面（下载完成后单独发到聊天的一张图）----
 
-# 封面是附加交付：默认发，但关掉不影响打包与发送文件
-DEFAULT_COVER_SEND: Final = True
-DEFAULT_COVER_CAPTION: Final = True
+# 封面是附加交付：默认不发，想收封面的人自己打开
+DEFAULT_COVER_SEND: Final = False
 # 封面尺寸下限：占位图、图标这类小图不配当封面
 COVER_MIN_SIDE: Final = 200
 
@@ -186,7 +185,7 @@ COVER_CENSOR_STYLE_LABELS: Final = {
     "blur": "高斯模糊",
     "bar": "黑条",
 }
-DEFAULT_COVER_CENSOR: Final = False
+DEFAULT_COVER_CENSOR: Final = True
 DEFAULT_COVER_CENSOR_STYLE: Final = "mosaic"
 DEFAULT_COVER_CENSOR_PADDING: Final = 12
 DEFAULT_COVER_CENSOR_BLOCK: Final = 14
@@ -228,9 +227,9 @@ NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple")
 NSFW_CLASS_KEYWORDS: Final = ("nsfw", "porn", "hentai", "sexual", "explicit", "sex")
 
 DEFAULT_NSFW_SCORE: Final = True
-DEFAULT_NSFW_THRESHOLD: Final = 0.25
-# 0 = 只给封面打分；> 0 = 另外抽样这么多页算整本 NSFW 占比（越多样本越慢）
-DEFAULT_NSFW_SAMPLE_PAGES: Final = 0
+# 实测：模型对真实图片给的置信度普遍很低（露骨画面常见 0.03-0.08），0.15 以上几乎全被判干净；
+# 0.05 既能咬住明显的露骨画面，又不会把干净封面整张糊掉（干净封面通常是 0 框或零星小块）。
+DEFAULT_NSFW_THRESHOLD: Final = 0.05
 DEFAULT_NSFW_DEVICE: Final = ""
 DEFAULT_NSFW_AUTO_DOWNLOAD: Final = False
 NSFW_DEVICES: Final = ("", "cuda", "cpu")
