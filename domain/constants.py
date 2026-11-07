@@ -197,7 +197,8 @@ COVER_CENSOR_STYLE_LABELS: Final = {
     "blur": "高斯模糊",
     "bar": "黑条",
 }
-DEFAULT_COVER_CENSOR: Final = True
+# 打码默认关闭：不装模型也能收封面；主动打开「给封面打码」才依赖本地模型
+DEFAULT_COVER_CENSOR: Final = False
 DEFAULT_COVER_CENSOR_STYLE: Final = "mosaic"
 DEFAULT_COVER_CENSOR_PADDING: Final = 12
 DEFAULT_COVER_CENSOR_BLOCK: Final = 14
@@ -259,7 +260,6 @@ NSFW_MIRROR_SOURCES: Final = (
 # EraX-NSFW-V1.0 的类别就是纯部位名，其它导出版本可能带前缀，因此用子串匹配
 NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple")
 
-DEFAULT_NSFW_SCORE: Final = True
 # 实测（JM 真实页面 + nhentai 封面各一组）：露骨画面的置信度常见 0.02-0.2，漫画页里
 # 强信号能到 0.5-0.8；0.03 比 0.05 多捞到约 15% 的页，再低就只剩噪声了。
 DEFAULT_NSFW_THRESHOLD: Final = 0.03
@@ -268,4 +268,6 @@ DEFAULT_NSFW_THRESHOLD: Final = 0.03
 # 实测同一张 JM 页在 960 下变成几处正常的小框（整张糊 → 局部糊）。1280 反而掉召回。
 DEFAULT_NSFW_IMGSZ: Final = 960
 NSFW_IMGSZ_RANGE: Final = (320, 1600)
-DEFAULT_NSFW_AUTO_DOWNLOAD: Final = False
+# 默认开启，但只在「下载完成后发送封面」与「给封面打码」都开着时才真的去下（见 main.initialize）：
+# 打码默认关闭，此时不需要权重，没必要为它占几十 MB
+DEFAULT_NSFW_AUTO_DOWNLOAD: Final = True

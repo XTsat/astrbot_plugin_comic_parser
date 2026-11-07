@@ -223,7 +223,6 @@ class ComicParserPlugin(Star):
             self.nsfw_detector,
             self.temp_root,
             send_caption=self.settings.show_result_summary,
-            score_enabled=self.settings.nsfw_score,
             censor=self.settings.cover_censor,
             censor_style=self.settings.cover_censor_style,
             censor_block=self.settings.cover_censor_block,
@@ -249,10 +248,22 @@ class ComicParserPlugin(Star):
         """插件激活时按配置预取 NSFW 权重。
 
         放后台任务里：几十 MB 的下载不该拖住插件加载，也不该挡住其它命令。
+        打码默认关闭，只有「发封面」与「给封面打码」都开着时权重才有用，此时才下载。
         """
-        if not self.settings.nsfw_auto_download:
+        if not self._needs_model_weights():
             return
         self._model_task = asyncio.create_task(self._warm_model())
+
+    def _needs_model_weights(self) -> bool:
+        """权重是否值得下载：开了自动下载，且封面与打码都开着。
+
+        只开封面不打码时封面原样发送（露骨度评分缺权重会静默跳过），没必要占几十 MB 磁盘。
+        """
+        return bool(
+            self.settings.nsfw_auto_download
+            and self.settings.cover_send
+            and self.settings.cover_censor
+        )
 
     async def _warm_model(self) -> None:
         """下载权重并让检测器重新读目录；失败只记日志，不影响任何命令。"""
@@ -446,8 +457,8 @@ class ComicParserPlugin(Star):
         )
         if self.settings.cover_send:
             cover_desc = "下载完成后先发一张"
-            cover_desc += "（已打码）" if self.settings.cover_censor else ""
-            if self.settings.nsfw_score:
+            if self.settings.cover_censor:
+                cover_desc += "（已打码，附露骨度）"
                 model_label = CoverService.describe_model(
                     self.nsfw_detector, self.settings.nsfw_model_preset
                 )

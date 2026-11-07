@@ -24,7 +24,6 @@ from .constants import (
     DEFAULT_NSFW_AUTO_DOWNLOAD,
     DEFAULT_NSFW_IMGSZ,
     DEFAULT_NSFW_MODEL_PRESET,
-    DEFAULT_NSFW_SCORE,
     DEFAULT_NSFW_THRESHOLD,
     DEFAULT_PACK_FORMAT,
     DEFAULT_PROBE_CACHE_TTL,
@@ -155,7 +154,6 @@ class PluginSettings:
     cover_censor_block: int = DEFAULT_COVER_CENSOR_BLOCK
     cover_full_censor_area: float = DEFAULT_COVER_FULL_CENSOR_AREA
     # NSFW 模型与评分：权重默认不随插件分发，由开关按需下载
-    nsfw_score: bool = DEFAULT_NSFW_SCORE
     nsfw_threshold: float = DEFAULT_NSFW_THRESHOLD
     nsfw_imgsz: int = DEFAULT_NSFW_IMGSZ
     nsfw_model_preset: str = DEFAULT_NSFW_MODEL_PRESET
@@ -173,7 +171,10 @@ class PluginSettings:
         probe = _section(data, "probe")
         search = _section(data, "search")
         cover = _section(data, "cover")
-        # 模型相关项嵌在「封面与模型」的子块里，与封面共用一张卡片
+        # 打码与模型各嵌在「封面与模型」的一个子块里，与封面共用一张卡片；
+        # 旧配置里 censor 是个 bool（打码还没分组），非 Mapping 一律按默认值兜底
+        censor = cover.get("censor")
+        censor = censor if isinstance(censor, Mapping) else {}
         model = cover.get("model")
         model = model if isinstance(model, Mapping) else {}
 
@@ -188,7 +189,7 @@ class PluginSettings:
         if progress_style not in PROGRESS_STYLES:
             progress_style = DEFAULT_PROGRESS_STYLE
         censor_style = _as_str(
-            cover.get("censor_style"), DEFAULT_COVER_CENSOR_STYLE
+            censor.get("style"), DEFAULT_COVER_CENSOR_STYLE
         )
         if censor_style not in COVER_CENSOR_STYLES:
             censor_style = DEFAULT_COVER_CENSOR_STYLE
@@ -309,21 +310,20 @@ class PluginSettings:
                 120,
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
-            cover_censor=_as_bool(cover.get("censor"), DEFAULT_COVER_CENSOR),
+            cover_censor=_as_bool(censor.get("enable"), DEFAULT_COVER_CENSOR),
             cover_censor_style=censor_style,
             cover_censor_padding=_as_int(
-                cover.get("censor_padding"), DEFAULT_COVER_CENSOR_PADDING, minimum=0
+                censor.get("padding"), DEFAULT_COVER_CENSOR_PADDING, minimum=0
             ),
             cover_censor_block=_as_int(
-                cover.get("censor_block"), DEFAULT_COVER_CENSOR_BLOCK, minimum=2
+                censor.get("block"), DEFAULT_COVER_CENSOR_BLOCK, minimum=2
             ),
             cover_full_censor_area=_as_float(
-                cover.get("full_censor_area"),
+                censor.get("full_area"),
                 DEFAULT_COVER_FULL_CENSOR_AREA,
                 minimum=0.0,
                 maximum=1.0,
             ),
-            nsfw_score=_as_bool(model.get("score"), DEFAULT_NSFW_SCORE),
             nsfw_threshold=_as_float(
                 model.get("threshold"), DEFAULT_NSFW_THRESHOLD, minimum=0.01, maximum=0.99
             ),

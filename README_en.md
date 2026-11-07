@@ -235,28 +235,32 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Cover and model
 
 <details>
-<summary>Cover and model (6 + 6 options)</summary>
+<summary>Cover and model (1 + 5 + 5 options)</summary>
 
 **Cover**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download |
-| Censor the cover (`censor`) | bool | true | The local model **automatically locates exposed areas** (nipples, genitals, sex scenes) and blurs only those, keeping the rest of the image intact. **If the model is missing or the run fails, no cover is sent** (an uncensored image is never posted); a clean run still sends the cover |
-| Censor style (`censor_style`) | string | mosaic | Mosaic / Gaussian blur / black bar |
-| Mosaic block size (`censor_block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
-| Censor padding (`censor_padding`) | int | 12 | Expand every box so nothing leaks at the edges |
-| Full-cover area threshold (`full_censor_area`) | float | 0.6 | Censor the whole cover once the union of boxes covers this share; 0 never does |
+
+**Censoring**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Censor the cover (`censor.enable`) | bool | false | The local model **automatically locates exposed areas** (nipples, genitals, sex scenes) and blurs only those, keeping the rest of the image intact. **If the model is missing or the run fails, no cover is sent** (an uncensored image is never posted); a clean run still sends the cover. Censoring also reports the explicitness it computed into the caption from the same run. Only does anything with "Send cover after download" on |
+| Censor style (`censor.style`) | string | mosaic | Mosaic / Gaussian blur / black bar |
+| Mosaic block size (`censor.block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
+| Censor padding (`censor.padding`) | int | 12 | Expand every box so nothing leaks at the edges |
+| Full-cover area threshold (`censor.full_area`) | float | 0.6 | Censor the whole cover once the union of boxes covers this share; 0 never does |
 
 **Model and detection**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Model preset (`model.preset`) | string | m_fp32 | One of six, see below; default medium + fp32 |
-| Auto-download weights (`model.auto_download`) | bool | false | Fetch into `models/` in the background at load time; skipped when present, failures are logged and retried on the next reload |
+| Auto-download weights (`model.auto_download`) | bool | true | Fetch into `models/` in the background at load time; skipped when present, failures are logged and retried on the next reload. Only downloads when both "Send cover after download" and "Censor the cover" are on |
 | Custom download URL (`model.download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`) and falls back to accelerator mirrors; multiple lines and `{filename}` supported |
-| Score the cover (`model.score`) | bool | true | Reports how explicit the cover is; skipped when no weights are available |
-| Detection threshold (`model.threshold`) | float | 0.03 | Confidence floor shared by scoring and censoring; lower is stricter and censors more |
+| Detection threshold (`model.threshold`) | float | 0.03 | Confidence floor for censoring; lower is stricter and censors more |
 | Inference size (`model.imgsz`) | int | 960 | 960 is the sweet spot: 640 emits a whole-frame box (censoring everything), 1280 loses recall |
 
 **Preset reference**
@@ -305,13 +309,13 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 ### How the cover features are powered
 
-Cover scoring and censoring rely on a local YOLO detection model. The weights are based on [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) (Apache-2.0, classes anus / make_love / nipple / penis / vagina), nano / small / medium variants.
+Cover censoring and the explicitness figure rely on a local YOLO detection model. The weights are based on [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) (Apache-2.0, classes anus / make_love / nipple / penis / vagina), nano / small / medium variants.
 
 **The plugin uses an ONNX build of those weights**: we export them from the upstream `.pt` (fixed 960 input, opset 17) and quantize the int8 variants separately, so they are not the same files as upstream. Upstream only ships `.pt`, and **the plugin does not accept `.pt`, so do not download from upstream and drop it in**.
 
-To get the weights, turn on "Auto-download weights" under "Cover and model → Model and detection" (fetched from the plugin release), or download the matching `.onnx` from the plugin's [releases page](https://github.com/XTsat/astrbot_plugin_comic_parser/releases) and place it into the plugin's `models/` directory yourself. At runtime only `onnxruntime` (~200M) is required.
+To get the weights, turn on "Auto-download weights" under "Cover and model → Model and detection" (fetched from the plugin release), or download the matching `.onnx` from the plugin's [releases page](https://github.com/XTsat/astrbot_plugin_comic_parser/releases) and place it into the plugin's `models/` directory yourself. The automatic download tries GitHub first and falls back to built-in accelerator mirrors; you can also put your own mirror or object-storage links under "Custom download URL" (one per line, `{filename}` is supported). At runtime only `onnxruntime` (~200M) is required.
 
-Without any model the plugin still downloads and still delivers the file, but it will **not send the cover** (censoring is on by default, and no cover is sent unless it was actually censored). Put the weights into `models/` first, or turn on "Auto-download weights"; if you just want to see covers without a model, turn "Censor the cover" off.
+Censoring is off by default, so you can receive covers without any model (sent as-is, with no detection run and no explicitness figure). With "Censor the cover" on, a model is mandatory: when the weights are missing or the run fails, **that cover is not sent** and you get a notice — an uncensored image is never posted. "Auto-download weights" is on by default and fetches in the background at load time once both "Send cover after download" and "Censor the cover" are on, or you can drop the `.onnx` into `models/` yourself.
 
 ### Troubleshooting
 
