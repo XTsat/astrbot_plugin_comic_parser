@@ -189,9 +189,9 @@ DEFAULT_COVER_CENSOR: Final = True
 DEFAULT_COVER_CENSOR_STYLE: Final = "mosaic"
 DEFAULT_COVER_CENSOR_PADDING: Final = 12
 DEFAULT_COVER_CENSOR_BLOCK: Final = 14
-# 检出区域面积占比达到该值就整张封面打码：模型只框了局部时，
-# 剩下的部分照样可能被平台判违规，这条是故意的「宁可糊整张」
-DEFAULT_COVER_FULL_CENSOR_AREA: Final = 0.2
+# 检出区域的「并集」覆盖整图达到该比例才整张打码。默认 0.6：绝大多数页面是局部打码，
+# 只有真的整幅都在露骨画面里才糊整张。0 表示关闭这条兜底。
+DEFAULT_COVER_FULL_CENSOR_AREA: Final = 0.6
 
 # 单个封面最多处理这么多个框，误检刷出成百上千个框时不至于把渲染拖死
 COVER_MAX_BOXES: Final = 64
@@ -227,9 +227,14 @@ NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple")
 NSFW_CLASS_KEYWORDS: Final = ("nsfw", "porn", "hentai", "sexual", "explicit", "sex")
 
 DEFAULT_NSFW_SCORE: Final = True
-# 实测：模型对真实图片给的置信度普遍很低（露骨画面常见 0.03-0.08），0.15 以上几乎全被判干净；
-# 0.05 既能咬住明显的露骨画面，又不会把干净封面整张糊掉（干净封面通常是 0 框或零星小块）。
-DEFAULT_NSFW_THRESHOLD: Final = 0.05
+# 实测（JM 真实页面 + nhentai 封面各一组）：露骨画面的置信度常见 0.02-0.2，漫画页里
+# 强信号能到 0.5-0.8；0.03 比 0.05 多捞到约 15% 的页，再低就只剩噪声了。
+DEFAULT_NSFW_THRESHOLD: Final = 0.03
+
+# 推理输入尺寸：踩过坑——默认 640 时模型常在露骨页上吐一个「覆盖整幅」的粗框，
+# 实测同一张 JM 页在 960 下变成几处正常的小框（整张糊 → 局部糊）。1280 反而掉召回。
+DEFAULT_NSFW_IMGSZ: Final = 960
+NSFW_IMGSZ_RANGE: Final = (320, 1600)
 DEFAULT_NSFW_DEVICE: Final = ""
 DEFAULT_NSFW_AUTO_DOWNLOAD: Final = False
 NSFW_DEVICES: Final = ("", "cuda", "cpu")

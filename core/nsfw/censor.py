@@ -11,6 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 from astrbot.api import logger
 
+from .coverage import union_coverage
 from ...domain.constants import (
     COVER_CENSOR_STYLES,
     COVER_MAX_BOXES,
@@ -48,17 +49,9 @@ def _to_pixel_box(
     return (left, top, right, bottom)
 
 
-def _box_area(box: Box) -> int:
-    return max(0, box[2] - box[0]) * max(0, box[3] - box[1])
-
-
 def coverage_ratio(boxes: Sequence[Box], width: int, height: int) -> float:
-    """估算露骨区域占整图的比例（框重叠会略微高估，用于兜底判断足够）。"""
-    total = float(width * height)
-    if total <= 0:
-        return 0.0
-    covered = sum(_box_area(box) for box in boxes)
-    return min(1.0, covered / total)
+    """露骨区域占整图的比例（并集，重叠只算一次）。"""
+    return union_coverage(boxes, width, height)
 
 
 def _mosaic(image: Image.Image, box: Box, block: int) -> Image.Image:

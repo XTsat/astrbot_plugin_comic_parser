@@ -186,6 +186,7 @@ class ComicParserPlugin(Star):
             weights=self.model_weights,
             device=self.settings.nsfw_device,
             threshold=self.settings.nsfw_threshold,
+            imgsz=self.settings.nsfw_imgsz,
         )
         self.cover_service = CoverService(
             self.nsfw_detector,

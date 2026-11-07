@@ -18,10 +18,12 @@ from PIL import Image
 from astrbot.api import logger
 
 from ...domain.constants import (
+    DEFAULT_NSFW_IMGSZ,
     DEFAULT_NSFW_THRESHOLD,
     NSFW_BOX_KEYWORDS,
     PLUGIN_NAME,
 )
+from .coverage import union_coverage
 from .weights import ModelWeights
 
 
@@ -73,6 +75,8 @@ class NsfwDetector:
     weights: ModelWeights
     device: str = ""
     threshold: float = DEFAULT_NSFW_THRESHOLD
+    # 推理输入尺寸：640 会在露骨页上吐出覆盖整幅的粗框，实测 960 才能框到具体部位
+    imgsz: int = DEFAULT_NSFW_IMGSZ
     _model: _YoloModel | None = field(default=None, init=False, repr=False)
     _load_failed: bool = field(default=False, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
@@ -181,7 +185,7 @@ class NsfwDetector:
     ) -> list[Detection]:
         """跑一次推理，只留下露骨部位。"""
         conf = self.threshold if threshold is None else threshold
-        kwargs: dict[str, object] = {"verbose": False, "conf": conf}
+        kwargs: dict[str, object] = {"verbose": False, "conf": conf, "imgsz": self.imgsz}
         if self.device:
             kwargs["device"] = self.device
 
@@ -229,9 +233,9 @@ class NsfwDetector:
 
     @staticmethod
     def _coverage(detections: Sequence[Detection], width: int, height: int) -> float:
-        """置信度加权的检出面积占比：置信度低的框按比例折算，不白算面积。"""
-        total = float(width * height)
-        if total <= 0:
-            return 0.0
-        covered = sum(item.area * max(0.0, min(1.0, item.confidence)) for item in detections)
-        return min(1.0, covered / total)
+        """检出区域占整图的比例（并集，重叠只算一次）。
+
+        用并集而不是面积相加：漫画页上同一部位常被连续检出多个重叠框，
+        相加会把「几处小框」算成「整张都露骨」。
+        """
+        return union_coverage([item.box for item in detections], width, height)

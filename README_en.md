@@ -283,19 +283,20 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Censor style (`censor_style`) | string | mosaic | Mosaic / Gaussian blur / black bar |
 | Censor padding (`censor_padding`) | int | 12 | Expand every box so nothing leaks at the edges |
 | Mosaic block size (`censor_block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
-| Full-cover area threshold (`full_censor_area`) | float | 0.2 | Censor the whole cover once detected boxes cover this share of it; 0 disables the fallback |
+| Full-cover area threshold (`full_censor_area`) | float | 0.6 | Censor the whole cover once the union of detected boxes (overlaps counted once) covers this share of it; most pages only get the detected spots censored. 0 never censors the whole cover |
 
 </details>
 
 ### NSFW model
 
 <details>
-<summary>NSFW model (6 options)</summary>
+<summary>NSFW model (7 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Score the cover (`score`) | bool | true | Use the model to score how explicit the cover is (detected area share, 0-100%) and put it in the caption; skipped when no model is available |
-| Detection threshold (`threshold`) | float | 0.05 | Confidence floor shared by scoring and censoring. Real images score low (0.03-0.08 is common), so anything above 0.15 mostly misses; lower is safer but censors more |
+| Detection threshold (`threshold`) | float | 0.03 | Confidence floor shared by scoring and censoring. Explicit manga pages often score 0.02-0.2, so anything above 0.15 mostly misses; 0.02 catches weak signals at the cost of a few extra patches |
+| Inference size (`imgsz`) | int | 960 | 960 is the sweet spot: at 640 the model tends to emit one whole-frame box on explicit pages (which censors everything), while 1280 loses recall. Larger is slower |
 | Inference device (`device`) | string | auto | Leave empty to pick automatically: GPU when available, otherwise CPU |
 | Weight variant (`model_variant`) | string | m | nano (~5MB, lightest) / small (~18MB) / medium (~39MB, recommended) |
 | Auto-download weights (`auto_download_model`) | bool | false | Download into the plugin's `models/` in the background at load time; failures never block downloads |
@@ -354,6 +355,8 @@ Without any model the plugin still downloads and still sends the cover, it just 
 **Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy the search takes about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds.
 
 After a search timeout, the plugin automatically retries through the global proxy configured in the plugin and notes "搜索超时后已用代理重试" in the results. This does not change the proxy setting used for downloads. The retry is on by default and can be disabled with "auto-proxy retry on timeout" in Search, or tuned with its extra-time setting.
+
+**Why is one cover fully mosaic-ed while another is left untouched?** A whole-cover mosaic means the detected area really does cover most of the image — raise "Full-cover area threshold" to 0.8 to be gentler, or set it to 0 to never censor the whole cover. An untouched cover means nothing was detected: manga confidences are low, so try lowering "Detection threshold" to 0.02 or raising "Inference size" to 1280; if it keeps missing, this weight set simply does not fit your image source well.
 
 **The cover is censored too much, or not enough?** Censoring is driven by "Detection threshold" and "Full-cover area threshold": lower the threshold, raise "Censor padding", or lower the area threshold (more likely to censor the whole cover) when something still shows; adjust the other way when too much is covered. You can also switch the style to blur or a black bar.
 

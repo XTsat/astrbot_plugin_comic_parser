@@ -23,6 +23,7 @@ from .constants import (
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_NSFW_AUTO_DOWNLOAD,
     DEFAULT_NSFW_DEVICE,
+    DEFAULT_NSFW_IMGSZ,
     DEFAULT_NSFW_MODEL_VARIANT,
     DEFAULT_NSFW_SCORE,
     DEFAULT_NSFW_THRESHOLD,
@@ -44,6 +45,7 @@ from .constants import (
     DEFAULT_SEARCH_TIMEOUT,
     DEFAULT_SEGMENT_TIMEOUT,
     FILENAME_TEMPLATES,
+    NSFW_IMGSZ_RANGE,
     NSFW_MODEL_VARIANTS,
     PACK_FORMATS,
     PROGRESS_STYLES,
@@ -156,6 +158,7 @@ class PluginSettings:
     # NSFW 模型与评分：权重默认不随插件分发，由开关按需下载
     nsfw_score: bool = DEFAULT_NSFW_SCORE
     nsfw_threshold: float = DEFAULT_NSFW_THRESHOLD
+    nsfw_imgsz: int = DEFAULT_NSFW_IMGSZ
     nsfw_device: str = DEFAULT_NSFW_DEVICE
     nsfw_model_variant: str = DEFAULT_NSFW_MODEL_VARIANT
     nsfw_auto_download: bool = DEFAULT_NSFW_AUTO_DOWNLOAD
@@ -325,6 +328,13 @@ class PluginSettings:
             nsfw_score=_as_bool(nsfw.get("score"), DEFAULT_NSFW_SCORE),
             nsfw_threshold=_as_float(
                 nsfw.get("threshold"), DEFAULT_NSFW_THRESHOLD, minimum=0.01, maximum=0.99
+            ),
+            nsfw_imgsz=min(
+                max(
+                    _as_int(nsfw.get("imgsz"), DEFAULT_NSFW_IMGSZ),
+                    NSFW_IMGSZ_RANGE[0],
+                ),
+                NSFW_IMGSZ_RANGE[1],
             ),
             nsfw_device=_as_str(nsfw.get("device"), DEFAULT_NSFW_DEVICE),
             nsfw_model_variant=model_variant,
