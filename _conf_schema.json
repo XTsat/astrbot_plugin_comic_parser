@@ -856,7 +856,7 @@
       "model_preset": {
         "type": "string",
         "description": "模型档位与精度",
-        "hint": "medium 最准（77MB）；small 约 36MB，命中率略降但快一倍；nano 约 10MB 最快，但更爱整张糊。int8 体积小很多，但 CPU 上反而更慢、边缘样本会掉档，不推荐",
+        "hint": "两个维度组合，共 6 个文件。档位：nano < small < medium，越大越准也越慢；精度：fp32 是模型原始的 32 位浮点（无损、体积大），int8 把权重压成 8 位整数（体积约 1/4，但实测在 CPU 上更慢、边缘样本会掉档）。默认 medium + fp32；机器慢或想省空间选 nano + fp32",
         "default": "m_fp32",
         "options": [
           "m_fp32",
@@ -867,12 +867,12 @@
           "n_int8"
         ],
         "labels": [
-          "medium · 完整精度（77MB，推荐）",
-          "medium · int8（20MB）",
-          "small · 完整精度（36MB）",
-          "small · int8（10MB）",
-          "nano · 完整精度（10MB，最快）",
-          "nano · int8（3MB）"
+          "medium · fp32 完整精度（77MB，推荐）",
+          "medium · int8 量化（20MB）",
+          "small · fp32 完整精度（36MB）",
+          "small · int8 量化（10MB）",
+          "nano · fp32 完整精度（10MB，最快）",
+          "nano · int8 量化（3MB）"
         ]
       },
       "auto_download_model": {

@@ -203,16 +203,17 @@ NSFW_MODEL_REPO: Final = "erax-ai/EraX-NSFW-V1.0"
 # 只用 ONNX：.pt 要连带装约 1.8G 的 PyTorch，而同一份权重导成 ONNX 后
 # 只要 onnxruntime（约 200M），CPU 推理还更快，因此不再保留 PyTorch 路径。
 #
-# 预设 = 档位（n/s/m）× 精度（fp32/int8）。档位决定模型容量，精度决定体积与耗时：
-# int8 是动态量化版本，体积约为 fp32 的四分之一，但 CPU 上反而不更快、边缘样本会掉档，
-# 所以默认推荐 medium + fp32。
+# 预设 = 档位（n/s/m）× 精度（fp32/int8）。两个维度相互独立：
+# - 档位决定模型容量（nano < small < medium），越大越准也越慢；
+# - 精度决定权重怎么存：fp32 是训练时的 32 位浮点（无损），int8 把权重压成 8 位整数
+#   （体积约 1/4，但 CPU 上实测反而更慢、边缘样本会掉档），所以默认 medium + fp32。
 NSFW_MODEL_PRESETS: Final = {
-    "m_fp32": ("erax_nsfw_yolo11m.onnx", "medium · 完整精度（约 77MB，推荐）"),
-    "m_int8": ("erax_nsfw_yolo11m_int8.onnx", "medium · int8（约 20MB）"),
-    "s_fp32": ("erax_nsfw_yolo11s.onnx", "small · 完整精度（约 37MB）"),
-    "s_int8": ("erax_nsfw_yolo11s_int8.onnx", "small · int8（约 10MB）"),
-    "n_fp32": ("erax_nsfw_yolo11n.onnx", "nano · 完整精度（约 10MB，最省）"),
-    "n_int8": ("erax_nsfw_yolo11n_int8.onnx", "nano · int8（约 3MB）"),
+    "m_fp32": ("erax_nsfw_yolo11m.onnx", "medium · fp32 完整精度（约 77MB，推荐）"),
+    "m_int8": ("erax_nsfw_yolo11m_int8.onnx", "medium · int8 量化（约 20MB）"),
+    "s_fp32": ("erax_nsfw_yolo11s.onnx", "small · fp32 完整精度（约 36MB）"),
+    "s_int8": ("erax_nsfw_yolo11s_int8.onnx", "small · int8 量化（约 10MB）"),
+    "n_fp32": ("erax_nsfw_yolo11n.onnx", "nano · fp32 完整精度（约 10MB，最省）"),
+    "n_int8": ("erax_nsfw_yolo11n_int8.onnx", "nano · int8 量化（约 3MB）"),
 }
 DEFAULT_NSFW_MODEL_PRESET: Final = "m_fp32"
 # 权重发布用的独立 tag：和插件版本解耦，换权重不用动插件版本号
