@@ -9,88 +9,56 @@
 ## Features
 
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
-- **Download by ID**: hand over a comic ID or link and get the whole comic
-- **Search right in the chat**: `/jm sou <keyword>` searches JM only, while `/comic sou <keyword>` searches every channel that supports search. Each channel is timed separately, so one slow site is skipped instead of holding up the whole command. Add a type prefix such as `tag:` or `author:` before the keyword, and prefix it with `-` to exclude. Hits are numbered continuously and each line only shows the title, author/page count and ID, with a single download example at the end; reply with the number to download (e.g. `/comic 1` or `/jm 1`). Longer result sets are split into pages: send `/comic 下一页` or `/jm 下一页` for the next page (`上一页` goes back; `next` / `prev` also work), numbers continue across pages, and everything stays valid for 10 minutes
-- **E-Hentai channel**: `/eh <gid:token or link>` (full name `/ehentai`) downloads a whole E-Hentai gallery. Without a cookie it fetches the 1280px-wide resampled images anonymously; originals are only used once you add a cookie and keep "prefer originals" on, and each original is charged against the site's image quota by file size. The quota is counted per IP: when it runs out the download stops and keeps its breakpoint, so `/comic retry` continues — long galleries usually take a few passes
-- **Unified packing**: every download is packed as a ZIP archive, a PDF, or a long vertical image — or simply kept on disk without sending
-- **Format per download**: want a different format just this once? Put it at the end of the command (`/jm 123456 pdf`, `/comic <link> long_img`) and it applies to that one download only — no need to flip the setting back and forth
-- **Unified encryption**: one global password. ZIP uses AES, PDF uses AES-256. If a password is set but the encryption library is missing, the plugin fails loudly instead of quietly sending an unencrypted file
-- **Visible progress**: by default the bot reacts on your command message (❤️ downloading or searching → OK done / 🔨 failed) and skips the extra "download started" message; you can switch to text progress or turn it off. Download progress refreshes every 15 seconds, so even a chapter that takes minutes keeps reporting, and chapters and pages are shown together (e.g. "1/2 chapters · 12/50 pages"); a search across all channels also reports how many channels have answered, and pagination tells you when it has to fetch the next upstream page
-- **Pause at the deadline, resume next time**: a request that runs too long stops first and keeps the images it already fetched; `/comic retry` continues from there without refetching those pages. Breakpoints expire after the configured time
-- **Optional result block**: the summary sent with the file (title / author / image count / elapsed) can be turned off
-- **Cover image after each download** (off by default): turn it on and every finished download sends one cover image before the file, with the explicit parts censored (mosaic / blur / black bar, on by default) using boxes from a local NSFW detection model, falling back to censoring the whole cover when too much of it is flagged; the caption with title / author / page count / explicitness follows "Send download summary"
-- **Session control**: whitelist / blacklist decide who may download, debounce stops the same comic being requested twice
-- **Fastest domain first**: with several site domains or image hosts, the plugin probes them all before downloading (response time plus a small download sample) and starts from the fastest one, so a slow mirror no longer makes you sit and wait; rankings are cached for a while instead of being measured on every comic. Probe timeout, slow-node threshold and cache lifetime are configurable, and the whole thing can be switched off
-- **Queued tasks**: global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host; while waiting you are told what the running download is doing and how far it got
+- **Download by ID**: use a channel command (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) when you already have the ID
+- **Search right in the chat**: `/comic sou <keyword>` searches every channel that supports search in one go, `/jm sou` searches a single channel; reply with the number of a hit to download it, and page through longer result sets
+- **Multiple channels**: JM, nhentai, PicaACG, Hanime1, WNACG and E-Hentai; E-Hentai needs no cookie for the 1280px resampled images, and originals are used once a cookie is added (charged against your site quota)
+- **Unified packing**: every download becomes a ZIP archive, a PDF or a long vertical image, or can simply stay on disk; a format word at the end of the command overrides it for that one download
+- **Encryption**: set one pack password and it applies, ZIP with AES and PDF with AES-256
+- **Visible progress**: the bot reacts on your command message by default (downloading → done / failed), and you can switch to text progress or turn it off
+- **Pause at the deadline, resume later**: a request that runs too long stops and keeps the images it already fetched, and `/comic retry` continues from there
+- **Queueing and limits**: a global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
+- **Session control**: whitelist / blacklist decide who may download, and debounce stops the same comic being requested twice
+- **Fastest domain first**: with several site domains or image hosts, the plugin picks the fastest one before downloading
+- **Cover image after each download** (off by default): every finished download sends one cover image; turn on "Censor the cover" if you want the explicit parts blurred
+- **Into a group file folder**: the finished file lands in the target folder of the current group's files
 - **Automatic cleanup**: temporary files are deleted right after sending
-- **Straight into a folder in the group files**: on by default, the finished file lands in the target folder of the current group's files (named 漫画 by default); if the group lacks that folder the bot creates it when it has the rights and only falls back to the group file root when it cannot. QQ already posts a file message for it, so the bot does not send it again in the chat; only when the upload fails does it send the file directly
 
 ## Commands
 
 | Command | Permission | Description |
 |---------|------------|-------------|
-| `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded (works for every channel below); an optional pack format can follow the link, see "Pack format per download" below |
-| `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; type prefixes such as `tag:` and `author:` plus `-` exclusions are supported; hits are numbered continuously, and `/comic <number>` downloads the matching one |
-| `/jm sou <keyword>` (same for `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜`; type prefixes and `-` exclusions are supported; after a search, send `/<channel command> <number>` to download |
-| `/jm 下一页` (also `/jm next`; go back with `/jm 上一页` or `/jm prev`) | Everyone (subject to whitelist/blacklist) | Turn the page of the latest search in this session; `/comic 下一页` and `/comic 上一页` work the same way; numbers continue across pages and still download by number |
-| `/jm <ID or link>` (full name `/jmcomic`) | Everyone (subject to whitelist/blacklist) | Download a whole JM comic |
-| `/nh <ID or link>` (full name `/nhentai`) | Everyone (subject to whitelist/blacklist) | Download a whole nhentai gallery |
-| `/pica <ID or link>` (full name `/picacg`) | Everyone (subject to whitelist/blacklist) | Download a whole PicaACG comic (needs a PicaACG account in the channel settings) |
-| `/hm <ID or link>` (full name `/hanime1`, also `/ha`, `/hanime`) | Everyone (subject to whitelist/blacklist) | Download a whole Hanime1 comic |
-| `/ssmh <ID or link>` (full name `/wnacg`, also `/wn`) | Everyone (subject to whitelist/blacklist) | Download a whole WNACG (Shenshi Manhua) gallery |
-| `/eh <gid:token or link>` (full name `/ehentai`) | Everyone (subject to whitelist/blacklist) | Download a whole E-Hentai gallery; the ID has two parts (gid plus token), so a bare number is rejected with a hint (anonymous 1280px; originals need a cookie) |
-| `/jm 123456 pdf` (same for any download command, `/comic` and search hit numbers) | Everyone (subject to whitelist/blacklist) | Sets the pack format for this one download, overriding the "Pack format" setting; the values are `zip` / `pdf` / `long_img` / `none` (save locally only), and the Chinese words `压缩包` / `文档` / `长图` / `本地` work too. Without it the configured format is used |
-| `/comic stop` (also `/jm stop`, `/nh stop`, …) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so `/comic retry` resumes. Admins can use `/comic stop all` to cancel every session's downloads |
-| `/comic status` (also `/comic 状态`, `/comic 队列`) | Everyone (admins can use `/comic status 全部` for every session) | Shows the downloads running and queueing in this session: live progress, bytes fetched and elapsed time for running ones, queue position for waiting ones; read-only, it never interrupts a download |
-| `/comic retry` (also `/comic 重试`, `/comic 继续`) | Everyone (subject to whitelist/blacklist) | Continues the last comic this session downloaded: after a pause, an interrupted download or a failure, send this instead of scrolling back for the original command; an added format word (`/comic retry zip`) changes the format for this retry only. Only works under `/comic`, not with channel commands |
+| `/comic <link>` | Everyone (subject to whitelist/blacklist) | Paste the full link of a work page; the site is detected automatically and the whole comic is downloaded; an optional pack format may follow the link |
+| `<channel command> <ID or link>` | Everyone (subject to whitelist/blacklist) | Downloads one comic from that channel only. The channel commands are `/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh` (full names `/jmcomic`, `/nhentai`, `/picacg`, `/hanime1`, `/wnacg`, `/ehentai`; `/ha`, `/hanime` and `/wn` work too); `/pica` needs a PicaACG account in the channel settings |
+| `/eh <gid:token or link>` | Everyone (subject to whitelist/blacklist) | An E-Hentai ID has two parts, gid and token, so a bare number is rejected with a hint (anonymous 1280px; originals need a cookie) |
+| `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; hits are numbered continuously; type prefixes such as `tag:` and `author:` plus `-` exclusions are supported |
+| `<channel command> sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜` |
+| `/comic <number>` (same for `/<channel command> <number>`) | Everyone (subject to whitelist/blacklist) | Download the search hit with that number, from the channel the hit belongs to |
+| `/comic 下一页` (also `/comic next`; go back with `上一页` or `prev`) | Everyone (subject to whitelist/blacklist) | Turn the page of the latest search in this session; numbers continue across pages |
+| `<download command> <format word>` | Everyone (subject to whitelist/blacklist) | Sets the pack format for this one download, overriding the "Pack format" setting; the values are `zip` / `pdf` / `long_img` / `none` (save locally only), and the Chinese words `压缩包` / `文档` / `长图` / `本地` work too |
+| `/comic stop` (same for `/jm stop` and other channel commands; also `取消`, `停止`) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so `/comic retry` resumes. Admins can use `/comic stop 全部` to cancel every session |
+| `/comic status` (also `状态`, `队列`) | Everyone (admins can use `/comic status 全部` for every session) | Shows the downloads running and queueing in this session: live progress, bytes fetched and elapsed time for running ones, queue position for waiting ones; read-only, it never interrupts a download |
+| `/comic retry` (also `重试`, `继续`) | Everyone (subject to whitelist/blacklist) | Continues the last comic this session downloaded, so you do not have to scroll back after a pause, an interruption or a failure; an added format word (`/comic retry zip`) changes the format for this retry only. Only works under `/comic` |
 | `/漫画帮助` | Everyone | Show available channels, pack format, password and progress settings |
-| `/漫画网站` (also `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs; you can also search in chat with `/comic sou` |
+| `/漫画网站` (also `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs |
 
-> When you just want one comic, pasting its link into `/comic` is the quickest way; when you only have an ID (or the link is not a work page), use the matching channel command.
-> Channel commands do not pin the site either: a nhentai link after `/jm` downloads that nhentai gallery, and the download summary states which site was actually used.
-> The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
+- `/comic` only accepts full links (a work page address with a domain) or a number from the latest search: a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead. Channel commands do not pin the site either: a nhentai link after `/jm` downloads that nhentai gallery, and the download summary states which site was actually used.
+- The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
+- To use a different format for one download, put the format word at the very end of the command: `/jm 123456 pdf`, `/comic <link> long_img`, `/jm 1 none`. It only affects that download and never changes the setting; while searching with `sou`, the trailing word still counts as part of the keyword.
+- Search hits show only the title, author/page count, a continuous number and the ID; the download example is shown once at the end. Send `/comic 1` (or `/jm 1`) to download the first hit. A new search replaces the numbers, and they stay valid for 10 minutes. When there is more than one page, the footer shows a hint such as `下一页：/jm 下一页`; paging first uses results already fetched and only asks the site for its next page when that buffer runs out, and numbers continue across pages.
+- An E-Hentai ID has two parts, gid and token (e.g. `4306312:0123456789`). `gid:token`, `gid/token` and `gid-token` are all accepted, with or without a trailing slash, and copying the gallery link from your browser's address bar is the easiest way. Do not know where to find the ID? Send `/漫画网站` to see each site's sample work-page link (`<ID>` placeholder). A search hit is not a promise that it can be downloaded (it may need a login, be delisted, or be region-locked).
 
 Examples:
 
 ```
-/comic https://18comic.vip/album/123456/
-/comic https://nhentai.net/g/123456/
-/comic https://manhuapica.com/comic/5f1e2d3c4b5a69788796a5b4
-/comic https://hanime1.me/comic/100445
-/comic https://www.wnacg.site/photos-index-aid-401500.html
-/comic https://e-hentai.org/g/4306312/0123456789/
-/jm 123456
-/jm https://18comic.vip/album/123456/
-/nh 123456
-/nh https://nhentai.net/g/123456/
-/pica 5f1e2d3c4b5a69788796a5b4
-/hm 100445
-/hm https://hanime1.me/comic/100445
-/ssmh 401500
-/ssmh https://www.wnacg.site/photos-index-aid-401500.html
-/eh 4306312:0123456789
-/eh https://e-hentai.org/g/4306312/0123456789/
-/comic sou tentacles
-/comic sou tag:"big breasts" -tag:NTR corruption
-/comic 1
-/comic 下一页
-/jm 123456 pdf
-/comic https://nhentai.net/g/123456/ long_img
-/jm 123456 none
-/jm sou 無職転生
-/jm sou tag:"big breasts"
-/jm 1
-/jm 下一页
-/nh sou tentacles
+/comic https://nhentai.net/g/123456/      # pasting a link is the quickest way; the site is detected
+/jm https://18comic.vip/album/123456/     # channel commands accept links too
+/jm 123456                                # a bare ID works as well
+/comic sou tentacles                      # search every channel that supports search
+/jm sou tag:"big breasts" -tag:NTR        # search one channel with a type filter
+/comic 1                                  # download hit 1 by its number
+/jm 下一页                                # turn the page of the results
+/jm 123456 pdf                            # export this one as PDF; the setting stays unchanged
 ```
-
-> To use a different format for one download, put the format word at the very end of the command: `/jm 123456 pdf`, `/comic <link> long_img`, `/jm 1 none`. The values are those of the "Pack format" setting — `zip` / `pdf` / `long_img` / `none` (the Chinese words `压缩包` / `文档` / `长图` / `本地` work as well). It only affects that download and never changes the setting; while searching with `sou`, the trailing word still counts as part of the keyword.
-> Search hits show only the title, author/page count, a continuous number and the ID; the download example is shown once at the end. Send `/comic 1` (or `/jm 1`) to download the first hit, and the channel is picked automatically from the result. A new search replaces the numbers, and they stay valid for 10 minutes.
-> When there is more than one page, the footer shows a next-page hint such as `下一页：/jm 下一页`; `上一页` (or `prev`) goes back. Paging first uses results already fetched and only asks the site for its next page when that buffer runs out, so flipping a page does not run a fresh search. Numbers continue across pages: after moving to page 2, `/jm 9` still downloads the ninth hit.
-> `/comic` only accepts full links (a work page address with a domain) or a number from the latest search: a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead.
-> An E-Hentai ID has two parts, gid and token (e.g. `4306312:0123456789`); a bare number is rejected with a hint. `gid:token`, `gid/token`, and `gid-token` are all accepted, with or without a trailing slash. Copying the gallery link from your browser's address bar is the easiest way.
-> Do not know where to find the ID? Send `/漫画网站` to see each site's homepage plus a sample work-page link (`<ID>` placeholder); once you find the comic there, replace `<ID>` with the number in the link.
-> Search results show only title, author/page count and ID; a hit is not a promise that it can be downloaded (it may need a login, be delisted, or be region-locked). Open the work page to confirm, then download it by number or ID.
 
 ### Search filters
 
@@ -341,30 +309,14 @@ Cover scoring and censoring rely on a local YOLO detection model. The weights ar
 
 **The plugin uses an ONNX build of those weights**: we export them from the upstream `.pt` (fixed 960 input, opset 17) and quantize the int8 variants separately, so they are not the same files as upstream. Upstream only ships `.pt`, and **the plugin does not accept `.pt`, so do not download from upstream and drop it in**.
 
-To get the weights, turn on "Auto-download weights" under "Cover and model → Model and detection" (fetched from the plugin release), or place the matching `.onnx` into the plugin's `models/` directory yourself. At runtime only `onnxruntime` (~200M) is required.
+To get the weights, turn on "Auto-download weights" under "Cover and model → Model and detection" (fetched from the plugin release), or download the matching `.onnx` from the plugin's [releases page](https://github.com/XTsat/astrbot_plugin_comic_parser/releases) and place it into the plugin's `models/` directory yourself. At runtime only `onnxruntime` (~200M) is required.
 
 Without any model the plugin still downloads and still delivers the file, but it will **not send the cover** (censoring is on by default, and no cover is sent unless it was actually censored). Put the weights into `models/` first, or turn on "Auto-download weights"; if you just want to see covers without a model, turn "Censor the cover" off.
 
 ### Troubleshooting
 
-**Why did I still receive the file in the chat with "upload to group files" turned on?** Two cases fall back to sending the file directly: the upload failed this time (the reason is shown in the message), or the download did not happen in a group / the protocol backend has no group file support. A failed upload is usually an environment problem — when the plugin and the protocol backend do not share the same machine or the same mounted directory, the backend cannot read the plugin's temp path; a bot account without upload permission also fails.
+**Why did I still receive the file in chat with "upload to group files" on, or why did it land in the group file root?** A failed upload shows its error in the message, but two causes are beyond what the plugin can tell: the protocol backend cannot read the plugin's temp file (when the plugin and the backend are not on the same machine or do not share the same mounted directory, that path simply does not exist for the backend), or the bot account has no upload permission / the group has no target folder and one cannot be created (creating a group file folder requires the bot to be a group admin or owner). In those cases the file is sent in chat or uploaded to the root instead, so the download is not wasted. Let the backend read the plugin's temp directory, make the bot an admin, or create the "漫画" folder yourself in the group files.
 
-**The download stopped halfway and the message says `/comic retry` continues it — what does that mean?** A request that keeps downloading too long (continuous download per request, 15 minutes by default) pauses first and keeps the images in the temporary directory, so nothing is packed or sent this time; `/comic retry` resumes it without refetching the pages already saved, then packs and delivers as usual (re-sending the original command works the same way). `/comic retry` only knows the last download of this session, so if you downloaded something else in between, re-send the original command instead. The images expire after the breakpoint lifetime (2 hours by default), and a request after that starts from scratch; if "clean temp on startup" is on, reloading the plugin clears breakpoints too. If the message says "plugin reloaded, download interrupted", the plugin was reloaded or unloaded mid-download: the message also states how many pages and how many MB were saved before the stop, and whether those images are still there — with "clean temp on startup" off the breakpoint survives and `/comic retry` resumes, with it on those images are wiped and the download starts over.
+**Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy it took about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds, or search just that channel with `/jm sou`.
 
-**What does "PDF packing failed" or "N pages skipped because they could not be decoded" mean?** The first means the whole book was not packed: the images are kept in the breakpoint directory, so `/comic retry` only repacks them instead of downloading the book again. The second means a few individual pages could not be read: those pages are skipped, the PDF is missing them (the message says how many), and the remaining pages are packed and delivered as usual. If it keeps failing, send the error line mentioning "packing failed" from the log to the author.
-
-**Why do some channels show no results or a timeout when searching?** An all-channel search times each channel separately (per-channel search timeout, 10 seconds by default); a channel that is slow or blocked is skipped with a note under the results while the others are still shown. Raise the timeout, or search one channel with `/jm sou` instead. The PicaACG channel also needs an account and password in its settings, and reports that explicitly when they are missing.
-
-**Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy the search takes about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds.
-
-After a search timeout, the plugin automatically retries through the global proxy configured in the plugin and notes "搜索超时后已用代理重试" in the results. This does not change the proxy setting used for downloads. The retry is on by default and can be disabled with "auto-proxy retry on timeout" in Search, or tuned with its extra-time setting.
-
-**Why did I get "封面未发送：已开启给封面打码，但没有可用的 NSFW 模型"?** Censoring is enabled but no weights are available, and the plugin would rather skip the cover than post an uncensored image. Either drop the `.onnx` into the plugin's `models/` directory, or turn on "Auto-download weights" and reload; if you do not want the model yet, just turn "Censor the cover" off and covers will be sent as-is without an explicitness score.
-
-**What if the weights will not download?** The plugin tries GitHub directly, then falls back to built-in accelerator mirrors. If all of them fail, drop the `.onnx` into the plugin's `models/` directory manually (file names map to the preset list above), or put your own mirror / object-storage link under "Custom download URL" — one per line, `{filename}` is supported.
-
-**Why is one cover fully mosaic-ed while another is left untouched?** A whole-cover mosaic means the detected area really does cover most of the image — raise "Full-cover area threshold" to 0.8 to be gentler, or set it to 0 to never censor the whole cover. An untouched cover means nothing was detected: manga confidences are low, so try lowering "Detection threshold" to 0.02 or raising "Inference size" to 1280; if it keeps missing, this weight set simply does not fit your image source well.
-
-**The cover is censored too much, or not enough?** Censoring is driven by "Detection threshold" and "Full-cover area threshold": lower the threshold, raise "Censor padding", or lower the area threshold (more likely to censor the whole cover) when something still shows; adjust the other way when too much is covered. You can also switch the style to blur or a black bar.
-
-**Why did the file end up in the group file root instead of the configured folder?** That happens when the group has no such folder and the bot could not create it: creating a group file folder requires the bot to be a group admin or owner, so a regular member cannot do it, and the plugin still uploads to the root instead of wasting the download. Make the bot an admin, or create the folder yourself in the group files.
+**Is the cover censored too much, or does something still show?** The area is driven by "Detection threshold" and "Full-cover area threshold": when something still shows, lower the threshold, raise "Censor padding", or lower the full-cover area threshold (more likely to censor the whole cover); when too much is covered, adjust the other way, and you can switch the style to blur or a black bar. A fully censored cover usually means the detected area really does cover most of the image (0.6 by default; 0.8 is gentler, 0 hides the full-cover fallback). An untouched cover usually means nothing was detected — manga confidences are low, so try lowering the threshold to 0.02 or raising the inference size to 1280.
