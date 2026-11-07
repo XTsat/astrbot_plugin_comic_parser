@@ -290,17 +290,16 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### NSFW model
 
 <details>
-<summary>NSFW model (7 options)</summary>
+<summary>NSFW model (6 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Score the cover (`score`) | bool | true | Use the model to score how explicit the cover is (detected area share, 0-100%) and put it in the caption; skipped when no model is available |
-| Detection threshold (`threshold`) | float | 0.03 | Confidence floor shared by scoring and censoring. Explicit manga pages often score 0.02-0.2, so anything above 0.15 mostly misses; 0.02 catches weak signals at the cost of a few extra patches |
-| Inference size (`imgsz`) | int | 960 | 960 is the sweet spot: at 640 the model tends to emit one whole-frame box on explicit pages (which censors everything), while 1280 loses recall. Larger is slower |
-| Inference device (`device`) | string | auto | Leave empty to pick automatically: GPU when available, otherwise CPU |
-| Weight variant (`model_variant`) | string | m | nano (~5MB, lightest) / small (~18MB) / medium (~39MB, recommended) |
-| Auto-download weights (`auto_download_model`) | bool | false | Download into the plugin's `models/` in the background at load time; failures never block downloads |
-| Custom download URL (`model_download_url`) | string | empty | Empty uses the official source plus the hf-mirror fallback; supports `{filename}` and `{repo}` |
+| Score the cover (`score`) | bool | true | Report how explicit the cover is (union of detected boxes, 0-100%) in the caption; skipped when no weights are available |
+| Detection threshold (`threshold`) | float | 0.03 | Lower is stricter: more weak boxes survive, more gets censored, and clean covers get blurred too. Explicit manga pages usually score 0.02-0.2, so anything above 0.15 mostly misses |
+| Inference size (`imgsz`) | int | 960 | 960 is the sweet spot: at 640 the model tends to emit one whole-frame box on explicit pages (censoring everything), while 1280 loses recall. Larger is slower |
+| Weight variant (`model_variant`) | string | m | nano (~5MB, lightest) / small (~18MB) / medium (~39MB, recommended). The ONNX file is bigger than the original `.pt` because it is fp32 |
+| Auto-download weights (`auto_download_model`) | bool | false | Download the ONNX weights from the plugin release into `models/` in the background at load time; failures never block downloads |
+| Custom download URL (`model_download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`); supports `{filename}` for mirrors or self-hosting |
 
 </details>
 
@@ -340,7 +339,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 ### How the cover features are powered
 
-Cover scoring and censoring rely on a local YOLO detection model: [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) is recommended (Apache-2.0, classes anus / make_love / nipple / penis / vagina). Install `ultralytics` (it brings PyTorch along; CPU works too) and put a `.pt` file into the plugin's `models/` directory — the easiest way is to turn on "Auto-download weights" under "NSFW model".
+Cover scoring and censoring rely on a local YOLO detection model: [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) is recommended (Apache-2.0, classes anus / make_love / nipple / penis / vagina). The plugin uses an **ONNX model with `onnxruntime` (~200M) only**: drop the `.onnx` into the plugin's `models/` directory, or turn on "Auto-download weights" under "NSFW model" (fetched from the plugin release). **PyTorch is no longer needed** — the old `.pt` + ultralytics path has been removed, saving ~1.8G of dependencies.
 
 Without any model the plugin still downloads and still sends the cover, it just cannot report how explicit it is and the cover is not censored (a hint is logged). Put the weights into `models/` first if you want censoring to take effect.
 

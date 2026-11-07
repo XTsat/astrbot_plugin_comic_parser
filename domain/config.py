@@ -22,7 +22,6 @@ from .constants import (
     DEFAULT_GROUP_FILE_FOLDER,
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_NSFW_AUTO_DOWNLOAD,
-    DEFAULT_NSFW_DEVICE,
     DEFAULT_NSFW_IMGSZ,
     DEFAULT_NSFW_MODEL_VARIANT,
     DEFAULT_NSFW_SCORE,
@@ -46,7 +45,7 @@ from .constants import (
     DEFAULT_SEGMENT_TIMEOUT,
     FILENAME_TEMPLATES,
     NSFW_IMGSZ_RANGE,
-    NSFW_MODEL_VARIANTS,
+    NSFW_MODEL_VARIANTS_ONNX,
     PACK_FORMATS,
     PROGRESS_STYLES,
 )
@@ -159,7 +158,6 @@ class PluginSettings:
     nsfw_score: bool = DEFAULT_NSFW_SCORE
     nsfw_threshold: float = DEFAULT_NSFW_THRESHOLD
     nsfw_imgsz: int = DEFAULT_NSFW_IMGSZ
-    nsfw_device: str = DEFAULT_NSFW_DEVICE
     nsfw_model_variant: str = DEFAULT_NSFW_MODEL_VARIANT
     nsfw_auto_download: bool = DEFAULT_NSFW_AUTO_DOWNLOAD
     nsfw_model_url: str = ""
@@ -197,7 +195,7 @@ class PluginSettings:
         model_variant = _as_str(
             nsfw.get("model_variant"), DEFAULT_NSFW_MODEL_VARIANT
         ).lower()
-        if model_variant not in NSFW_MODEL_VARIANTS:
+        if model_variant not in NSFW_MODEL_VARIANTS_ONNX:
             model_variant = DEFAULT_NSFW_MODEL_VARIANT
 
         filename_template = _as_str(
@@ -336,7 +334,6 @@ class PluginSettings:
                 ),
                 NSFW_IMGSZ_RANGE[1],
             ),
-            nsfw_device=_as_str(nsfw.get("device"), DEFAULT_NSFW_DEVICE),
             nsfw_model_variant=model_variant,
             nsfw_auto_download=_as_bool(
                 nsfw.get("auto_download_model"), DEFAULT_NSFW_AUTO_DOWNLOAD

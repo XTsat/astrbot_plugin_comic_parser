@@ -823,7 +823,7 @@
   "nsfw": {
     "type": "object",
     "description": "NSFW 模型",
-    "hint": "用本地 YOLO 检测模型给封面打分并为打码提供坐标；权重不随插件分发，可按开关自动下载（EraX-NSFW-V1.0，Apache-2.0）",
+    "hint": "用本地 ONNX 模型（EraX-NSFW-V1.0，Apache-2.0）给封面打分并为打码提供坐标；权重不随插件分发，可按开关自动下载",
     "items": {
       "score": {
         "type": "bool",
@@ -853,22 +853,6 @@
           "step": 32
         }
       },
-      "device": {
-        "type": "string",
-        "description": "推理设备",
-        "hint": "留空自动选：有显卡用显卡，否则处理器",
-        "default": "",
-        "options": [
-          "",
-          "cuda",
-          "cpu"
-        ],
-        "labels": [
-          "自动",
-          "显卡（CUDA）",
-          "处理器（CPU）"
-        ]
-      },
       "model_variant": {
         "type": "string",
         "description": "权重档位",
@@ -888,7 +872,7 @@
       "auto_download_model": {
         "type": "bool",
         "description": "缺失时自动下载权重",
-        "hint": "开启后插件加载时后台下载到插件目录的 models/；失败不影响下载，也可以手动放 .pt",
+        "hint": "开启后插件加载时后台从插件 Release 下载 ONNX 权重到插件目录的 models/",
         "default": false
       },
       "model_download_url": {

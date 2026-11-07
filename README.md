@@ -290,16 +290,16 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 ### NSFW 模型
 
 <details>
-<summary>NSFW 模型（7 项）</summary>
+<summary>NSFW 模型（6 项）</summary>
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| 给封面打分（`score`） | bool | true | 用模型算封面露骨度（检出面积占比，0-100%），写进封面说明；模型缺失时自动跳过 |
-| 检测阈值（`threshold`） | float | 0.05 | 打分与打码共用的置信度下限。模型对真实图片给的置信度普遍偏低（常见 0.03–0.08），调到 0.15 以上基本就漏检了；调低更保险但会多糊 |
-| 推理设备（`device`） | string | 自动 | 留空自动选：有显卡用显卡，否则用处理器 |
-| 权重档位（`model_variant`） | string | m | nano 约 5MB（最省）/ small 约 18MB / medium 约 39MB（推荐） |
-| 缺失时自动下载权重（`auto_download_model`） | bool | false | 开启后插件加载时后台下载到插件目录的 `models/`，失败不影响下载 |
-| 自定义下载地址（`model_download_url`） | string | 空 | 留空走官方源 + hf-mirror 镜像；支持 `{filename}` 与 `{repo}` 占位 |
+| 给封面打分（`score`） | bool | true | 用模型算封面露骨度（检出区域并集占比，0-100%），写进封面说明；没有权重时自动跳过 |
+| 检测阈值（`threshold`） | float | 0.03 | 越低越严格：保留更多弱框、糊得更多，也更容易把干净封面糊到；露骨漫画页的置信度常见 0.02-0.2，调到 0.15 以上基本就漏检 |
+| 推理输入尺寸（`imgsz`） | int | 960 | 默认 960 最稳：640 会在露骨页上吐一个覆盖整幅的粗框（结果就是整张糊），1280 反而掉召回。调大更慢 |
+| 权重档位（`model_variant`） | string | m | nano 约 5MB（最省）/ small 约 18MB / medium 约 39MB（推荐）。ONNX 文件比原 `.pt` 大，因为它是 fp32 |
+| 缺失时自动下载权重（`auto_download_model`） | bool | false | 开启后插件加载时后台从插件 Release 下载 ONNX 权重到插件目录的 `models/`，失败不影响下载 |
+| 自定义下载地址（`model_download_url`） | string | 空 | 留空用插件 Release（tag `weights-erax-onnx-v1`）；支持 `{filename}` 占位，可换镜像或自建地址 |
 
 </details>
 
@@ -339,7 +339,7 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 
 ### 封面与 NSFW 检测的前提
 
-封面打分与打码依赖本地 YOLO 检测模型：推荐 [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0)（Apache-2.0 协议，类别为 anus / make_love / nipple / penis / vagina），需要安装 `ultralytics`（会一并装 PyTorch，CPU 也能跑），并在插件目录的 `models/` 里放一份 `.pt`。最省事的做法是在「NSFW 模型」里打开「缺失时自动下载权重」。
+封面打分与打码依赖本地 YOLO 检测模型：推荐 [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0)（Apache-2.0 协议，类别为 anus / make_love / nipple / penis / vagina）。插件只用 **ONNX 权重 + `onnxruntime`（约 200M）**：把 `.onnx` 放进插件目录的 `models/`，或在「NSFW 模型」里打开「缺失时自动下载权重」（从插件 Release 下载）。**不再需要 PyTorch**（原先那套 `.pt` + ultralytics 的路径已移除，能省约 1.8G 依赖）。
 
 没有模型时插件照常下载、照常发封面，只是不显示露骨度，封面也不会局部打码（日志里会提示去配置模型）；所以想让打码真正生效，务必先把权重放进 `models/`。
 

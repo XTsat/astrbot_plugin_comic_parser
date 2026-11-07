@@ -9,7 +9,7 @@ from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .packer import Packer
 from .progress import ProgressHeartbeat, ProgressState
-from .nsfw import ModelWeights, NsfwDetector, NsfwScore
+from .nsfw import Detector, ModelWeights, NsfwScore, OnnxDetector, create_detector
 from .registry import (
     build_channels,
     command_map,
@@ -26,13 +26,15 @@ __all__ = [
     "BaseChannel",
     "CoverResult",
     "CoverService",
+    "Detector",
     "DownloadOutcome",
     "DownloadTask",
     "GroupFileResult",
     "GroupFileUploader",
     "ModelWeights",
-    "NsfwDetector",
     "NsfwScore",
+    "OnnxDetector",
+    "create_detector",
     "Packer",
     "ProgressHeartbeat",
     "ProgressState",

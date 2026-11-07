@@ -22,7 +22,7 @@ from ..domain.constants import (
     PLUGIN_NAME,
 )
 from ..domain.models import ComicMeta
-from .nsfw import Detection, NsfwDetector, NsfwScore, censor_cover
+from .nsfw import Detection, Detector, NsfwScore, censor_cover
 
 # 封面临时文件只留这么久：消息要在发送前一直存在，不能发完就删（协议端是异步取图的）
 COVER_FILE_TTL = 3600.0
@@ -43,7 +43,7 @@ class CoverService:
 
     def __init__(
         self,
-        detector: NsfwDetector,
+        detector: Detector,
         temp_root: Path,
         *,
         send_caption: bool = True,
@@ -212,7 +212,7 @@ class CoverService:
         return "\n".join(lines)
 
     @staticmethod
-    def describe_model(detector: NsfwDetector, variant: str) -> str:
+    def describe_model(detector: Detector, variant: str) -> str:
         """给帮助文案用的一句话：当前用的是哪份权重、还是根本没配。"""
         model_path = detector.model_path
         if model_path is not None:

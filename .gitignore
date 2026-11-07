@@ -17,7 +17,6 @@ ANALYSIS_*.md
 # 跨项目临时工作区（daily_nhentai 等外部仓库副本与测试桩）
 .work/
 
-# NSFW 模型权重（几十 MB，由配置开关自动下载，不进仓库）
-models/*.pt
-models/*.pth
+# NSFW 模型权重（几十 MB 的 .onnx，由配置开关自动下载，不进仓库）
+models/*.onnx
 models/*.part

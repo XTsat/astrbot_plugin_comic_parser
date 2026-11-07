@@ -32,8 +32,8 @@ from .core import (
     GroupFileUploader,
     ProgressState,
     ModelWeights,
-    NsfwDetector,
     SearchService,
+    create_detector,
     build_channels,
     command_map,
     describe_channels,
@@ -182,9 +182,8 @@ class ComicParserPlugin(Star):
             download_url=self.settings.nsfw_model_url,
             proxy=self.settings.proxy,
         )
-        self.nsfw_detector = NsfwDetector(
-            weights=self.model_weights,
-            device=self.settings.nsfw_device,
+        self.nsfw_detector = create_detector(
+            self.model_weights,
             threshold=self.settings.nsfw_threshold,
             imgsz=self.settings.nsfw_imgsz,
         )

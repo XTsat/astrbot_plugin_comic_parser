@@ -18,9 +18,8 @@ from ...domain.constants import (
     DEFAULT_NSFW_MODEL_VARIANT,
     NSFW_MIN_MODEL_BYTES,
     NSFW_MODEL_DOWNLOAD_TIMEOUT,
-    NSFW_MODEL_REPO,
-    NSFW_MODEL_SOURCES,
-    NSFW_MODEL_VARIANTS,
+    NSFW_MODEL_VARIANTS_ONNX,
+    NSFW_ONNX_RELEASE_URL,
     PLUGIN_NAME,
 )
 
@@ -28,12 +27,14 @@ from ...domain.constants import (
 _PROGRESS_STEPS: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0)
 
 
-def variant_filename(variant: str) -> str:
-    """把配置档位换算成权重文件名，未知档位退回默认档。"""
+def variant_key(variant: str) -> str:
     key = str(variant or "").strip().lower()
-    if key not in NSFW_MODEL_VARIANTS:
-        key = DEFAULT_NSFW_MODEL_VARIANT
-    return NSFW_MODEL_VARIANTS[key]
+    return key if key in NSFW_MODEL_VARIANTS_ONNX else DEFAULT_NSFW_MODEL_VARIANT
+
+
+def variant_filename(variant: str) -> str:
+    """把配置档位换算成 ONNX 权重文件名，未知档位退回默认档。"""
+    return NSFW_MODEL_VARIANTS_ONNX[variant_key(variant)]
 
 
 def find_model_files(models_dir: Path) -> list[Path]:
@@ -53,7 +54,7 @@ def find_model_files(models_dir: Path) -> list[Path]:
         return []
 
     for path in entries:
-        if path.suffix.lower() not in {".pt", ".pth"}:
+        if path.suffix.lower() != ".onnx":
             continue
         try:
             if path.is_file() and path.stat().st_size >= NSFW_MIN_MODEL_BYTES:
@@ -64,7 +65,7 @@ def find_model_files(models_dir: Path) -> list[Path]:
 
 
 def pick_model(models_dir: Path, preferred_variant: str) -> Path | None:
-    """优先取配置档位对应的权重，其次取目录里第一个可用权重（用户自己放的也算）。"""
+    """挑一份权重：优先配置档位对应的文件，否则用目录里第一个可用的 .onnx。"""
     candidates = find_model_files(models_dir)
     if not candidates:
         return None
@@ -89,7 +90,7 @@ class ModelWeights:
         proxy: str = "",
     ) -> None:
         self.models_dir = models_dir
-        self.variant = str(variant or "").strip().lower() or DEFAULT_NSFW_MODEL_VARIANT
+        self.variant = variant_key(variant)
         self.auto_download = auto_download
         self.download_url = (download_url or "").strip()
         self.proxy = proxy or ""
@@ -121,17 +122,17 @@ class ModelWeights:
             return await self._download()
 
     def _candidate_urls(self, filename: str) -> list[str]:
-        if self.download_url:
-            # 允许 {filename}/{repo} 占位，方便换镜像或自建地址
-            try:
-                return [self.download_url.format(filename=filename, repo=NSFW_MODEL_REPO)]
-            except (KeyError, IndexError):
-                return [self.download_url]
+        # 允许 {filename} 占位，方便换镜像或自建地址
+        try:
+            return [self.download_url.format(filename=filename)]
+        except (KeyError, IndexError):
+            return [self.download_url]
 
-        return [
-            template.format(repo=NSFW_MODEL_REPO, filename=filename)
-            for template in NSFW_MODEL_SOURCES
-        ]
+    def _download_urls(self, filename: str) -> list[str]:
+        """下载源：自定义地址优先，否则用插件自己的 Release（tag 与插件版本解耦）。"""
+        if self.download_url:
+            return self._candidate_urls(filename)
+        return [NSFW_ONNX_RELEASE_URL.format(filename=filename)]
 
     async def _download(self) -> tuple[Path | None, bool]:
         try:
@@ -144,7 +145,7 @@ class ModelWeights:
         target = self.models_dir / filename
         part_path = target.with_name(f"{filename}.part")
 
-        for url in self._candidate_urls(filename):
+        for url in self._download_urls(filename):
             try:
                 logger.info(f"[{PLUGIN_NAME}] 开始下载 NSFW 权重 {filename}: {url}")
                 size = await self._fetch(url, part_path)
@@ -155,7 +156,7 @@ class ModelWeights:
                     part_path.unlink(missing_ok=True)
                     continue
                 if not self._looks_like_weight(part_path):
-                    logger.warning(f"[{PLUGIN_NAME}] 下载内容不是 PyTorch 权重格式，换下一个源")
+                    logger.warning(f"[{PLUGIN_NAME}] 下载内容不是有效权重格式，换下一个源")
                     part_path.unlink(missing_ok=True)
                     continue
 
@@ -169,8 +170,8 @@ class ModelWeights:
                 part_path.unlink(missing_ok=True)
 
         logger.error(
-            f"[{PLUGIN_NAME}] 所有权重下载源都失败：可在配置「封面与 NSFW」里填入可用的"
-            "下载地址，或手动把 .pt 放进插件目录的 models/"
+            f"[{PLUGIN_NAME}] 所有权重下载源都失败：可在配置「NSFW 模型」里填入可用的"
+            f"下载地址，或手动把 {filename} 放进插件目录的 models/"
         )
         return None, False
 
@@ -206,9 +207,14 @@ class ModelWeights:
 
     @staticmethod
     def _looks_like_weight(path: Path) -> bool:
-        """torch 的 .pt 是 zip 归档，magic 为 `PK`；用它挡掉 HTTP 200 的错误页。"""
+        """挡掉 HTTP 200 返回的错误页。
+
+        ``.onnx`` 是 protobuf，没有通用魔数，只能靠体积下限（调用处已检查）
+        加「不是 HTML 开头」来判定。
+        """
         try:
             with path.open("rb") as fp:
-                return fp.read(2) == b"PK"
+                head = fp.read(2)
         except OSError:
             return False
+        return head not in {b"<!", b"<h", b"<?"}

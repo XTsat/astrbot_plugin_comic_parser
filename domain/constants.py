@@ -200,11 +200,20 @@ COVER_MAX_BOXES: Final = 64
 
 # 权重不随插件分发：几十 MB 的二进制不适合进 git，用不用得到也因人而异
 NSFW_MODEL_REPO: Final = "erax-ai/EraX-NSFW-V1.0"
-NSFW_MODEL_VARIANTS: Final = {
-    "n": "erax_nsfw_yolo11n.pt",
-    "s": "erax_nsfw_yolo11s.pt",
-    "m": "erax_nsfw_yolo11m.pt",
+# 只用 ONNX：.pt 要连带装约 1.8G 的 PyTorch，而同一份权重导成 ONNX 后
+# 只要 onnxruntime（约 200M），CPU 推理还更快，因此不再保留 PyTorch 路径。
+NSFW_MODEL_VARIANTS_ONNX: Final = {
+    "n": "erax_nsfw_yolo11n.onnx",
+    "s": "erax_nsfw_yolo11s.onnx",
+    "m": "erax_nsfw_yolo11m.onnx",
 }
+# 权重发布用的独立 tag：和插件版本解耦，换权重不用动插件版本号
+NSFW_ONNX_RELEASE_TAG: Final = "weights-erax-onnx-v1"
+NSFW_ONNX_RELEASE_URL: Final = (
+    "https://github.com/XTsat/astrbot_plugin_comic_parser/releases/download/"
+    + NSFW_ONNX_RELEASE_TAG
+    + "/{filename}"
+)
 NSFW_MODEL_VARIANT_LABELS: Final = {
     "n": "nano（约 5MB，最省资源）",
     "s": "small（约 18MB）",
@@ -212,19 +221,12 @@ NSFW_MODEL_VARIANT_LABELS: Final = {
 }
 DEFAULT_NSFW_MODEL_VARIANT: Final = "m"
 
-# 官方源在前，国内镜像兜底；配置里可整体覆盖
-NSFW_MODEL_SOURCES: Final = (
-    "https://huggingface.co/{repo}/resolve/main/{filename}",
-    "https://hf-mirror.com/{repo}/resolve/main/{filename}",
-)
 # 小于这个体积基本可以断定下到的是错误页而不是权重
 NSFW_MIN_MODEL_BYTES: Final = 1024 * 1024
 NSFW_MODEL_DOWNLOAD_TIMEOUT: Final = 600.0
 
 # EraX-NSFW-V1.0 的类别就是纯部位名，其它导出版本可能带前缀，因此用子串匹配
 NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple")
-# 分类模型（transformers）输出的整页标签里，这些词代表露骨内容
-NSFW_CLASS_KEYWORDS: Final = ("nsfw", "porn", "hentai", "sexual", "explicit", "sex")
 
 DEFAULT_NSFW_SCORE: Final = True
 # 实测（JM 真实页面 + nhentai 封面各一组）：露骨画面的置信度常见 0.02-0.2，漫画页里
@@ -235,11 +237,4 @@ DEFAULT_NSFW_THRESHOLD: Final = 0.03
 # 实测同一张 JM 页在 960 下变成几处正常的小框（整张糊 → 局部糊）。1280 反而掉召回。
 DEFAULT_NSFW_IMGSZ: Final = 960
 NSFW_IMGSZ_RANGE: Final = (320, 1600)
-DEFAULT_NSFW_DEVICE: Final = ""
 DEFAULT_NSFW_AUTO_DOWNLOAD: Final = False
-NSFW_DEVICES: Final = ("", "cuda", "cpu")
-NSFW_DEVICE_LABELS: Final = {
-    "": "自动（有显卡用显卡）",
-    "cuda": "显卡（CUDA）",
-    "cpu": "处理器（CPU）",
-}
