@@ -150,6 +150,9 @@ STOP_ALL_WORDS: Final = frozenset({"all", "全部", "所有"})
 # 取消与超时的巡检间隔（秒）：线程池里的下载只认取消令牌，得靠这个循环把它收掉
 CANCEL_POLL_INTERVAL: Final = 0.5
 
+# 断点目录名：放 temp 下的独立子目录，启动清理与重载清理都要认出它才能整体保留或带走
+RESUME_DIRNAME: Final = "resume"
+
 # 进度心跳的间隔（秒）：与「下完一张图/一章」无关，到点就写一条进度日志，
 # 慢网络下一章拖几分钟也不会出现「日志一片空白，像卡死了」
 DOWNLOAD_LOG_INTERVAL: Final = 15.0
@@ -198,9 +201,9 @@ COVER_MAX_BOXES: Final = 64
 
 # ---- NSFW 检测模型（YOLO 目标检测）----
 
-# 权重不随插件分发：几十 MB 的二进制不适合进 git，用不用得到也因人而异
-NSFW_MODEL_REPO: Final = "erax-ai/EraX-NSFW-V1.0"
-# 权重统一用 ONNX：运行时只需 onnxruntime（约 200M 依赖），CPU 推理也够快。
+# 权重不随插件分发：几十 MB 的二进制不适合进 git，用不用得到也因人而异。
+# 权重统一用 ONNX（运行时只需 onnxruntime，约 200M 依赖），由上游 EraX-NSFW-V1.0
+# 的 .pt 导出；上游只提供 .pt，不能直接拿来用。
 #
 # 预设 = 档位（n/s/m）× 精度（fp32/int8）。两个维度相互独立：
 # - 档位决定模型容量（nano < small < medium），越大越准也越慢；

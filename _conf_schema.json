@@ -807,7 +807,7 @@
       "model": {
         "type": "object",
         "description": "模型与检测",
-        "hint": "本地 ONNX 模型（EraX-NSFW-V1.0，Apache-2.0）：权重不随插件分发，可按开关自动下载",
+        "hint": "本地 ONNX 模型（基于 EraX-NSFW-V1.0，Apache-2.0，由上游 .pt 导出）：权重不随插件分发，可按开关自动下载",
         "items": {
           "preset": {
             "type": "string",

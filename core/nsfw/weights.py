@@ -1,8 +1,12 @@
 """NSFW 模型权重的定位与自动下载。
 
-权重来自 HuggingFace 的 `EraX-NSFW-V1.0`（Apache-2.0，YOLO11 的 n/s/m 三档微调版，
-类别为 anus / make_love / nipple / penis / vagina）。插件不内置权重：几十 MB 的二进制
-不适合进 git，用不到的人也不该被迫下载，因此默认关闭、由配置开关按需拉取。
+权重是上游 `EraX-NSFW-V1.0`（Apache-2.0，YOLO11 的 n/s/m 三档微调版，类别为
+anus / make_love / nipple / penis / vagina）的 **ONNX 导出件**：由本插件从上游 `.pt`
+导出（固定 960 输入、opset 17），int8 档额外量化，因此与上游文件不是同一份。
+上游只提供 `.pt`，这里只认 `.onnx`。
+
+插件不内置权重：几十 MB 的二进制不适合进 git，用不到的人也不该被迫下载，
+因此默认关闭、由配置开关按需拉取。
 """
 
 from __future__ import annotations

@@ -334,7 +334,11 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 
 ### 封面与 NSFW 检测的前提
 
-封面打分与打码依赖本地 YOLO 检测模型：推荐 [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0)（Apache-2.0 协议，类别为 anus / make_love / nipple / penis / vagina）。插件只用 **ONNX 权重 + `onnxruntime`（约 200M）**：把 `.onnx` 放进插件目录的 `models/`，或在「封面与模型 → 模型与检测」里打开「缺失时自动下载权重」（从插件 Release 下载）。插件内置 ONNX 推理，安装依赖只有 `onnxruntime`（约 200M）。
+封面打分与打码依赖本地 YOLO 检测模型，权重基于 [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0)（Apache-2.0 协议，类别为 anus / make_love / nipple / penis / vagina）的 nano / small / medium 三档。
+
+**插件用的是这套权重的 ONNX 版本**——由我们从上游 `.pt` 导出（固定 960 输入、opset 17），int8 档另外做过量化，因此和上游原始文件不是同一份。上游仓库只提供 `.pt`，**插件不支持 `.pt`，请不要从上游直接下载来用**。
+
+取权重的方式：在「封面与模型 → 模型与检测」里打开「缺失时自动下载权重」（从插件 Release 下载），或手动把对应 `.onnx` 放进插件目录的 `models/`。运行时只依赖 `onnxruntime`（约 200M）。
 
 没有模型时插件照常下载、照常发文件，但**不会发封面**（因为「给封面打码」默认开启，没打码就不发）；想要封面就先把权重放进 `models/`，或在「封面与模型 → 模型与检测」里开启「缺失时自动下载权重」。若只想先看封面、暂时不配模型，可以把「给封面打码」关掉。
 

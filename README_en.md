@@ -334,7 +334,11 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 ### How the cover features are powered
 
-Cover scoring and censoring rely on a local YOLO detection model: [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) is recommended (Apache-2.0, classes anus / make_love / nipple / penis / vagina). The plugin uses an **ONNX model with `onnxruntime` (~200M) only**: drop the `.onnx` into the plugin's `models/` directory, or turn on "Auto-download weights" under "Cover and model → Model and detection" (fetched from the plugin release). Inference is built in via ONNX, so the only dependency it needs is `onnxruntime` (~200M).
+Cover scoring and censoring rely on a local YOLO detection model. The weights are based on [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) (Apache-2.0, classes anus / make_love / nipple / penis / vagina), nano / small / medium variants.
+
+**The plugin uses an ONNX build of those weights**: we export them from the upstream `.pt` (fixed 960 input, opset 17) and quantize the int8 variants separately, so they are not the same files as upstream. Upstream only ships `.pt`, and **the plugin does not accept `.pt`, so do not download from upstream and drop it in**.
+
+To get the weights, turn on "Auto-download weights" under "Cover and model → Model and detection" (fetched from the plugin release), or place the matching `.onnx` into the plugin's `models/` directory yourself. At runtime only `onnxruntime` (~200M) is required.
 
 Without any model the plugin still downloads and still delivers the file, but it will **not send the cover** (censoring is on by default, and no cover is sent unless it was actually censored). Put the weights into `models/` first, or turn on "Auto-download weights"; if you just want to see covers without a model, turn "Censor the cover" off.
 
