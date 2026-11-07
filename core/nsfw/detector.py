@@ -1,7 +1,8 @@
 """NSFW 检测的公共类型与后端工厂。
 
-检测走 **ONNX Runtime**（权重 `.onnx`，依赖约 200M）：装得少、CPU 推理也够快
-（实测 960 输入单张约 0.9 秒）。
+检测走 **ONNX Runtime**（权重 `.onnx`，依赖约 100MB）：装得少、CPU 推理也够快
+（实测 960 输入单张约 0.9 秒）。依赖不随插件安装，开启打码后由插件自行补上；
+缺失时退化成一个「不可用」检测器，不影响下载与打包。
 """
 
 from __future__ import annotations
@@ -74,6 +75,24 @@ class Detector(Protocol):
     def reset(self) -> None: ...
 
 
+class NullDetector:
+    """运行时依赖缺失时的占位检测器。
+
+    `onnxruntime`（连同 numpy）是按需安装的，插件刚装上、依赖还没装好时不能因此
+    加载失败：这里一律按「没有模型」回答，上层照旧走「不发封面」的分支。
+    """
+
+    @property
+    def model_path(self) -> Path | None:
+        return None
+
+    def analyze(self, image_path: Path, *, threshold: float | None = None) -> NsfwScore:
+        return NsfwScore.unavailable()
+
+    def reset(self) -> None:
+        return None
+
+
 def create_detector(
     weights: ModelWeights,
     *,
@@ -81,7 +100,18 @@ def create_detector(
     imgsz: int = DEFAULT_NSFW_IMGSZ,
 ) -> Detector:
     """构造检测器（当前只有 ONNX 实现，保留工厂是为了上层不必知道具体类）。"""
-    from .onnx_detector import OnnxDetector  # 局部 import：避免与 onnx_detector 循环依赖
+    try:
+        from .onnx_detector import OnnxDetector  # 局部 import：避免循环依赖
+    except ImportError as exc:  # numpy / onnxruntime 还没装好
+        from astrbot.api import logger
+
+        from ...domain.constants import PLUGIN_NAME
+
+        logger.warning(
+            f"[{PLUGIN_NAME}] ⚠️ 检测运行时未就绪（{exc}），本次加载不做封面打码；"
+            "开启打码时插件会自动安装依赖，装好后重载即可"
+        )
+        return NullDetector()
 
     return OnnxDetector(weights=weights, threshold=threshold, imgsz=imgsz)
 
@@ -96,6 +126,7 @@ __all__ = [
     "Detection",
     "Detector",
     "NsfwScore",
+    "NullDetector",
     "create_detector",
     "is_nsfw_label",
 ]

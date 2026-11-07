@@ -34,6 +34,7 @@ from .core import (
     ModelWeights,
     SearchService,
     create_detector,
+    ensure_onnxruntime,
     build_channels,
     command_map,
     describe_channels,
@@ -245,28 +246,41 @@ class ComicParserPlugin(Star):
         )
 
     async def initialize(self) -> None:
-        """插件激活时按配置预取 NSFW 权重。
+        """插件激活时准备打码运行时（依赖 + 权重）。
 
-        放后台任务里：几十 MB 的下载不该拖住插件加载，也不该挡住其它命令。
-        打码默认关闭，只有「发封面」与「给封面打码」都开着时权重才有用，此时才下载。
+        放后台任务里：几十 MB 的安装与下载不该拖住插件加载，也不该挡住其它命令。
+        打码默认关闭，只有「发封面」与「给封面打码」都开着才需要准备。
         """
-        if not self._needs_model_weights():
+        if not self._needs_censor_runtime():
             return
-        self._model_task = asyncio.create_task(self._warm_model())
+        logger.info(f"[{PLUGIN_NAME}] 封面打码已开启，检查运行时依赖与权重")
+        self._model_task = asyncio.create_task(self._prepare_censor_runtime())
 
-    def _needs_model_weights(self) -> bool:
-        """权重是否值得下载：开了自动下载，且封面与打码都开着。
+    def _needs_censor_runtime(self) -> bool:
+        """打码运行时是否用得上：发封面且开了打码。
 
-        只开封面不打码时封面原样发送（露骨度评分缺权重会静默跳过），没必要占几十 MB 磁盘。
+        权重是否自动下载由「缺失时自动下载权重」单独决定，但依赖（onnxruntime）只要
+        打算打码就得有，否则那张封面对不上检测、只能按未打码处理而不发。
         """
-        return bool(
-            self.settings.nsfw_auto_download
-            and self.settings.cover_send
-            and self.settings.cover_censor
-        )
+        return bool(self.settings.cover_send and self.settings.cover_censor)
 
-    async def _warm_model(self) -> None:
-        """下载权重并让检测器重新读目录；失败只记日志，不影响任何命令。"""
+    async def _prepare_censor_runtime(self) -> None:
+        """按需补齐打码运行时：先确保 onnxruntime，再按配置取权重。
+
+        每次插件加载（含重载）都会走一遍，依赖已在位时只是两次 find_spec，开销可忽略。
+        任何一步失败都只记日志，不影响下载与打包。
+        """
+        if not await ensure_onnxruntime():
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 没有可用的 onnxruntime，本次加载不做封面打码；"
+                "装好后重载插件即可"
+            )
+            return
+        # 依赖到位后会话才建得起来，清掉旧状态让它重新加载
+        self.nsfw_detector.reset()
+
+        if not self.settings.nsfw_auto_download:
+            return
         try:
             path, downloaded = await self.model_weights.ensure()
         except Exception as exc:

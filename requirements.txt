@@ -3,4 +3,3 @@ pyzipper>=0.3.6
 pymupdf>=1.24.0
 Pillow>=10.0.0
 cloudscraper>=1.2.71
-onnxruntime>=1.17.0

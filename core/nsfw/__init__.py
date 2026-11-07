@@ -13,7 +13,7 @@
 from .censor import censor_cover, coverage_ratio
 from .coverage import union_coverage
 from .detector import Detection, Detector, NsfwScore, create_detector, is_nsfw_label
-from .onnx_detector import OnnxDetector
+from .deps import ensure_onnxruntime, onnxruntime_installed
 from .weights import ModelWeights, pick_model, variant_filename
 
 __all__ = [
@@ -21,10 +21,11 @@ __all__ = [
     "Detector",
     "ModelWeights",
     "NsfwScore",
-    "OnnxDetector",
     "censor_cover",
     "coverage_ratio",
     "create_detector",
+    "ensure_onnxruntime",
+    "onnxruntime_installed",
     "pick_model",
     "is_nsfw_label",
     "union_coverage",

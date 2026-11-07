@@ -9,7 +9,13 @@ from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .packer import Packer
 from .progress import ProgressHeartbeat, ProgressState
-from .nsfw import Detector, ModelWeights, NsfwScore, OnnxDetector, create_detector
+from .nsfw import (
+    Detector,
+    ModelWeights,
+    NsfwScore,
+    create_detector,
+    ensure_onnxruntime,
+)
 from .registry import (
     build_channels,
     command_map,
@@ -33,8 +39,8 @@ __all__ = [
     "GroupFileUploader",
     "ModelWeights",
     "NsfwScore",
-    "OnnxDetector",
     "create_detector",
+    "ensure_onnxruntime",
     "Packer",
     "ProgressHeartbeat",
     "ProgressState",

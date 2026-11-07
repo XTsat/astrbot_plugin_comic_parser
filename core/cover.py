@@ -127,8 +127,9 @@ class CoverService:
         # 先判模型是否就位，避免为一个注定发不出去的封面白复制文件
         if self.censor and self.detector.model_path is None:
             raise CoverCensorError(
-                "已开启「给封面打码」，但没有可用的 NSFW 模型，本次不发送封面"
-                "（把 .onnx 放进插件目录的 models/，或在「封面与模型 → 模型与检测」里开启「缺失时自动下载权重」）"
+                "已开启「给封面打码」，但检测还跑不起来，本次不发送封面"
+                "（缺 onnxruntime 时插件会自行安装、装好后重载插件；缺权重可把对应 .onnx 放进插件目录的 models/，"
+                "或在「封面与模型 → 模型与检测」里开启「缺失时自动下载权重」）"
             )
 
         await asyncio.to_thread(self._cleanup_old_files)
