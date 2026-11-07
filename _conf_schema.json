@@ -548,135 +548,21 @@
       }
     }
   },
-  "network": {
+  "download": {
     "type": "object",
-    "description": "网络与代理",
-    "hint": "所有渠道共用的出站代理，只填一次；具体哪个渠道用不用代理，在「下载渠道」里各自的「使用代理」勾选",
+    "description": "下载与网络",
+    "hint": "网络出口、进度提示、并发上限、超时重试与断点",
     "items": {
       "proxy": {
         "type": "string",
         "description": "代理地址",
-        "hint": "渠道里勾选「使用代理」后，渠道请求与下载前测速都走这个地址；搜索超时后的自动代理重试也用它。留空时自动用 AstrBot 本体的 http_proxy（如果配了），都没配就直连",
-        "default": ""
-      }
-    }
-  },
-  "packing": {
-    "type": "object",
-    "description": "打包与产物",
-    "hint": "产物形态、加密与文件名，以及本地保存与清理；群里传文件见「群文件交付」",
-    "items": {
-      "pack_format": {
-        "type": "string",
-        "description": "打包格式",
-        "hint": "下载完成后的产物形态：zip 压缩包、pdf 文档、long_img 纵向长图（过长自动分段）、none 仅本地保存不发送",
-        "default": "pdf",
-        "options": [
-          "zip",
-          "pdf",
-          "long_img",
-          "none"
-        ],
-        "labels": [
-          "ZIP 压缩包",
-          "PDF 文档",
-          "纵向长图",
-          "仅本地保存"
-        ]
-      },
-      "pack_password": {
-        "type": "string",
-        "description": "打包密码",
-        "hint": "全局统一的加密密码，留空表示不加密。ZIP 使用 AES 加密，PDF 使用 AES-256 加密；设置了密码但缺少加密依赖时会直接报错，不会静默产出未加密文件",
-        "default": "",
-        "secret": true
-      },
-      "filename_template": {
-        "type": "string",
-        "description": "文件名模板",
-        "hint": "决定压缩包/PDF 的文件名，默认「[简写ID]标题」。带「+密码」的模板会把打包密码写进文件名（密码会出现在聊天记录与日志里）。可用占位符：{title} 标题、{id} 完整 ID、{id_short} 简写 ID、{author} 作者、{password} 密码（简写规则见「自定义文件名模板」）",
-        "default": "id_short_title",
-        "options": [
-          "id_short_title",
-          "id_title",
-          "id_title_pw",
-          "title_id",
-          "title_id_pw",
-          "id_only",
-          "title_only",
-          "custom"
-        ],
-        "labels": [
-          "[简写ID]标题",
-          "[ID]标题",
-          "[ID]标题 + 密码",
-          "标题[ID]",
-          "标题[ID] + 密码",
-          "仅 ID",
-          "仅标题",
-          "自定义模板"
-        ]
-      },
-      "filename_custom": {
-        "type": "string",
-        "description": "自定义文件名模板",
-        "hint": "仅当「文件名模板」选「自定义模板」时生效，例如 {title}-{id_short}；可用 {title} {id} {id_short} {author} {password}，不认识的占位符会留空，密码留空时 (密码) 段自动去掉。{id_short} 是 ID 简写：E-Hentai 去掉 token 只留 gid，哔咔取 24 位 ID 的后 8 位，其它渠道 ID 本身够短、与 {id} 相同；简写只用于文件名，命令里仍要填完整 ID",
+        "hint": "渠道里勾选「使用代理」后，请求与测速都走这里；留空则用 AstrBot 本体的 http_proxy，都没有就直连",
         "default": ""
       },
-      "download_dir": {
-        "type": "string",
-        "description": "本地保存目录",
-        "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
-        "default": "downloads"
-      },
-      "auto_delete_after_send": {
-        "type": "bool",
-        "description": "发送后删除本地文件",
-        "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
-        "default": true
-      },
-      "clean_temp_on_start": {
-        "type": "bool",
-        "description": "启动时清理临时目录",
-        "hint": "插件加载时清空临时目录，避免崩溃或强制重启留下的半成品一直占用磁盘；正常重载与发送完成后本来就会清理。想保留未完成的内容以便排查时可关闭",
-        "default": true
-      }
-    }
-  },
-  "delivery": {
-    "type": "object",
-    "description": "群文件交付",
-    "hint": "群里下完的产物直接传进群文件，聊天里不再重复发；仅群聊与 OneBot（NapCat 等 aiocqhttp）协议端适用",
-    "items": {
-      "upload_to_group_file": {
-        "type": "bool",
-        "description": "下载后上传到群文件",
-        "hint": "开启后在群里下完的文件自动传进群文件里的目标文件夹（没有就新建，建不了才放群文件根目录）；群里本来就会出现这条文件消息，聊天里不再重复发；传不上去才直接发文件。仅群聊与 OneBot 协议端适用",
-        "default": true
-      },
-      "group_file_folder": {
-        "type": "string",
-        "description": "群文件目标文件夹",
-        "hint": "想让文件落进群文件里的哪个文件夹，例如「漫画」。群里有同名文件夹就传进去（忽略大小写）；没有时看下一项「自动新建群文件夹」；留空表示总是传群文件根目录",
-        "default": "漫画"
-      },
-      "group_file_create_folder": {
-        "type": "bool",
-        "description": "自动新建群文件夹",
-        "hint": "群文件里没有目标文件夹时，让机器人自己建一个再传进去（机器人需要是群管理员或群主）。建不成就照旧传群文件根目录，不会报错；关闭后一律只传已有的文件夹或根目录",
-        "default": true
-      }
-    }
-  },
-  "download": {
-    "type": "object",
-    "description": "下载控制",
-    "hint": "下载与搜索的进度提示、并发上限、超时重试与网络出口",
-    "items": {
       "progress_style": {
         "type": "string",
         "description": "进度提示方式",
-        "hint": "贴表情：在命令消息上贴一个爱心 ❤️，下载或搜索完成换成 OK、失败换成 🔨，不刷屏；群聊可用，私聊或协议端不支持表情回应时自动改用文本进度。文本进度：下载按 25% 步进、全渠道搜索按渠道返回进度推送消息，翻页去上游取下一页时也会提示。关闭：不提示进度",
+        "hint": "贴表情：在命令消息上贴 ❤️，完成换 OK、失败换 🔨，不刷屏；文本进度：按 25% 步进推消息；关闭：不提示",
         "default": "emoji",
         "options": [
           "emoji",
@@ -731,7 +617,7 @@
       "segment_timeout": {
         "type": "int",
         "description": "单次连续下载时长（秒）",
-        "hint": "一次请求最多连着下这么久，到点先停下并保留断点，重新发一次同样的命令会接着下（已下好的页不重下）。0 表示不分段；配得比「单本下载超时」还长时不生效，仍按超时判失败",
+        "hint": "一次请求最多连下这么久，到点先停并保留断点，重发同一条命令接着下；0 表示不分段",
         "default": 900,
         "slider": {
           "min": 0,
@@ -752,10 +638,110 @@
       }
     }
   },
+  "packing": {
+    "type": "object",
+    "description": "打包与交付",
+    "hint": "产物形态（格式 / 密码 / 文件名）、交付方式（群文件），以及本地留存与清理",
+    "items": {
+      "pack_format": {
+        "type": "string",
+        "description": "打包格式",
+        "hint": "下载完成后的产物形态：zip 压缩包、pdf 文档、long_img 纵向长图（过长自动分段）、none 仅本地保存不发送",
+        "default": "pdf",
+        "options": [
+          "zip",
+          "pdf",
+          "long_img",
+          "none"
+        ],
+        "labels": [
+          "ZIP 压缩包",
+          "PDF 文档",
+          "纵向长图",
+          "仅本地保存"
+        ]
+      },
+      "pack_password": {
+        "type": "string",
+        "description": "打包密码",
+        "hint": "全局统一的加密密码，留空表示不加密。ZIP 使用 AES 加密，PDF 使用 AES-256 加密；设置了密码但缺少加密依赖时会直接报错，不会静默产出未加密文件",
+        "default": "",
+        "secret": true
+      },
+      "filename_template": {
+        "type": "string",
+        "description": "文件名模板",
+        "hint": "决定压缩包/PDF 的文件名。带「+密码」的模板会把密码写进文件名（会出现在聊天记录与日志里）；占位符清单见 README",
+        "default": "id_short_title",
+        "options": [
+          "id_short_title",
+          "id_title",
+          "id_title_pw",
+          "title_id",
+          "title_id_pw",
+          "id_only",
+          "title_only",
+          "custom"
+        ],
+        "labels": [
+          "[简写ID]标题",
+          "[ID]标题",
+          "[ID]标题 + 密码",
+          "标题[ID]",
+          "标题[ID] + 密码",
+          "仅 ID",
+          "仅标题",
+          "自定义模板"
+        ]
+      },
+      "filename_custom": {
+        "type": "string",
+        "description": "自定义文件名模板",
+        "hint": "仅在「文件名模板」选「自定义模板」时生效，例如 {title}-{id_short}；可用占位符见 README",
+        "default": ""
+      },
+      "upload_to_group_file": {
+        "type": "bool",
+        "description": "下载后上传到群文件",
+        "hint": "群里下完自动传进群文件的目标文件夹；群里已有文件消息就不再发聊天。仅群聊 + OneBot 协议端适用",
+        "default": true
+      },
+      "group_file_folder": {
+        "type": "string",
+        "description": "群文件目标文件夹",
+        "hint": "仅在「下载后上传到群文件」开启时生效。目标文件夹名（忽略大小写），留空表示群文件根目录",
+        "default": "漫画"
+      },
+      "group_file_create_folder": {
+        "type": "bool",
+        "description": "自动新建群文件夹",
+        "hint": "仅在「下载后上传到群文件」开启时生效。没有目标文件夹时自动新建（需机器人为群管理员/群主），建不成改传根目录",
+        "default": true
+      },
+      "download_dir": {
+        "type": "string",
+        "description": "本地保存目录",
+        "hint": "仅在打包格式选择 none（仅本地保存）时使用。相对路径基于插件数据目录，也可填绝对路径",
+        "default": "downloads"
+      },
+      "auto_delete_after_send": {
+        "type": "bool",
+        "description": "发送后删除本地文件",
+        "hint": "文件发出后删除临时目录，节省磁盘空间；仅本地保存模式（pack_format=none）不受影响",
+        "default": true
+      },
+      "clean_temp_on_start": {
+        "type": "bool",
+        "description": "启动时清理临时目录",
+        "hint": "插件加载时清空临时目录，避免崩溃或强制重启留下的半成品一直占用磁盘；正常重载与发送完成后本来就会清理。想保留未完成的内容以便排查时可关闭",
+        "default": true
+      }
+    }
+  },
   "cover": {
     "type": "object",
-    "description": "封面发送",
-    "hint": "下载完成后先单独发一张封面图，再发文件；封面说明跟随「发送下载完成摘要」，打码与评分在「NSFW 模型」里配置",
+    "description": "封面与模型",
+    "hint": "下载完成后是否单独发一张封面，以及用本地模型自动识别裸露部位并打分、打码",
     "items": {
       "send": {
         "type": "bool",
@@ -766,13 +752,13 @@
       "censor": {
         "type": "bool",
         "description": "给封面打码",
-        "hint": "默认开启。用 NSFW 模型框出的部位打码；若模型缺失或检测执行失败，本次【不发送封面】并提示（不会把未打码的图发出去）；检测跑过但没检出露骨部位则视为干净图，照常发送",
+        "hint": "默认开启。用本地模型自动识别封面上的裸露部位（乳头、性器、性交画面等），只把这些位置糊掉、其余画面保留；模型缺失或检测失败时【不发封面】并提示，绝不发未打码的图",
         "default": true
       },
       "censor_style": {
         "type": "string",
         "description": "打码样式",
-        "hint": "马赛克：方块化；高斯模糊：糊掉；黑条：涂黑",
+        "hint": "仅在「给封面打码」开启时生效；马赛克：方块化；高斯模糊：糊掉；黑条：涂黑",
         "default": "mosaic",
         "options": [
           "mosaic",
@@ -785,21 +771,10 @@
           "黑条"
         ]
       },
-      "censor_padding": {
-        "type": "int",
-        "description": "打码框外扩像素",
-        "hint": "把每个检测框向外扩一圈，避免贴边漏出",
-        "default": 12,
-        "slider": {
-          "min": 0,
-          "max": 64,
-          "step": 2
-        }
-      },
       "censor_block": {
         "type": "int",
         "description": "马赛克块大小",
-        "hint": "块越大越糊；高斯模糊样式的半径按它换算",
+        "hint": "仅在「给封面打码」开启时生效；块越大越糊；高斯模糊样式的半径按它换算",
         "default": 14,
         "slider": {
           "min": 4,
@@ -807,85 +782,96 @@
           "step": 2
         }
       },
+      "censor_padding": {
+        "type": "int",
+        "description": "打码框外扩像素",
+        "hint": "仅在「给封面打码」开启时生效；把每个检测框向外扩一圈，避免贴边漏出",
+        "default": 12,
+        "slider": {
+          "min": 0,
+          "max": 64,
+          "step": 2
+        }
+      },
       "full_censor_area": {
         "type": "float",
         "description": "整张打码的面积阈值",
-        "hint": "检出区域的并集占整图比例达到该值才整张打码（默认 0.6，绝大多数情况只糊局部）；0 表示永不整张打码",
+        "hint": "仅在「给封面打码」开启时生效；检出区域的并集占整图比例达到该值才整张打码（默认 0.6，绝大多数情况只糊局部）；0 表示永不整张打码",
         "default": 0.6,
         "slider": {
           "min": 0.0,
           "max": 1.0,
           "step": 0.05
         }
-      }
-    }
-  },
-  "nsfw": {
-    "type": "object",
-    "description": "NSFW 模型",
-    "hint": "用本地 ONNX 模型（EraX-NSFW-V1.0，Apache-2.0）给封面打分并为打码提供坐标；权重不随插件分发，可按开关自动下载",
-    "items": {
-      "score": {
-        "type": "bool",
-        "description": "给封面打分",
-        "hint": "用模型算出封面露骨度（检出面积占比，0-100%），写进封面说明；模型缺失时自动跳过",
-        "default": true
       },
-      "threshold": {
-        "type": "float",
-        "description": "检测阈值",
-        "hint": "打分与打码共用的置信度下限，默认 0.03。实测露骨漫画页常见 0.02-0.2，调高会漏检、调低会多糊",
-        "default": 0.03,
-        "slider": {
-          "min": 0.05,
-          "max": 0.9,
-          "step": 0.05
+      "model": {
+        "type": "object",
+        "description": "模型与检测",
+        "hint": "本地 ONNX 模型（EraX-NSFW-V1.0，Apache-2.0）：权重不随插件分发，可按开关自动下载",
+        "items": {
+          "preset": {
+            "type": "string",
+            "description": "模型档位与精度",
+            "hint": "档位 nano<small<medium（越大越准越慢）；fp32 无损、int8 体积约 1/4 但更慢且易掉档。默认 medium+fp32",
+            "default": "m_fp32",
+            "options": [
+              "m_fp32",
+              "m_int8",
+              "s_fp32",
+              "s_int8",
+              "n_fp32",
+              "n_int8"
+            ],
+            "labels": [
+              "medium · fp32 完整精度（77MB，推荐）",
+              "medium · int8 量化（20MB）",
+              "small · fp32 完整精度（36MB）",
+              "small · int8 量化（10MB）",
+              "nano · fp32 完整精度（10MB，最快）",
+              "nano · int8 量化（3MB）"
+            ]
+          },
+          "auto_download": {
+            "type": "bool",
+            "description": "缺失时自动下载权重",
+            "hint": "插件加载/重载时后台下载所选档位到 models/；已存在就跳过，失败只记日志，下次重载再试",
+            "default": false
+          },
+          "download_url": {
+            "type": "string",
+            "description": "自定义下载地址",
+            "hint": "留空用插件 Release（tag weights-erax-onnx-v1），失败自动换加速镜像；可填多行，支持 {filename}",
+            "default": ""
+          },
+          "score": {
+            "type": "bool",
+            "description": "给封面打分",
+            "hint": "用模型算封面露骨度（检出区域并集占比）写进封面说明；权重没就位时自动跳过",
+            "default": true
+          },
+          "threshold": {
+            "type": "float",
+            "description": "检测阈值",
+            "hint": "打分与打码共用的置信度下限，越低越严格（模糊更多、更易误糊）。漫画封面一般 0.02-0.1",
+            "default": 0.03,
+            "slider": {
+              "min": 0.05,
+              "max": 0.9,
+              "step": 0.05
+            }
+          },
+          "imgsz": {
+            "type": "int",
+            "description": "推理输入尺寸",
+            "hint": "默认 960 最稳：640 会吐出覆盖整幅的粗框导致整张糊，1280 反而掉召回；调大更慢",
+            "default": 960,
+            "slider": {
+              "min": 320,
+              "max": 1600,
+              "step": 32
+            }
+          }
         }
-      },
-      "imgsz": {
-        "type": "int",
-        "description": "推理输入尺寸",
-        "hint": "默认 960 最稳：640 会在露骨页上吐一个覆盖整幅的粗框（结果就是整张糊），1280 反而掉召回。调大更慢",
-        "default": 960,
-        "slider": {
-          "min": 320,
-          "max": 1600,
-          "step": 32
-        }
-      },
-      "model_preset": {
-        "type": "string",
-        "description": "模型档位与精度",
-        "hint": "两个维度组合，共 6 个文件。档位：nano < small < medium，越大越准也越慢；精度：fp32 是模型原始的 32 位浮点（无损、体积大），int8 把权重压成 8 位整数（体积约 1/4，但实测在 CPU 上更慢、边缘样本会掉档）。默认 medium + fp32；机器慢或想省空间选 nano + fp32",
-        "default": "m_fp32",
-        "options": [
-          "m_fp32",
-          "m_int8",
-          "s_fp32",
-          "s_int8",
-          "n_fp32",
-          "n_int8"
-        ],
-        "labels": [
-          "medium · fp32 完整精度（77MB，推荐）",
-          "medium · int8 量化（20MB）",
-          "small · fp32 完整精度（36MB）",
-          "small · int8 量化（10MB）",
-          "nano · fp32 完整精度（10MB，最快）",
-          "nano · int8 量化（3MB）"
-        ]
-      },
-      "auto_download_model": {
-        "type": "bool",
-        "description": "缺失时自动下载权重",
-        "hint": "开启后插件加载时在后台下载「模型档位与精度」里选中的那个权重到插件目录的 models/；下载失败不影响下载漫画，下次重载插件会再试",
-        "default": false
-      },
-      "model_download_url": {
-        "type": "string",
-        "description": "自定义下载地址",
-        "hint": "留空则用插件 Release（tag weights-erax-onnx-v1），失败自动换内置加速镜像；可填多行（每行一个地址，按顺序尝试），支持 {filename} 占位，适合自建镜像或对象存储",
-        "default": ""
       }
     }
   },

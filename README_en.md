@@ -223,83 +223,78 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use download or search commands |
 | Debounce seconds (`debounce_interval`) | int | 60 | Ignores repeated requests for the same comic within this window; 0 disables it |
 
-### Network and proxy
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Proxy address (`proxy`) | string | empty | The shared outbound proxy for every channel, such as `http://host:port`. Channels with "use proxy" enabled send their requests and probe candidates through it, and the auto-proxy retry after a search timeout uses it too. When empty, AstrBot's own `http_proxy` is reused if configured, otherwise the plugin connects directly |
-
-### Packing and output
+### Download and network
 
 <details>
-<summary>Packing and output (7)</summary>
+<summary>Download and network (8 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Pack format (`pack_format`) | string | pdf | One of zip / pdf / long_img / none (keep locally, do not send); for a single download you do not need to change this — just append the format word to the command (e.g. `/jm 123456 pdf`) |
-| Pack password (`pack_password`) | string | empty | Global encryption password; empty means no encryption |
-| Filename template (`filename_template`) | string | id_short_title | Naming pattern for the output file. Presets: [short id]title (default) / [id]title / [id]title+password / title[id] / title[id]+password / ID only / title only / custom (the ID is bracketed). Presets marked "+password" write the password into the filename (visible in chat); the short-ID rule is described in the next row, and other combinations can be built with a custom template |
-| Custom filename template (`filename_custom`) | string | empty | Only used when the template is "custom", e.g. `{id}-{title}`; placeholders `{title}` `{id}` `{id_short}` `{author}` `{password}`; the `(password)` part disappears when no password is set. `{id_short}` is a shortened ID: E-Hentai drops the token and keeps the gid, PicaACG keeps the last 8 characters of its 24-character ID, and other channels are short enough to match `{id}`. The short form is for filenames only; commands still need the full ID |
-| Local save directory (`download_dir`) | string | downloads | Only used by the "keep locally" mode; relative paths are based on the plugin data directory |
-| Delete local file after sending (`auto_delete_after_send`) | bool | true | Removes temporary files once sent |
-| Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory when the plugin loads, clearing leftovers from crashes or forced restarts |
+| Proxy (`proxy`) | string | empty | Used by any channel that enables "use proxy", and by the pre-download probe; empty falls back to AstrBot's own `http_proxy`, else direct |
+| Progress style (`progress_style`) | string | emoji | Reaction / text / off; falls back to text when the backend cannot react |
+| Send download summary (`show_result_summary`) | bool | true | Turn off to send the file only, without the title / author / image count / elapsed block |
+| Concurrent downloads (`max_concurrent_tasks`) | int | 1 | Global limit; extra requests queue and show the running comic's progress |
+| Per-comic timeout (`timeout`) | int | 1800 | Seconds per download attempt before it fails and retries |
+| Retry times (`retry_times`) | int | 2 | Retries after a failed download; 0 disables |
+| Continuous download per request (`segment_timeout`) | int | 900 | Stops at the deadline and keeps a breakpoint so the same command resumes; 0 disables segmentation |
+| Breakpoint lifetime (`resume_ttl`) | int | 7200 | How long paused images are kept for resuming; 0 keeps none |
 
 </details>
 
-### Group file delivery
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Upload to group files after download (`upload_to_group_file`) | bool | true | Files downloaded in a group go into the target folder of the group's files (created when missing, root only if that fails) and are not sent again in the chat; a failed upload falls back to sending the file; group chats on OneBot (aiocqhttp, e.g. NapCat) only |
-| Group file folder (`group_file_folder`) | string | 漫画 | If the group has a folder with this name the file goes inside it (case-insensitive); when it is missing the next option decides; empty means always the group file root |
-| Create the group file folder when missing (`group_file_create_folder`) | bool | true | Lets the bot create the target folder before uploading (it must be a group admin or owner); if that fails the file simply goes to the root without an error, and turning this off means only existing folders or the root are used |
-
-### Download control
+### Packing and delivery
 
 <details>
-<summary>Download control (7)</summary>
+<summary>Packing and delivery (10 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Concurrent download tasks (`max_concurrent_tasks`) | int | 1 | Global task limit; extra requests queue up and the queue notice shows the running download's live progress |
-| Per-comic timeout (`timeout`) | int | 1800 | Seconds allowed for one download attempt before it counts as failed |
-| Download retries (`retry_times`) | int | 2 | Retries after a failed download |
-| Continuous download per request (`segment_timeout`) | int | 900 | How long one request may keep downloading before it pauses and keeps the breakpoint; sending the same command again resumes. 0 disables segments |
-| Breakpoint lifetime (`resume_ttl`) | int | 7200 | How long the fetched images are kept after a pause; a new request within that window resumes, 0 keeps nothing |
-| Send result summary (`show_result_summary`) | bool | true | When off, only the file is sent without the title / author / image count / elapsed block; the keep-locally mode still reports the path |
-| Progress style (`progress_style`) | string | emoji | `emoji` (default) / `text` / `none`; the emoji mode reacts ❤️ on the command message, then swaps to OK or 🔨 for both downloads and searches. Private chats and clients without reaction support fall back to text progress automatically, and the full-channel search and paging have text progress too |
+| Pack format (`pack_format`) | string | pdf | ZIP archive / PDF / long vertical image / keep on disk only |
+| Pack password (`pack_password`) | string | empty | One global password: ZIP uses AES, PDF uses AES-256; empty means no encryption. A missing crypto dependency fails loudly instead of sending an unencrypted file |
+| Filename template (`filename_template`) | string | id_short_title | Naming rule for the output; templates with "+password" put the password into the filename |
+| Custom filename template (`filename_custom`) | string | empty | Only used when "Filename template" is "custom", e.g. `{title}-{id_short}`; placeholders are documented in the README |
+| Upload to group files (`upload_to_group_file`) | bool | true | After a group download the file goes into the target folder; QQ already posts a file message, so the chat is not spammed. Group chats + OneBot only |
+| Group file folder (`group_file_folder`) | string | 漫画 | Only used when "Upload to group files" is on. Target folder name (case-insensitive); empty means the group file root |
+| Auto-create group folder (`group_file_create_folder`) | bool | true | Only used when "Upload to group files" is on. Create the folder when missing (bot must be admin/owner), else fall back to the root |
+| Local save directory (`download_dir`) | string | downloads | Where "keep on disk only" mode stores the files |
+| Delete local files after sending (`auto_delete_after_send`) | bool | true | Removes temporary output after delivery; local-only mode never deletes |
+| Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory at load time, removing leftovers from crashes; breakpoints are cleared too |
 
 </details>
 
-### Cover image
+### Cover and model
 
 <details>
-<summary>Cover image (6 options)</summary>
+<summary>Cover and model (6 + 6 options)</summary>
+
+**Cover**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download; turn off to send files only |
-| Censor the cover (`censor`) | bool | true | Censor the areas found by the NSFW model. If the model is missing or the detection run fails, **this cover is not sent at all** with a hint (an uncensored image is never posted); a successful run that finds nothing is treated as a clean image and sent as-is |
+| Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download |
+| Censor the cover (`censor`) | bool | true | The local model **automatically locates exposed areas** (nipples, genitals, sex scenes) and blurs only those, keeping the rest of the image intact. **If the model is missing or the run fails, no cover is sent** (an uncensored image is never posted); a clean run still sends the cover |
 | Censor style (`censor_style`) | string | mosaic | Mosaic / Gaussian blur / black bar |
-| Censor padding (`censor_padding`) | int | 12 | Expand every box so nothing leaks at the edges |
 | Mosaic block size (`censor_block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
-| Full-cover area threshold (`full_censor_area`) | float | 0.6 | Censor the whole cover once the union of detected boxes (overlaps counted once) covers this share of it; most pages only get the detected spots censored. 0 never censors the whole cover |
+| Censor padding (`censor_padding`) | int | 12 | Expand every box so nothing leaks at the edges |
+| Full-cover area threshold (`full_censor_area`) | float | 0.6 | Censor the whole cover once the union of boxes covers this share; 0 never does |
 
-</details>
-
-### NSFW model
-
-<details>
-<summary>NSFW model (6 options)</summary>
+**Model and detection**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Score the cover (`score`) | bool | true | Report how explicit the cover is (union of detected boxes, 0-100%) in the caption; skipped when no weights are available |
-| Detection threshold (`threshold`) | float | 0.03 | Lower is stricter: more weak boxes survive, more gets censored, and clean covers get blurred too. Explicit manga pages usually score 0.02-0.2, so anything above 0.15 mostly misses |
-| Inference size (`imgsz`) | int | 960 | 960 is the sweet spot: at 640 the model tends to emit one whole-frame box on explicit pages (censoring everything), while 1280 loses recall. Larger is slower |
-| Model preset (`model_preset`) | string | m_fp32 | Two independent axes: **size** nano < small < medium (bigger = more accurate, slower) × **precision** fp32 full precision (lossless) / int8 quantized (~1/4 the size). Six choices: `m_fp32` 77MB (most accurate, recommended) / `m_int8` 20MB / `s_fp32` 36MB (twice as fast) / `s_int8` 10MB / `n_fp32` 10MB (fastest) / `n_int8` 3MB. On 18 real images: `s_fp32` agreed 13/18, `n_fp32` 15/18, and every int8 build was **slower** than its own fp32 build with more borderline misses — int8 is a fallback only |
-| Auto-download weights (`auto_download_model`) | bool | false | At **plugin load/reload** the selected preset is fetched into `models/` in the background; skipped when the file already exists. Failures are logged only — downloads and covers keep working, and the next reload retries |
-| Custom download URL (`model_download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`) and **falls back to built-in accelerator mirrors when GitHub is unreachable**; you can also list your own URLs one per line, tried in order, with `{filename}` support |
+| Model preset (`model.preset`) | string | m_fp32 | One of six, see below; default medium + fp32 |
+| Auto-download weights (`model.auto_download`) | bool | false | Fetch into `models/` in the background at load time; skipped when present, failures are logged and retried on the next reload |
+| Custom download URL (`model.download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`) and falls back to accelerator mirrors; multiple lines and `{filename}` supported |
+| Score the cover (`model.score`) | bool | true | Reports how explicit the cover is; skipped when no weights are available |
+| Detection threshold (`model.threshold`) | float | 0.03 | Confidence floor shared by scoring and censoring; lower is stricter and censors more |
+| Inference size (`model.imgsz`) | int | 960 | 960 is the sweet spot: 640 emits a whole-frame box (censoring everything), 1280 loses recall |
+
+**Preset reference**
+
+| Preset | Full precision | int8 | Notes |
+|--------|----------------|------|-------|
+| nano (`n_*`) | 10MB | 3MB | Fastest, but coarser boxes and more whole-cover censoring |
+| small (`s_*`) | 36MB | 10MB | About twice as fast as medium, slightly lower agreement |
+| medium (`m_*`) | 77MB | 20MB | Most accurate (default); its int8 build is actually slower on CPU |
 
 </details>
 

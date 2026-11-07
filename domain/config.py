@@ -168,14 +168,14 @@ class PluginSettings:
     def from_config(cls, config: Mapping[str, Any] | None) -> PluginSettings:
         data: Mapping[str, Any] = config or {}
         packing = _section(data, "packing")
-        delivery = _section(data, "delivery")
         download = _section(data, "download")
-        network = _section(data, "network")
         access = _section(data, "access")
         probe = _section(data, "probe")
         search = _section(data, "search")
         cover = _section(data, "cover")
-        nsfw = _section(data, "nsfw")
+        # 模型相关项嵌在「封面与模型」的子块里，与封面共用一张卡片
+        model = cover.get("model")
+        model = model if isinstance(model, Mapping) else {}
 
         pack_format = _as_str(
             packing.get("pack_format"), DEFAULT_PACK_FORMAT
@@ -193,7 +193,7 @@ class PluginSettings:
         if censor_style not in COVER_CENSOR_STYLES:
             censor_style = DEFAULT_COVER_CENSOR_STYLE
         model_preset = _as_str(
-            nsfw.get("model_preset"), DEFAULT_NSFW_MODEL_PRESET
+            model.get("preset"), DEFAULT_NSFW_MODEL_PRESET
         ).lower()
         if model_preset not in NSFW_MODEL_PRESETS:
             model_preset = DEFAULT_NSFW_MODEL_PRESET
@@ -222,13 +222,13 @@ class PluginSettings:
                 packing.get("auto_delete_after_send"), True
             ),
             upload_to_group_file=_as_bool(
-                delivery.get("upload_to_group_file"), True
+                packing.get("upload_to_group_file"), True
             ),
             group_file_folder=_as_str(
-                delivery.get("group_file_folder"), DEFAULT_GROUP_FILE_FOLDER
+                packing.get("group_file_folder"), DEFAULT_GROUP_FILE_FOLDER
             ),
             group_file_create_folder=_as_bool(
-                delivery.get("group_file_create_folder"), True
+                packing.get("group_file_create_folder"), True
             ),
             progress_style=progress_style,
             show_result_summary=_as_bool(
@@ -323,23 +323,23 @@ class PluginSettings:
                 minimum=0.0,
                 maximum=1.0,
             ),
-            nsfw_score=_as_bool(nsfw.get("score"), DEFAULT_NSFW_SCORE),
+            nsfw_score=_as_bool(model.get("score"), DEFAULT_NSFW_SCORE),
             nsfw_threshold=_as_float(
-                nsfw.get("threshold"), DEFAULT_NSFW_THRESHOLD, minimum=0.01, maximum=0.99
+                model.get("threshold"), DEFAULT_NSFW_THRESHOLD, minimum=0.01, maximum=0.99
             ),
             nsfw_imgsz=min(
                 max(
-                    _as_int(nsfw.get("imgsz"), DEFAULT_NSFW_IMGSZ),
+                    _as_int(model.get("imgsz"), DEFAULT_NSFW_IMGSZ),
                     NSFW_IMGSZ_RANGE[0],
                 ),
                 NSFW_IMGSZ_RANGE[1],
             ),
             nsfw_model_preset=model_preset,
             nsfw_auto_download=_as_bool(
-                nsfw.get("auto_download_model"), DEFAULT_NSFW_AUTO_DOWNLOAD
+                model.get("auto_download"), DEFAULT_NSFW_AUTO_DOWNLOAD
             ),
-            nsfw_model_url=_as_str(nsfw.get("model_download_url")),
-            proxy=_as_str(network.get("proxy")),
+            nsfw_model_url=_as_str(model.get("download_url")),
+            proxy=_as_str(download.get("proxy")),
             channels=_parse_channels(data.get("channels")),
         )
 
