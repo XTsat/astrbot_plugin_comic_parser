@@ -206,9 +206,10 @@ DEFAULT_COVER_CENSOR: Final = False
 DEFAULT_COVER_CENSOR_STYLE: Final = "mosaic"
 DEFAULT_COVER_CENSOR_PADDING: Final = 12
 DEFAULT_COVER_CENSOR_BLOCK: Final = 14
-# 检出区域的「并集」覆盖整图达到该比例才整张打码。默认 0.6：绝大多数页面是局部打码，
-# 只有真的整幅都在露骨画面里才糊整张。0 表示关闭这条兜底。
-DEFAULT_COVER_FULL_CENSOR_AREA: Final = 0.6
+# 检出区域的「并集」覆盖整图达到该比例才整张打码。默认 0.3：实测局部糊在覆盖率 17.9% 时
+# QQ 放行、34.6% 时被静默丢弃，所以 20%-30% 以上就别再指望局部糊能过，直接整张糊省一次白跑。
+# 0 表示关闭这条兜底。
+DEFAULT_COVER_FULL_CENSOR_AREA: Final = 0.3
 
 # 发送被平台拦下后，整张重糊用的块大小。QQ 的图片审核对局部马赛克仍有识别能力，
 # 整张重糊的块小到 20 也照样被静默丢弃（实测同一张封面 14/20 全被拦、28 才放行），
