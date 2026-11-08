@@ -1046,7 +1046,10 @@ class ComicParserPlugin(Star):
         except Exception as exc:
             logger.warning(f"[{PLUGIN_NAME}] 封面加强打码失败（本次跳过）: {exc}")
             return
-        if not await self._send_cover(event, strong, caption):
+        # 重发的是降级版：说明文字要按新的打码结论重算，否则摘要仍写着「局部打码」
+        if not await self._send_cover(
+            event, strong, self.cover_service.caption(outcome.meta, strong)
+        ):
             logger.warning(f"[{PLUGIN_NAME}] 封面整张打码后仍未被平台接受，本次跳过")
 
     async def _send_cover(

@@ -32,12 +32,21 @@ COVER_FILE_TTL = 3600.0
 
 @dataclass(slots=True)
 class CoverResult:
-    """一张准备好的封面：路径 + 评分 + 打码结论。"""
+    """一张准备好的封面：路径 + 评分 + 打码结论。
+
+    ``detected`` 区分「跑过检测但没检出」和「根本没跑检测（没开打码）」——前者要如实
+    写出阈值，好让用户知道该往哪调；``coverage`` 是检出框并集占整图的比例，用户靠它判断
+    「为什么这次只糊了局部 / 为什么整张都糊了」；``reinforced`` 标记这是发送被拦后整张
+    重糊的降级版，摘要里要说清楚，否则用户看到的糊图来源不明。
+    """
 
     path: Path
     score: NsfwScore
     censored: bool
     full_censored: bool
+    detected: bool = False
+    coverage: float = 0.0
+    reinforced: bool = False
 
 
 class CoverService:
@@ -155,6 +164,7 @@ class CoverService:
 
         censored = False
         full_censored = False
+        coverage = 0.0
         if self.censor and detections:
             censored, coverage = await asyncio.to_thread(
                 censor_cover,
@@ -176,6 +186,8 @@ class CoverService:
             score=score,
             censored=censored,
             full_censored=full_censored,
+            detected=self.censor and self.detector.model_path is not None,
+            coverage=coverage,
         )
 
     def _stage_cover(self, cover: Path, channel: str, comic_id: str) -> Path:
@@ -224,12 +236,19 @@ class CoverService:
             score=result.score,
             censored=True,
             full_censored=True,
+            detected=result.detected,
+            coverage=result.coverage,
+            reinforced=True,
         )
 
     # ---- 文案 ----
 
     def caption(self, meta: ComicMeta, result: CoverResult) -> str:
-        """封面消息的说明文字：标题 + 评分结论（关闭「附带说明」时返回空串）。"""
+        """封面消息的说明文字：标题 + 检测结论 + 打码/降级情况（关闭「附带说明」时返回空串）。
+
+        检测结论要写到能指导调参的程度：露骨度、检出几处、并集覆盖多少，以及判定用的
+        阈值；一处都没检出时也要明说阈值，否则用户分不清「图是干净的」和「阈值太高没检出来」。
+        """
         if not self.send_caption:
             return ""
 
@@ -242,10 +261,23 @@ class CoverService:
         if details:
             lines.append(" · ".join(details))
 
-        if result.score.value > 0:
+        threshold = getattr(self.detector, "threshold", None)
+        threshold_text = (
+            f"{float(threshold):g}" if isinstance(threshold, (int, float)) else "默认"
+        )
+        if result.detected and result.score.value > 0:
             labels = "、".join(result.score.labels) or "露骨部位"
-            lines.append(f"封面露骨度：{result.score.value:.1f}%（{labels}）")
-        if result.censored:
+            lines.append(
+                f"封面露骨度：{result.score.value:.1f}%（{labels}）"
+                f" · 检出 {len(result.score.detections)} 处"
+                f" · 覆盖 {result.coverage:.0%}"
+                f" · 阈值 {threshold_text}"
+            )
+        elif result.detected:
+            lines.append(f"封面未检出露骨部位（阈值 {threshold_text}，覆盖 0%）")
+        if result.reinforced:
+            lines.append("🔒 平台把封面当露骨图拦下，已整张重糊后重发")
+        elif result.censored:
             lines.append("🔒 封面已打码" + ("（整张）" if result.full_censored else ""))
         return "\n".join(lines)
 
