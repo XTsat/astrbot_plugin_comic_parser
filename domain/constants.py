@@ -216,6 +216,8 @@ DEFAULT_COVER_FULL_CENSOR_AREA: Final = 0.6
 COVER_RETRY_CENSOR_BLOCK: Final = 28
 # 发送失败要不要自动整张重糊再发：默认开（否则那张封面就白生成了），关掉时失败即跳过
 DEFAULT_COVER_RETRY_STRONG: Final = True
+# 封面说明（露骨度/检出/覆盖/阈值）默认不发：它只是调参用的，跟「发送下载完成摘要」互不相干
+DEFAULT_COVER_CAPTION: Final = False
 
 # 单个封面最多处理这么多个框，误检刷出成百上千个框时不至于把渲染拖死
 COVER_MAX_BOXES: Final = 64

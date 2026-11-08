@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from .constants import (
     COVER_CENSOR_STYLES,
+    DEFAULT_COVER_CAPTION,
     DEFAULT_COVER_CENSOR,
     DEFAULT_COVER_CENSOR_BLOCK,
     DEFAULT_COVER_CENSOR_PADDING,
@@ -149,6 +150,7 @@ class PluginSettings:
     # 封面：下载完成后单独发一张图，打码复用 NSFW 检测框；
     # 封面说明跟随「发送下载完成摘要」，不另设开关
     cover_send: bool = DEFAULT_COVER_SEND
+    cover_caption: bool = DEFAULT_COVER_CAPTION
     cover_censor: bool = DEFAULT_COVER_CENSOR
     cover_censor_style: str = DEFAULT_COVER_CENSOR_STYLE
     cover_censor_padding: int = DEFAULT_COVER_CENSOR_PADDING
@@ -312,6 +314,7 @@ class PluginSettings:
                 120,
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
+            cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),
             cover_censor=_as_bool(censor.get("enable"), DEFAULT_COVER_CENSOR),
             cover_censor_style=censor_style,
             cover_censor_padding=_as_int(

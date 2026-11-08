@@ -244,23 +244,20 @@ class CoverService:
     # ---- 文案 ----
 
     def caption(self, meta: ComicMeta, result: CoverResult) -> str:
-        """封面消息的说明文字：标题 + 检测结论 + 打码/降级情况（关闭「附带说明」时返回空串）。
+        """封面说明：只写这一次的检测结论（开关关着时返回空串）。
 
-        检测结论要写到能指导调参的程度：露骨度、检出几处、并集覆盖多少，以及判定用的
-        阈值；一处都没检出时也要明说阈值，否则用户分不清「图是干净的」和「阈值太高没检出来」。
+        标题、作者、页数已经在下载摘要里了，这里不重复；这里要说的是调参用得上的数据：
+        露骨度、检出几处、并集覆盖多少、判定用的阈值。一处都没检出时也要明确写出阈值，
+        否则用户分不清「这张图干净」和「阈值太高没检出来」。
+
+        Args:
+            meta: 作品元信息（标题/作者由下载摘要负责，这里不再使用）。
+            result: 这次的封面准备结果。
         """
         if not self.send_caption:
             return ""
 
-        lines = [f"🖼️ {meta.display_title}"]
-        details: list[str] = []
-        if meta.author:
-            details.append(f"作者：{meta.author}")
-        if meta.page_count:
-            details.append(f"页数：{meta.page_count}")
-        if details:
-            lines.append(" · ".join(details))
-
+        lines: list[str] = []
         threshold = getattr(self.detector, "threshold", None)
         threshold_text = (
             f"{float(threshold):g}" if isinstance(threshold, (int, float)) else "默认"
@@ -268,13 +265,13 @@ class CoverService:
         if result.detected and result.score.value > 0:
             labels = "、".join(result.score.labels) or "露骨部位"
             lines.append(
-                f"封面露骨度：{result.score.value:.1f}%（{labels}）"
+                f"🖼️ 封面露骨度 {result.score.value:.1f}%（{labels}）"
                 f" · 检出 {len(result.score.detections)} 处"
                 f" · 覆盖 {result.coverage:.0%}"
                 f" · 阈值 {threshold_text}"
             )
         elif result.detected:
-            lines.append(f"封面未检出露骨部位（阈值 {threshold_text}，覆盖 0%）")
+            lines.append(f"🖼️ 封面未检出露骨部位（阈值 {threshold_text}，覆盖 0%）")
         if result.reinforced:
             lines.append("🔒 平台把封面当露骨图拦下，已整张重糊后重发")
         elif result.censored:

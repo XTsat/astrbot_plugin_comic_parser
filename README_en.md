@@ -235,13 +235,14 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Cover and model
 
 <details>
-<summary>Cover and model (1 + 6 + 5 options)</summary>
+<summary>Cover and model (2 + 6 + 5 options)</summary>
 
 **Cover**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download |
+| Send cover caption separately (`caption`) | bool | false | Send one extra message after the cover image with this run's detection results only (explicitness, boxes found, share covered, threshold, whole-cover censoring / re-censored after the platform rejected it); title, author and pages are already in the download summary. Independent of "Send download summary" |
 
 **Censoring**
 
@@ -324,4 +325,4 @@ Censoring is off by default, so you can receive covers without any model (sent a
 
 **Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy it took about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds, or search just that channel with `/jm sou`.
 
-**Is the cover censored too much, or does something still show?** The area is driven by "Detection threshold" and "Full-cover area threshold": when something still shows, lower the threshold, raise "Censor padding", or lower the full-cover area threshold (more likely to censor the whole cover); when too much is covered, adjust the other way, and you can switch the style to blur or a black bar. A fully censored cover usually means the detected area really does cover most of the image (0.6 by default; 0.8 is gentler, 0 hides the full-cover fallback). An untouched cover usually means nothing was detected — manga confidences are low, so try lowering the threshold to 0.02 or raising the inference size to 1280. Every cover caption reports that run's explicitness, the number of boxes found, the share they cover and the threshold used — tune against those numbers. **If the cover never shows up in the group but the log reports a send failure**, the platform classified the image as explicit and dropped it: the plugin re-censors the whole image and sends it once more, and if that still fails it skips the cover (the file itself is unaffected).
+**Is the cover censored too much, or does something still show?** The area is driven by "Detection threshold" and "Full-cover area threshold": when something still shows, lower the threshold, raise "Censor padding", or lower the full-cover area threshold (more likely to censor the whole cover); when too much is covered, adjust the other way, and you can switch the style to blur or a black bar. A fully censored cover usually means the detected area really does cover most of the image (0.6 by default; 0.8 is gentler, 0 hides the full-cover fallback). An untouched cover usually means nothing was detected — manga confidences are low, so try lowering the threshold to 0.02 or raising the inference size to 1280. With "Send cover caption separately" on, every cover caption reports that run's explicitness, the number of boxes found, the share they cover and the threshold used — tune against those numbers. **If the cover never shows up in the group but the log reports a send failure**, the platform classified the image as explicit and dropped it: the plugin re-censors the whole image and sends it once more, and if that still fails it skips the cover (the file itself is unaffected).

@@ -226,7 +226,7 @@ class ComicParserPlugin(Star):
         self.cover_service = CoverService(
             self.nsfw_detector,
             self.temp_root,
-            send_caption=self.settings.show_result_summary,
+            send_caption=self.settings.cover_caption,
             censor=self.settings.cover_censor,
             censor_style=self.settings.cover_censor_style,
             censor_block=self.settings.cover_censor_block,
@@ -476,7 +476,9 @@ class ComicParserPlugin(Star):
         if self.settings.cover_send:
             cover_desc = "下载完成后先发一张"
             if self.settings.cover_censor:
-                cover_desc += "（已打码，附露骨度）"
+                cover_desc += "（已打码"
+                cover_desc += "，附检测说明" if self.settings.cover_caption else ""
+                cover_desc += "）"
                 model_label = CoverService.describe_model(
                     self.nsfw_detector, self.settings.nsfw_model_preset
                 )
@@ -1012,6 +1014,8 @@ class ComicParserPlugin(Star):
         """先发一张封面（可选打码），再发文件。
 
         封面是附加交付：出错只记日志、不补话术——用户真正要的是文件，不能被一张封面挡掉。
+        封面说明（若开启）单独发一条，并且只在封面确实发出去之后才发，免得说明描述了一张
+        用户根本没收到的图。
         """
         try:
             result = await self.cover_service.prepare(
@@ -1031,8 +1035,8 @@ class ComicParserPlugin(Star):
         if result is None:
             return
 
-        caption = self.cover_service.caption(outcome.meta, result)
-        if await self._send_cover(event, result, caption):
+        if await self._send_cover(event, result):
+            await self._send_cover_caption(event, outcome, result)
             return
 
         # 只有开了打码才敢自动加糊：用户主动关掉打码时，不能再擅自把图糊掉
@@ -1046,24 +1050,21 @@ class ComicParserPlugin(Star):
         except Exception as exc:
             logger.warning(f"[{PLUGIN_NAME}] 封面加强打码失败（本次跳过）: {exc}")
             return
-        # 重发的是降级版：说明文字要按新的打码结论重算，否则摘要仍写着「局部打码」
-        if not await self._send_cover(
-            event, strong, self.cover_service.caption(outcome.meta, strong)
-        ):
+        # 重发的是降级版：说明要按新的打码结论重算，否则仍写着「局部打码」
+        if await self._send_cover(event, strong):
+            await self._send_cover_caption(event, outcome, strong)
+        else:
             logger.warning(f"[{PLUGIN_NAME}] 封面整张打码后仍未被平台接受，本次跳过")
 
     async def _send_cover(
-        self, event: AstrMessageEvent, result: CoverResult, caption: str
+        self, event: AstrMessageEvent, result: CoverResult
     ) -> bool:
-        """直接发一张封面，返回是否发送成功。
+        """直接发一张封面（只有图），返回是否发送成功。
 
         走 ``event.send`` 而不是 ``yield``：只有自己发才拿得到失败（QQ 的图片审核
         会「收下但不投递」，AstrBot 只在 respond 阶段记一条 ERROR，插件侧无从补救）。
         """
-        chain: list[Any] = []
-        if caption:
-            chain.append(Comp.Plain(caption))
-        chain.append(Comp.Image.fromFileSystem(str(result.path)))
+        chain: list[Any] = [Comp.Image.fromFileSystem(str(result.path))]
         try:
             await event.send(MessageChain(chain))
         except Exception as exc:
@@ -1071,6 +1072,18 @@ class ComicParserPlugin(Star):
             logger.warning(f"[{PLUGIN_NAME}] 封面发送失败: {exc}")
             return False
         return True
+
+    async def _send_cover_caption(
+        self, event: AstrMessageEvent, outcome: DownloadOutcome, result: CoverResult
+    ) -> None:
+        """封面说明单独发一条（开关关着时没有说明）；说明发不出去不影响封面本身。"""
+        caption = self.cover_service.caption(outcome.meta, result)
+        if not caption:
+            return
+        try:
+            await event.send(MessageChain([Comp.Plain(caption)]))
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 封面说明发送失败（忽略）: {exc}")
 
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome
@@ -1501,8 +1514,9 @@ class ComicParserPlugin(Star):
         if outcome.pack.fmt == "none":
             lines.append(f"已保存到本地：{outcome.source_dir}")
         elif outcome.pack.encrypted:
-            lines.append("已加密打包，密码见插件配置")
-        lines.append(f"耗时 {outcome.elapsed:.1f}s")
+            lines.append("已加密打包")
+        # 耗时统一并到最后一行：它和上面那句一样都是「这次结果如何」，不该为一个词再占一行
+        lines[-1] = f"{lines[-1]}，耗时 {outcome.elapsed:.1f}s"
         return "\n".join(lines)
 
     def _resolve_data_dir(self) -> Path:
