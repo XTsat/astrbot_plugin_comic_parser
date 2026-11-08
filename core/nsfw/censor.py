@@ -77,6 +77,15 @@ def _apply(image: Image.Image, box: Box, style: str, block: int) -> None:
         image.paste(_mosaic(image, box, block), box)
 
 
+def _save(image: Image.Image, path: Path) -> None:
+    """按原后缀写回：JPEG 统一走 92 质量，其它格式交给 Pillow 默认值。"""
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        image.save(path, quality=92)
+    else:
+        image.save(path)
+
+
 def censor_cover(
     path: Path,
     boxes: Sequence[Sequence[float]],
@@ -124,14 +133,36 @@ def censor_cover(
         for box in pixel_boxes:
             _apply(image, box, style, block)
 
-    suffix = path.suffix.lower()
-    if suffix in {".jpg", ".jpeg"}:
-        image.save(path, quality=92)
-    else:
-        image.save(path)
+    _save(image, path)
 
     logger.debug(
         f"[{PLUGIN_NAME}] 封面打码：样式 {style}，{len(pixel_boxes)} 处，"
         f"覆盖 {coverage:.0%}{'（整张）' if full_area > 0 and coverage >= full_area else ''}"
     )
     return True, coverage
+
+
+def censor_full_image(
+    path: Path,
+    *,
+    style: str = DEFAULT_COVER_CENSOR_STYLE,
+    block: int = DEFAULT_COVER_CENSOR_BLOCK,
+) -> None:
+    """把整张图糊掉，就地覆盖原文件。
+
+    用于「按检出框打的码不够糊、平台仍然把消息丢掉」的补救：QQ 的图片审核对
+    局部马赛克还能认出来（实测同一张封面 14px 局部、20px 整张都被静默丢弃，
+    28px 整张才放行），这时只能整张糊，不再依赖检出框是否覆盖到露骨区域。
+    """
+    style = style if style in COVER_CENSOR_STYLES else DEFAULT_COVER_CENSOR_STYLE
+
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+
+    width, height = image.size
+    if width < 4 or height < 4:
+        return
+
+    _apply(image, (0, 0, width, height), style, block)
+    _save(image, path)
+    logger.debug(f"[{PLUGIN_NAME}] 封面整张打码：样式 {style}，块 {block}")

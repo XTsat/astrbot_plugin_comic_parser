@@ -206,6 +206,13 @@ DEFAULT_COVER_CENSOR_BLOCK: Final = 14
 # 只有真的整幅都在露骨画面里才糊整张。0 表示关闭这条兜底。
 DEFAULT_COVER_FULL_CENSOR_AREA: Final = 0.6
 
+# 发送被平台拦下后，整张重糊用的块大小。QQ 的图片审核对局部马赛克仍有识别能力，
+# 整张重糊的块小到 20 也照样被静默丢弃（实测同一张封面 14/20 全被拦、28 才放行），
+# 所以这里比默认值狠一档，宁可糊得难看也要让封面发得出去
+COVER_RETRY_CENSOR_BLOCK: Final = 28
+# 发送失败要不要自动整张重糊再发：默认开（否则那张封面就白生成了），关掉时失败即跳过
+DEFAULT_COVER_RETRY_STRONG: Final = True
+
 # 单个封面最多处理这么多个框，误检刷出成百上千个框时不至于把渲染拖死
 COVER_MAX_BOXES: Final = 64
 

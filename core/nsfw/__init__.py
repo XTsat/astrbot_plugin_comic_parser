@@ -10,7 +10,7 @@
 上层（:mod:`core.cover`）把它们串成「下载完成后发一张（可打码的）封面」。
 """
 
-from .censor import censor_cover, coverage_ratio
+from .censor import censor_cover, censor_full_image, coverage_ratio
 from .coverage import union_coverage
 from .detector import Detection, Detector, NsfwScore, create_detector, is_nsfw_label
 from .deps import ensure_onnxruntime, onnxruntime_installed
@@ -22,6 +22,7 @@ __all__ = [
     "ModelWeights",
     "NsfwScore",
     "censor_cover",
+    "censor_full_image",
     "coverage_ratio",
     "create_detector",
     "ensure_onnxruntime",

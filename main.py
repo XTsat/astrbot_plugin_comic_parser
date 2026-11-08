@@ -25,6 +25,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 
 from .core import (
     AccessGuard,
+    CoverResult,
     CoverService,
     DownloadOutcome,
     DownloadTask,
@@ -1027,12 +1028,43 @@ class ComicParserPlugin(Star):
         if result is None:
             return
 
-        chain: list[Any] = []
         caption = self.cover_service.caption(outcome.meta, result)
+        if await self._send_cover(event, result, caption):
+            return
+
+        # 只有开了打码才敢自动加糊：用户主动关掉打码时，不能再擅自把图糊掉
+        if not (self.settings.cover_censor and self.settings.cover_retry_strong):
+            logger.warning(f"[{PLUGIN_NAME}] 封面未发送成功（平台拦截），本次跳过")
+            return
+
+        logger.warning(f"[{PLUGIN_NAME}] 封面被平台拦下，改用整张打码重发一次")
+        try:
+            strong = await self.cover_service.reinforce(result)
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 封面加强打码失败（本次跳过）: {exc}")
+            return
+        if not await self._send_cover(event, strong, caption):
+            logger.warning(f"[{PLUGIN_NAME}] 封面整张打码后仍未被平台接受，本次跳过")
+
+    async def _send_cover(
+        self, event: AstrMessageEvent, result: CoverResult, caption: str
+    ) -> bool:
+        """直接发一张封面，返回是否发送成功。
+
+        走 ``event.send`` 而不是 ``yield``：只有自己发才拿得到失败（QQ 的图片审核
+        会「收下但不投递」，AstrBot 只在 respond 阶段记一条 ERROR，插件侧无从补救）。
+        """
+        chain: list[Any] = []
         if caption:
             chain.append(Comp.Plain(caption))
         chain.append(Comp.Image.fromFileSystem(str(result.path)))
-        yield event.chain_result(MessageChain(chain).chain)
+        try:
+            await event.send(MessageChain(chain))
+        except Exception as exc:
+            # 平台侧的拦截/网络失败都走这里：拿不到更精确的类型，交给调用方决定重发
+            logger.warning(f"[{PLUGIN_NAME}] 封面发送失败: {exc}")
+            return False
+        return True
 
     async def _deliver(
         self, event: AstrMessageEvent, outcome: DownloadOutcome

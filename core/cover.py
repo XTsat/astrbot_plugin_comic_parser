@@ -17,13 +17,14 @@ from astrbot.api import logger
 
 from ..domain.constants import (
     COVER_MIN_SIDE,
+    COVER_RETRY_CENSOR_BLOCK,
     IMAGE_SUFFIXES,
     NSFW_MODEL_PRESETS,
     PLUGIN_NAME,
 )
 from ..domain.errors import CoverCensorError
 from ..domain.models import ComicMeta
-from .nsfw import Detection, Detector, NsfwScore, censor_cover
+from .nsfw import Detection, Detector, NsfwScore, censor_cover, censor_full_image
 
 # 封面临时文件只留这么久：消息要在发送前一直存在，不能发完就删（协议端是异步取图的）
 COVER_FILE_TTL = 3600.0
@@ -199,6 +200,31 @@ class CoverService:
                     path.unlink(missing_ok=True)
             except OSError:
                 continue
+
+    # ---- 补救 ----
+
+    async def reinforce(self, result: CoverResult) -> CoverResult:
+        """把已经打码的封面再整张糊一遍，用于「发出去被平台拦了」的重发。
+
+        局部打码在平台审核眼里常常还不够（见 :func:`censor_full_image` 的说明），
+        所以重发不再看检出框，直接整张糊，块大小取配置值与补救下限里更大的那个。
+
+        Args:
+            result: 上一次准备好的封面。
+
+        Returns:
+            CoverResult: 整张打码后的封面（分数沿用上次推理结果）。
+        """
+        block = max(int(self.censor_block), COVER_RETRY_CENSOR_BLOCK)
+        await asyncio.to_thread(
+            censor_full_image, result.path, style=self.censor_style, block=block
+        )
+        return CoverResult(
+            path=result.path,
+            score=result.score,
+            censored=True,
+            full_censored=True,
+        )
 
     # ---- 文案 ----
 

@@ -19,7 +19,7 @@
 - **Queueing and limits**: a global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
 - **Session control**: whitelist / blacklist decide who may download, and debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin picks the fastest one before downloading
-- **Cover image after each download** (off by default): every finished download sends one cover image; turn on "Censor the cover" if you want the explicit parts blurred
+- **Cover image after each download** (off by default): every finished download sends one cover image; turn on "Censor the cover" if you want the explicit parts blurred. With censoring on, a cover rejected by the platform (invisible in the group, a send failure in the log) is re-censored across the whole image and sent once more
 - **Into a group file folder**: the finished file lands in the target folder of the current group's files
 - **Automatic cleanup**: temporary files are deleted right after sending
 
@@ -235,7 +235,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Cover and model
 
 <details>
-<summary>Cover and model (1 + 5 + 5 options)</summary>
+<summary>Cover and model (1 + 6 + 5 options)</summary>
 
 **Cover**
 
@@ -252,6 +252,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Mosaic block size (`censor.block`) | int | 14 | Larger blocks are blurrier; the blur radius is derived from it |
 | Censor padding (`censor.padding`) | int | 12 | Expand every box so nothing leaks at the edges |
 | Full-cover area threshold (`censor.full_area`) | float | 0.6 | Censor the whole cover once the union of boxes covers this share; 0 never does |
+| Re-censor and resend when rejected (`censor.retry_strong`) | bool | true | When the platform treats the cover as explicit and drops it (upload succeeds, nothing appears in the group), censor the whole image again and resend once, only skipping if that fails too; the retry is blurrier than "Mosaic block size", so the cover turns out fairly unreadable. Off: skip on failure, no resend |
 
 **Model and detection**
 
@@ -323,4 +324,4 @@ Censoring is off by default, so you can receive covers without any model (sent a
 
 **Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy it took about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds, or search just that channel with `/jm sou`.
 
-**Is the cover censored too much, or does something still show?** The area is driven by "Detection threshold" and "Full-cover area threshold": when something still shows, lower the threshold, raise "Censor padding", or lower the full-cover area threshold (more likely to censor the whole cover); when too much is covered, adjust the other way, and you can switch the style to blur or a black bar. A fully censored cover usually means the detected area really does cover most of the image (0.6 by default; 0.8 is gentler, 0 hides the full-cover fallback). An untouched cover usually means nothing was detected — manga confidences are low, so try lowering the threshold to 0.02 or raising the inference size to 1280.
+**Is the cover censored too much, or does something still show?** The area is driven by "Detection threshold" and "Full-cover area threshold": when something still shows, lower the threshold, raise "Censor padding", or lower the full-cover area threshold (more likely to censor the whole cover); when too much is covered, adjust the other way, and you can switch the style to blur or a black bar. A fully censored cover usually means the detected area really does cover most of the image (0.6 by default; 0.8 is gentler, 0 hides the full-cover fallback). An untouched cover usually means nothing was detected — manga confidences are low, so try lowering the threshold to 0.02 or raising the inference size to 1280. **If the cover never shows up in the group but the log reports a send failure**, the platform classified the image as explicit and dropped it: the plugin re-censors the whole image and sends it once more, and if that still fails it skips the cover (the file itself is unaffected).

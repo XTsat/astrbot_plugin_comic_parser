@@ -16,6 +16,7 @@ from .constants import (
     DEFAULT_COVER_CENSOR_PADDING,
     DEFAULT_COVER_CENSOR_STYLE,
     DEFAULT_COVER_FULL_CENSOR_AREA,
+    DEFAULT_COVER_RETRY_STRONG,
     DEFAULT_COVER_SEND,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_FILENAME_TEMPLATE,
@@ -153,6 +154,7 @@ class PluginSettings:
     cover_censor_padding: int = DEFAULT_COVER_CENSOR_PADDING
     cover_censor_block: int = DEFAULT_COVER_CENSOR_BLOCK
     cover_full_censor_area: float = DEFAULT_COVER_FULL_CENSOR_AREA
+    cover_retry_strong: bool = DEFAULT_COVER_RETRY_STRONG
     # NSFW 模型与评分：权重默认不随插件分发，由开关按需下载
     nsfw_threshold: float = DEFAULT_NSFW_THRESHOLD
     nsfw_imgsz: int = DEFAULT_NSFW_IMGSZ
@@ -323,6 +325,9 @@ class PluginSettings:
                 DEFAULT_COVER_FULL_CENSOR_AREA,
                 minimum=0.0,
                 maximum=1.0,
+            ),
+            cover_retry_strong=_as_bool(
+                censor.get("retry_strong"), DEFAULT_COVER_RETRY_STRONG
             ),
             nsfw_threshold=_as_float(
                 model.get("threshold"), DEFAULT_NSFW_THRESHOLD, minimum=0.01, maximum=0.99
