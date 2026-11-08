@@ -63,3 +63,7 @@ class CoverCensorError(PluginError):
     此时**不发送封面**：用户明确要求打码，把未打码的图发出去违背意图，
     宁可少发一张图，也不能漏发一张没糊的图。
     """
+
+
+class LabError(PluginError):
+    """打码实验台没法继续：message 是直接显示在页面上的中文文案。"""

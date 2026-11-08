@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import aiohttp
@@ -32,6 +33,9 @@ from ...domain.constants import (
 
 # 下载进度只在跨过这些比例时打一条日志，避免每个分片都刷屏
 _PROGRESS_STEPS: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0)
+
+# 进度回调：参数是已下载比例（0-1）
+ProgressCallback = Callable[[float], None]
 
 
 def preset_key(preset: str) -> str:
@@ -100,27 +104,47 @@ class ModelWeights:
         auto_download: bool = False,
         download_url: str = "",
         proxy: str = "",
+        on_progress: ProgressCallback | None = None,
     ) -> None:
         self.models_dir = models_dir
         self.preset = preset_key(preset)
         self.auto_download = auto_download
         self.download_url = (download_url or "").strip()
         self.proxy = proxy or ""
+        # 下载进度回调（0-1 的比例）：只有需要显示进度的调用方（插件里的打码实验台）才传
+        self.on_progress = on_progress
         self._lock = asyncio.Lock()
 
     def local_model(self) -> Path | None:
-        """当前可用的权重（不做任何网络请求）。"""
+        """当前可用的权重（不做任何网络请求）。
+
+        找不到指定档位时会退回目录里任意一份能用的权重——封面链路要的就是「有模型就行」，
+        但「下载并切换到某个档位」不能这样兜，那种场景请用 :meth:`model_for_preset`。
+        """
         return pick_model(self.models_dir, self.preset)
 
-    async def ensure(self) -> tuple[Path | None, bool]:
+    def model_for_preset(self) -> Path | None:
+        """严格按档位取权重：文件名对不上就返回 None，绝不拿别的档位顶替。"""
+        path = self.models_dir / preset_filename(self.preset)
+        try:
+            if path.is_file() and path.stat().st_size >= NSFW_MIN_MODEL_BYTES:
+                return path
+        except OSError:
+            return None
+        return None
+
+    async def ensure(self, *, require_preset: bool = False) -> tuple[Path | None, bool]:
         """确保本地有权重。
+
+        Args:
+            require_preset: 必须是配置里这个档位；为 False 时目录里有任意一份可用权重就返回它。
 
         Returns:
             tuple[Path | None, bool]: (权重路径, 是否本次新下载)。没权重且未开启自动
             下载时返回 ``(None, False)``，调用方据此跳过评分/局部打码。
         """
         async with self._lock:
-            local = self.local_model()
+            local = self.model_for_preset() if require_preset else self.local_model()
             if local is not None:
                 return local, False
 
@@ -208,6 +232,7 @@ class ModelWeights:
         """流式下载到 .part，返回写入的字节数。"""
         total = 0
         reported: set[float] = set()
+        last_percent = -1
         timeout = aiohttp.ClientTimeout(
             total=NSFW_MODEL_DOWNLOAD_TIMEOUT,
             connect=NSFW_DOWNLOAD_CONNECT_TIMEOUT,
@@ -229,6 +254,10 @@ class ModelWeights:
                         if not expected:
                             continue
                         ratio = written / expected
+                        percent = int(ratio * 100)
+                        if self.on_progress is not None and percent != last_percent:
+                            last_percent = percent
+                            self.on_progress(min(1.0, ratio))
                         for step in _PROGRESS_STEPS:
                             if ratio >= step and step not in reported:
                                 reported.add(step)

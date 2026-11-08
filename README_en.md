@@ -20,7 +20,7 @@
 - **Session control**: whitelist / blacklist decide who may download, and debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin picks the fastest one before downloading
 - **Cover image after each download** (off by default): every finished download sends one cover image; turn on "Censor the cover" if you want the explicit parts blurred. With censoring on, a cover rejected by the platform (invisible in the group, a send failure in the log) is re-censored across the whole image and sent once more
-- **Into a group file folder**: the finished file lands in the target folder of the current group's files
+- **Censoring lab** (plugin details page → "Cover censoring / scoring lab"): drop a few images in to see the explicitness score and the detected boxes, then try masking styles, block size, padding and the whole-image threshold on the spot — no need to download a whole comic just to tune cover censoring. All model presets (nano / small / medium × fp32 / int8) are listed there too: pick a missing one, hit "download", and it is fetched with the plugin's own sources and proxy
 - **Automatic cleanup**: temporary files are deleted right after sending
 
 ## Commands
@@ -314,6 +314,10 @@ A JM field search can only target one field at a time. When extra keywords, mult
 Cover censoring and the explicitness figure rely on a local YOLO detection model. The weights are based on [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) (Apache-2.0, classes anus / make_love / nipple / penis / vagina), nano / small / medium variants.
 
 **The plugin uses an ONNX build of those weights**: we export them from the upstream `.pt` (fixed 960 input, opset 17) and quantize the int8 variants separately, so they are not the same files as upstream. Upstream only ships `.pt`, and **the plugin does not accept `.pt`, so do not download from upstream and drop it in**.
+
+You can tune it straight from the plugin details page: the "Cover censoring / scoring lab" view scores any image you drop in, shows where the boxes land and how each style looks, with the threshold and masking parameters adjustable on the spot. Missing model presets can be downloaded from that page too, using the same sources and proxy configured here.
+
+Note that the weights live in the **plugin directory** under `models/`: uninstalling the plugin, or updating it from the marketplace, wipes them along with the plugin folder, so you would have to download them again.
 
 To get the weights, turn on "Auto-download weights" under "Cover and model → Model and detection" (fetched from the plugin release), or download the matching `.onnx` from the plugin's [releases page](https://github.com/XTsat/astrbot_plugin_comic_parser/releases) and place it into the plugin's `models/` directory yourself. The automatic download tries GitHub first and falls back to built-in accelerator mirrors; you can also put your own mirror or object-storage links under "Custom download URL" (one per line, `{filename}` is supported). Detection only needs `onnxruntime` (~100MB), and it is **not installed with the plugin**: while both "Send cover after download" and "Censor the cover" are on, every load/reload checks for it and installs it in the background when missing — reload afterwards and it is ready. If the install cannot run (no network, no pip), the plugin still downloads and sends files, it just skips the cover; you can also run `pip install onnxruntime` yourself.
 

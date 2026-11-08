@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>封面打码 / 评分实验台</title>
+<link rel="stylesheet" href="view.css" />
+</head>
+<body>
+  <div class="header">
+  <div class="topbar">
+    <h1 id="title">封面打码 / 评分实验台</h1>
+    <span class="badge" id="rtBadge">检查中…</span>
+    <span class="spacer"></span>
+    <span class="badge" id="summaryBadge"></span>
+    <span class="badge" id="modelsBadge">-</span>
+  </div>
+
+  <div class="params">
+    <div class="field">
+      <label for="preset">模型</label>
+      <select id="preset"></select>
+      <button id="btnModel" hidden>下载</button>
+      <span id="modelHint" class="hint-inline"></span>
+    </div>
+    <div class="field wide">
+      <label for="threshold">置信度阈值</label>
+      <input type="range" id="threshold" min="0.005" max="0.5" step="0.005" />
+      <input type="number" id="thresholdNum" min="0.005" max="0.5" step="0.005" style="width:74px" />
+    </div>
+    <div class="field" id="imgszField">
+      <label for="imgsz">输入尺寸</label>
+      <select id="imgsz"></select>
+    </div>
+    <span class="spacer"></span>
+    <button id="btnBatch">批量评分全部</button>
+    <button id="btnClear">清空</button>
+  </div>
+  </div>
+
+  <div class="layout">
+    <aside class="list">
+      <div class="drop" id="drop">点击 / 拖入 / 粘贴图片<br /><span class="muted">支持多张</span></div>
+      <input type="file" id="file" accept="image/*" multiple hidden />
+      <ul class="thumbs" id="thumbs"></ul>
+    </aside>
+
+    <section class="stage">
+      <div class="stage-head">
+        <span id="fileName" class="muted title">未选择图片</span>
+        <span class="spacer" style="flex:1"></span>
+        <span id="fileDims" class="muted mono"></span>
+      </div>
+
+      <div class="viewer-wrap" id="viewerWrap">
+        <div class="empty" id="placeholder">
+          <b>点这里选图片</b><br />
+          也可以拖进来，或按 Ctrl+V 粘贴截图（Mac 用 Cmd+V）<br />
+          <span class="muted">支持多张，选完自动开始评分</span>
+        </div>
+        <div class="viewer" id="viewer" hidden>
+          <img id="preview" alt="预览" />
+          <div class="boxes" id="boxes"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <aside class="result">
+      <div class="card" id="resultHint">
+        <h2>还没选图</h2>
+        <div class="hint">
+          拖入或粘贴图片后，这里显示三件事：<br />
+          · <b>露骨指数</b> = 检出框并集面积 ÷ 整图面积 × 100<br />
+          · <b>检出明细</b>：每处部位的标签、置信度、框尺寸<br />
+          · <b>打码结果</b>：糊了几处、是否因为超过整张阈值而整图糊<br />
+          左边可以堆多张图，切换对比不同阈值/档位下的分数。
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>评分</h2>
+        <div class="score-big" id="scoreValue">—<small>/100</small></div>
+        <div class="kv"><span>检出覆盖率</span><span class="mono" id="coverage">—</span></div>
+        <div class="kv"><span>检出部位数</span><span class="mono" id="detCount">—</span></div>
+        <div class="kv"><span>推理耗时</span><span class="mono" id="costMs">—</span></div>
+        <div class="kv"><span>所用阈值</span><span class="mono" id="usedThreshold">—</span></div>
+        <div class="legend">
+          露骨指数 = 检出框并集面积 ÷ 整图面积 × 100，与插件封面摘要口径一致。
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>检出明细</h2>
+        <table class="dets">
+          <thead><tr><th>部位</th><th>置信度</th><th>框(px)</th></tr></thead>
+          <tbody id="detBody"><tr><td colspan="3" class="muted">—</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>打码结果</h2>
+        <div class="kv"><span>状态</span><span id="censorState">—</span></div>
+        <div class="kv"><span>打码后覆盖率</span><span class="mono" id="censorCoverage">—</span></div>
+        <div class="hint" id="censorHint"></div>
+      </div>
+    </aside>
+
+      <div class="tools">
+        <div class="seg" id="styleSeg"></div>
+        <div class="slider-field">块大小 <input type="range" id="block" min="2" max="64" step="2" /><b id="blockVal"></b></div>
+        <div class="slider-field">外扩 <input type="range" id="padding" min="0" max="64" step="2" /><b id="paddingVal"></b></div>
+        <div class="slider-field">整张阈值 <input type="range" id="fullArea" min="0" max="1" step="0.05" /><b id="fullAreaVal"></b></div>
+        <label class="slider-field"><input type="checkbox" id="showBoxes" checked /> 显示检出框</label>
+        <span class="spacer" style="flex:1"></span>
+        <button id="btnPeek" title="按住看原图">按住看原图</button>
+        <button id="btnCensor" class="primary">重新打码</button>
+        <button id="btnDownload">下载打码图</button>
+      </div>
+  </div>
+
+  <div id="toast"></div>
+
+<script type="module" src="view.js"></script>
+</body>
+</html>

@@ -23,6 +23,10 @@ from astrbot.api.event import (
     filter,
 )
 from astrbot.api.star import Context, Star, StarTools, register
+try:  # 插件视图 Web API 是可选能力：老版本没有这个模块也要能正常加载插件
+    from astrbot.api import web as plugin_web
+except ImportError:  # pragma: no cover - 只在老版本 AstrBot 上走到
+    plugin_web = None
 
 from .core import (
     AccessGuard,
@@ -34,6 +38,7 @@ from .core import (
     GroupFileUploader,
     ProgressState,
     ModelWeights,
+    NsfwLabService,
     SearchService,
     create_detector,
     ensure_onnxruntime,
@@ -56,6 +61,7 @@ from .domain import (
     CoverCensorError,
     DownloadCancelled,
     DownloadPaused,
+    LabError,
     PluginError,
     PluginSettings,
     SearchQueryError,
@@ -85,6 +91,7 @@ from .domain.constants import (
     SEARCH_WORDS,
     STOP_ALL_WORDS,
     STOP_WORDS,
+    NSFW_LAB_MAX_UPLOAD_BYTES,
 )
 from .utils import describe_pack_format, format_size, split_pack_format
 
@@ -233,6 +240,22 @@ class ComicParserPlugin(Star):
             censor_padding=self.settings.cover_censor_padding,
             full_censor_area=self.settings.cover_full_censor_area,
         )
+        # 插件视图 views/nsfw_lab：拿同一套检测器与打码函数试封面打码，参数由页面自带
+        self.nsfw_lab = NsfwLabService(
+            self.models_dir,
+            self.temp_root,
+            preset=self.settings.nsfw_model_preset,
+            threshold=self.settings.nsfw_threshold,
+            imgsz=self.settings.nsfw_imgsz,
+            style=self.settings.cover_censor_style,
+            block=self.settings.cover_censor_block,
+            padding=self.settings.cover_censor_padding,
+            full_area=self.settings.cover_full_censor_area,
+            auto_download=self.settings.nsfw_auto_download,
+            download_url=self.settings.nsfw_model_url,
+            proxy=self.settings.proxy,
+        )
+        self._register_nsfw_lab_apis()
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
         # 正在跑的任务：排队提示与「前面下到哪」都读它
         self._running: dict[int, _RunningTask] = {}
@@ -325,6 +348,7 @@ class ComicParserPlugin(Star):
                 logger.info(f"[{PLUGIN_NAME}] 重载中断下载：{summary}")
 
         self._running.clear()
+        self.nsfw_lab.close()
 
         if not self.temp_root.exists():
             return
@@ -342,6 +366,163 @@ class ComicParserPlugin(Star):
             logger.info(f"[{PLUGIN_NAME}] 已清理 {removed} 个临时目录")
         if keep_breakpoints:
             logger.info(f"[{PLUGIN_NAME}] 断点已保留，重载后可接着下")
+
+    # ==================== 插件视图：打码实验台 ====================
+
+    def _register_nsfw_lab_apis(self) -> None:
+        """注册 views/nsfw_lab 需要的接口。
+
+        老版本 AstrBot 没有 register_web_api：这里只跳过这一个视图，插件其余功能照旧。
+        """
+        register_api = getattr(self.context, "register_web_api", None)
+        if plugin_web is None or not callable(register_api):
+            logger.info(
+                f"[{PLUGIN_NAME}] 当前 AstrBot 不支持插件视图 Web API，打码实验台不可用"
+            )
+            return
+
+        for route, handler, methods, desc in (
+            (
+                f"/{PLUGIN_NAME}/nsfw_lab/config",
+                self.api_nsfw_lab_config,
+                ["GET"],
+                "打码实验台：可用档位与默认参数",
+            ),
+            (
+                f"/{PLUGIN_NAME}/nsfw_lab/upload",
+                self.api_nsfw_lab_upload,
+                ["POST"],
+                "打码实验台：上传待测图片",
+            ),
+            (
+                f"/{PLUGIN_NAME}/nsfw_lab/score",
+                self.api_nsfw_lab_score,
+                ["POST"],
+                "打码实验台：露骨度评分",
+            ),
+            (
+                f"/{PLUGIN_NAME}/nsfw_lab/censor",
+                self.api_nsfw_lab_censor,
+                ["POST"],
+                "打码实验台：按框打码并返回预览",
+            ),
+            (
+                f"/{PLUGIN_NAME}/nsfw_lab/download",
+                self.api_nsfw_lab_download,
+                ["GET"],
+                "打码实验台：下载最近一次打码结果",
+            ),
+            (
+                f"/{PLUGIN_NAME}/nsfw_lab/model/prepare",
+                self.api_nsfw_lab_prepare_model,
+                ["POST"],
+                "打码实验台：下载指定档位的权重",
+            ),
+            (
+                f"/{PLUGIN_NAME}/nsfw_lab/model/status",
+                self.api_nsfw_lab_model_status,
+                ["GET"],
+                "打码实验台：权重下载进度与各档位是否就位",
+            ),
+        ):
+            register_api(route, handler, methods, desc)
+
+    async def api_nsfw_lab_config(self) -> Any:
+        """页面首屏：能选哪些档位、各项默认值是多少。"""
+        return plugin_web.json_response({"status": "ok", "data": self.nsfw_lab.describe()})
+
+    async def api_nsfw_lab_upload(self) -> Any:
+        """收一张图进暂存表，返回 id 与原始尺寸。
+
+        体积自己卡：插件扩展路由没有统一的体积上限，页面传来的东西一律不可信。
+        """
+        files = await plugin_web.request.files()
+        upload = files.get("file")
+        if upload is None:
+            return plugin_web.error_response("没有收到图片（表单字段名固定为 file）", status_code=400)
+
+        raw = await upload.read(NSFW_LAB_MAX_UPLOAD_BYTES + 1)
+        if len(raw) > NSFW_LAB_MAX_UPLOAD_BYTES:
+            limit_mb = NSFW_LAB_MAX_UPLOAD_BYTES // 1024 // 1024
+            return plugin_web.error_response(f"图片超过 {limit_mb}MB，换张小一点的", status_code=413)
+
+        try:
+            # 落盘 + 校验尺寸都要读整张图，丢线程里，别卡住事件循环
+            image = await asyncio.to_thread(
+                self.nsfw_lab.add_image, raw, Path(upload.filename or "").suffix.lower()
+            )
+        except LabError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response(
+            {
+                "status": "ok",
+                "data": {
+                    "image_id": image.id,
+                    "width": image.width,
+                    "height": image.height,
+                    "bytes": image.size,
+                },
+            }
+        )
+
+    async def api_nsfw_lab_score(self) -> Any:
+        """按页面给的档位/阈值/输入尺寸评分。"""
+        payload = await plugin_web.request.json(default={})
+        if not isinstance(payload, dict):
+            return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            data = await self.nsfw_lab.score(
+                str(payload.get("image_id") or ""),
+                preset=str(payload.get("preset") or ""),
+                threshold=payload.get("threshold"),
+                imgsz=payload.get("imgsz"),
+            )
+        except LabError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
+
+    async def api_nsfw_lab_censor(self) -> Any:
+        """按页面给的框与样式打码，返回可预览的 data URL。"""
+        payload = await plugin_web.request.json(default={})
+        if not isinstance(payload, dict):
+            return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            data = await self.nsfw_lab.censor(
+                str(payload.get("image_id") or ""),
+                boxes=payload.get("boxes"),
+                style=payload.get("style"),
+                block=payload.get("block"),
+                padding=payload.get("padding"),
+                full_area=payload.get("full_area"),
+            )
+        except LabError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
+
+    async def api_nsfw_lab_prepare_model(self) -> Any:
+        """下载页面选中的权重档位；下载在后台跑，进度靠 status 接口轮询。"""
+        payload = await plugin_web.request.json(default={})
+        if not isinstance(payload, dict):
+            return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            data = await self.nsfw_lab.prepare_model(payload.get("preset"))
+        except LabError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
+
+    async def api_nsfw_lab_model_status(self) -> Any:
+        """当前下载进度 + 各档位是否已就位。"""
+        return plugin_web.json_response({"status": "ok", "data": self.nsfw_lab.model_status()})
+
+    async def api_nsfw_lab_download(self) -> Any:
+        """把该图最近一次打码结果当文件发出去（视图走 bridge.download）。"""
+        image_id = str(plugin_web.request.query.get("image_id") or "")
+        try:
+            path, filename = self.nsfw_lab.download_path(image_id)
+        except LabError as exc:
+            return plugin_web.error_response(str(exc), status_code=404)
+        mime = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
+        return plugin_web.file_response(path, filename=filename, content_type=mime)
 
     # ==================== 命令 ====================
 
@@ -424,6 +605,7 @@ class ComicParserPlugin(Star):
         progress_labels = {"emoji": "贴表情", "text": "文本进度", "none": "关闭"}
         template_labels = {
             "id_short_title": "[简写ID]标题",
+            "id_short_title_pw": "[简写ID]标题 + 密码",
             "id_title": "[ID]标题",
             "id_title_pw": "[ID]标题 + 密码",
             "title_id": "标题[ID]",
