@@ -70,6 +70,9 @@ class Detector(Protocol):
     @property
     def model_path(self) -> Path | None: ...
 
+    @property
+    def input_size(self) -> int | None: ...
+
     def analyze(self, image_path: Path, *, threshold: float | None = None) -> NsfwScore: ...
 
     def reset(self) -> None: ...
@@ -84,6 +87,10 @@ class NullDetector:
 
     @property
     def model_path(self) -> Path | None:
+        return None
+
+    @property
+    def input_size(self) -> int | None:
         return None
 
     def analyze(self, image_path: Path, *, threshold: float | None = None) -> NsfwScore:

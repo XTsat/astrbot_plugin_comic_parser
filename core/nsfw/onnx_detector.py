@@ -54,6 +54,7 @@ class OnnxDetector:
     imgsz: int = DEFAULT_NSFW_IMGSZ
     _session: _OnnxSession | None = field(default=None, init=False, repr=False)
     _load_failed: bool = field(default=False, init=False, repr=False)
+    _imgsz_notice: bool = field(default=False, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     # ---- 可用性 ----
@@ -65,6 +66,26 @@ class OnnxDetector:
         if path is None or path.suffix.lower() != ".onnx":
             return None
         return path
+
+    @property
+    def input_size(self) -> int | None:
+        """权重声明的输入边长。
+
+        本插件导出的 ONNX 是**固定尺寸**（如 ``[1, 3, 960, 960]``），此时除了这个边长之外
+        的任何 ``imgsz`` 都会在推理时报 shape 不匹配，所以上层要么按它给，要么干脆不暴露调节；
+        动态尺寸的导出件返回 ``None``。
+        """
+        session = self._ensure_session()
+        if session is None:
+            return None
+        try:
+            shape = session.get_inputs()[0].shape
+        except (IndexError, AttributeError):
+            return None
+        height, width = (shape[2], shape[3]) if len(shape) >= 4 else (None, None)
+        if isinstance(height, int) and isinstance(width, int) and height == width:
+            return height
+        return None
 
     @property
     def available(self) -> bool:
@@ -113,6 +134,24 @@ class OnnxDetector:
 
     # ---- 预处理 / 后处理（可单测） ----
 
+    def _effective_imgsz(self) -> int:
+        """真正要喂给网络的边长。
+
+        本插件导出的权重是固定尺寸（``[1, 3, 960, 960]``），把配置里的尺寸填成别的值会让
+        session 直接报 shape 不匹配、整张封面按「检测失败」跳过——所以固定尺寸的权重一律
+        按它自己声明的边长来，配置值只在动态尺寸的导出件上才作数。
+        """
+        fixed = self.input_size
+        if fixed is not None and fixed != self.imgsz:
+            if not self._imgsz_notice:
+                self._imgsz_notice = True
+                logger.warning(
+                    f"[{PLUGIN_NAME}] 权重固定 {fixed} 输入，已忽略配置的推理尺寸 {self.imgsz}；"
+                    "这项配置只对动态尺寸的权重有效"
+                )
+            return fixed
+        return self.imgsz
+
     def _preprocess(self, image_path: Path) -> tuple[np.ndarray, tuple[int, int], float, tuple[int, int]]:
         """letterbox 到 imgsz×imgsz，返回 (NCHW blob, 原图尺寸, 缩放比, 左上填充)。"""
         with Image.open(image_path) as image:
@@ -122,10 +161,11 @@ class OnnxDetector:
         if width < 2 or height < 2:
             raise ValueError(f"图片尺寸异常: {width}x{height}")
 
-        scale = min(self.imgsz / width, self.imgsz / height)
+        imgsz = self._effective_imgsz()
+        scale = min(imgsz / width, imgsz / height)
         new_w, new_h = int(round(width * scale)), int(round(height * scale))
-        canvas = np.full((self.imgsz, self.imgsz, 3), PAD_VALUE, dtype=np.uint8)
-        pad_x, pad_y = (self.imgsz - new_w) // 2, (self.imgsz - new_h) // 2
+        canvas = np.full((imgsz, imgsz, 3), PAD_VALUE, dtype=np.uint8)
+        pad_x, pad_y = (imgsz - new_w) // 2, (imgsz - new_h) // 2
         canvas[pad_y : pad_y + new_h, pad_x : pad_x + new_w] = self._resize_bilinear(
             rgb, new_w, new_h
         )
