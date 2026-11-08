@@ -156,6 +156,10 @@ STATUS_WORDS: Final = frozenset({"status", "queue", "状态", "队列", "排队"
 # 每个会话记一条最近的下载请求；上限按会话数截断，避免长期运行堆积
 LAST_REQUEST_LIMIT: Final = 500
 
+# 这条记录要存盘：插件重载会重建实例，只放内存里的话重载中断提示刚让你发 `/comic retry`，
+# 发过去却回「没有下载记录」
+LAST_REQUEST_FILENAME: Final = "last_request.json"
+
 # 取消与超时的巡检间隔（秒）：线程池里的下载只认取消令牌，得靠这个循环把它收掉
 CANCEL_POLL_INTERVAL: Final = 0.5
 

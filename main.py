@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -71,6 +72,7 @@ from .domain.constants import (
     PROGRESS_MIN_INTERVAL,
     PROGRESS_REACTIONS,
     PROGRESS_STALL_INTERVAL,
+    LAST_REQUEST_FILENAME,
     LAST_REQUEST_LIMIT,
     PROGRESS_STEP_PERCENT,
     RESUME_DIRNAME,
@@ -235,8 +237,9 @@ class ComicParserPlugin(Star):
         # 正在跑的任务：排队提示与「前面下到哪」都读它
         self._running: dict[int, _RunningTask] = {}
         self._task_seq = 0
-        # 每个会话记一条最近的下载请求，供 `/comic retry` 原样重放
-        self._last_request: dict[str, _LastRequest] = {}
+        # 每个会话记一条最近的下载请求，供 `/comic retry` 原样重放。
+        # 落盘：重载会重建实例，只放内存的话重载中断后 `/comic retry` 就查不到记录了
+        self._last_request: dict[str, _LastRequest] = self._load_last_requests()
         # 测速排名是上个配置周期的结论：配置改过（域名清单、代理、阈值）就该重新测
         DOMAIN_RACE_CACHE.clear()
         self._clean_temp_on_start()
@@ -1247,6 +1250,65 @@ class ComicParserPlugin(Star):
         self._last_request[session_id] = request
         while len(self._last_request) > LAST_REQUEST_LIMIT:
             self._last_request.pop(next(iter(self._last_request)))
+        self._save_last_requests()
+
+    # ---- 重试记录的落盘 ----
+
+    def _last_request_file(self) -> Path:
+        return self.data_dir / LAST_REQUEST_FILENAME
+
+    def _load_last_requests(self) -> dict[str, _LastRequest]:
+        """读回上次存盘的下载记录；文件缺失、损坏或字段不对都只当没有记录。"""
+        path = self.data_dir / LAST_REQUEST_FILENAME
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 重试记录读取失败，按空处理: {exc}")
+            return {}
+
+        if not isinstance(raw, dict):
+            logger.warning(f"[{PLUGIN_NAME}] 重试记录格式不对，按空处理")
+            return {}
+
+        loaded: dict[str, _LastRequest] = {}
+        for session_id, item in raw.items():
+            if not isinstance(session_id, str) or not isinstance(item, dict):
+                continue
+            command = item.get("command")
+            comic_id = item.get("comic_id")
+            if not isinstance(command, str) or not isinstance(comic_id, str):
+                continue
+            pack_format = item.get("pack_format")
+            loaded[session_id] = _LastRequest(
+                command=command,
+                comic_id=comic_id,
+                pack_format=pack_format if isinstance(pack_format, str) else None,
+            )
+        return loaded
+
+    def _save_last_requests(self) -> None:
+        """整表写回磁盘（原子替换）；落盘失败只记日志，不能影响这次下载。"""
+        path = self._last_request_file()
+        payload = {
+            session_id: {
+                "command": item.command,
+                "comic_id": item.comic_id,
+                "pack_format": item.pack_format,
+            }
+            for session_id, item in self._last_request.items()
+        }
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            )
+            tmp.replace(path)
+        except OSError as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 重试记录写入失败（不影响下载）: {exc}")
+            tmp.unlink(missing_ok=True)
 
     async def _handle_status(
         self, event: AstrMessageEvent, *, include_all: bool
