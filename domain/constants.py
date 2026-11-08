@@ -124,6 +124,13 @@ FILENAME_PLACEHOLDERS: Final = (
     "{author}",
     "{password}",
 )
+# 产物名长度上限：先按字符数给用户调，再按 UTF-8 字节兜底。单名上限是 255 字节
+# （ext4 / NTFS），而中文 1 字符占 3 字节——只数「字」的话，100 个中文标题就是 300 字节，
+# 落盘会直接 ENAMETOOLONG，所以字节这一道不能省。
+DEFAULT_FILENAME_MAX_LENGTH: Final = 100
+FILENAME_LENGTH_RANGE: Final = (20, 150)
+# 200 字节而不是 255：给 ".zip" 后缀和重名时的 "_2" 留余量
+FILENAME_MAX_BYTES: Final = 200
 
 # 长图打包参数：统一宽度后纵向拼接，超过单段上限则分段打包
 LONG_IMG_WIDTH: Final = 1200

@@ -702,6 +702,13 @@
         "hint": "仅在「文件名模板」选「自定义模板」时生效，例如 {title}-{id_short}；可用占位符见 README",
         "default": ""
       },
+      "filename_max_length": {
+        "type": "int",
+        "description": "文件名长度上限",
+        "hint": "产物文件名的字符数上限，超过就截短标题（末尾的密码段和扩展名不受影响）。中文标题还要按 UTF-8 字节再收一道，避免超过文件系统单名 255 字节的上限而落盘失败",
+        "default": 100,
+        "slider": {"min": 20, "max": 150, "step": 5}
+      },
       "upload_to_group_file": {
         "type": "bool",
         "description": "下载后上传到群文件",

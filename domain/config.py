@@ -20,6 +20,7 @@ from .constants import (
     DEFAULT_COVER_RETRY_STRONG,
     DEFAULT_COVER_SEND,
     DEFAULT_DOWNLOAD_TIMEOUT,
+    DEFAULT_FILENAME_MAX_LENGTH,
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_GROUP_FILE_FOLDER,
     DEFAULT_MAX_CONCURRENT_TASKS,
@@ -44,6 +45,7 @@ from .constants import (
     DEFAULT_SEARCH_PAGE_SIZE,
     DEFAULT_SEARCH_TIMEOUT,
     DEFAULT_SEGMENT_TIMEOUT,
+    FILENAME_LENGTH_RANGE,
     FILENAME_TEMPLATES,
     NSFW_IMGSZ_RANGE,
     NSFW_MODEL_PRESETS,
@@ -121,6 +123,7 @@ class PluginSettings:
     pack_password: str = ""
     filename_template: str = DEFAULT_FILENAME_TEMPLATE
     filename_custom: str = ""
+    filename_max_length: int = DEFAULT_FILENAME_MAX_LENGTH
     auto_delete_after_send: bool = True
     upload_to_group_file: bool = True
     group_file_folder: str = DEFAULT_GROUP_FILE_FOLDER
@@ -208,6 +211,13 @@ class PluginSettings:
         )
         if filename_template not in FILENAME_TEMPLATES:
             filename_template = DEFAULT_FILENAME_TEMPLATE
+        filename_max_length = _as_int(
+            packing.get("filename_max_length"), DEFAULT_FILENAME_MAX_LENGTH
+        )
+        if not (
+            FILENAME_LENGTH_RANGE[0] <= filename_max_length <= FILENAME_LENGTH_RANGE[1]
+        ):
+            filename_max_length = DEFAULT_FILENAME_MAX_LENGTH
 
         return cls(
             whitelist=_as_str_list(access.get("whitelist")),
@@ -223,6 +233,7 @@ class PluginSettings:
             pack_password=_as_str(packing.get("pack_password")),
             filename_template=filename_template,
             filename_custom=_as_str(packing.get("filename_custom")),
+            filename_max_length=filename_max_length,
             auto_delete_after_send=_as_bool(
                 packing.get("auto_delete_after_send"), True
             ),

@@ -215,13 +215,14 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Packing and delivery
 
 <details>
-<summary>Packing and delivery (10 options)</summary>
+<summary>Packing and delivery (11 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | Pack format (`pack_format`) | string | pdf | ZIP archive / PDF / long vertical image / keep on disk only |
 | Pack password (`pack_password`) | string | empty | One global password: ZIP uses AES, PDF uses AES-256; empty means no encryption. A missing crypto dependency fails loudly instead of sending an unencrypted file |
 | Filename template (`filename_template`) | string | id_short_title | Naming rule for the output; choices are "[short ID]title", "[short ID]title + password", "[ID]title", "[ID]title + password", "title[ID]", "title[ID] + password", "ID only", "title only" and "custom". Templates with "+password" put the password into the filename (it then shows up in chat history); with an empty pack password that segment is dropped |
+| Filename length limit (`filename_max_length`) | int | 100 | Maximum characters in the output filename; longer titles are shortened (the trailing password segment and extension are kept). CJK titles are additionally capped by UTF-8 bytes so a name never exceeds the filesystem limit |
 | Custom filename template (`filename_custom`) | string | empty | Only used when "Filename template" is "custom", e.g. `{title}-{id_short}`; placeholders are documented in the README |
 | Upload to group files (`upload_to_group_file`) | bool | true | After a group download the file goes into the target folder; QQ already posts a file message, so the chat is not spammed. Group chats + OneBot only |
 | Group file folder (`group_file_folder`) | string | 漫画 | Only used when "Upload to group files" is on. Target folder name (case-insensitive); empty means the group file root |
