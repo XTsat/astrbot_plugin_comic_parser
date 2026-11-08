@@ -675,6 +675,7 @@
         "default": "id_short_title",
         "options": [
           "id_short_title",
+          "id_short_title_pw",
           "id_title",
           "id_title_pw",
           "title_id",
@@ -685,6 +686,7 @@
         ],
         "labels": [
           "[简写ID]标题",
+          "[简写ID]标题 + 密码",
           "[ID]标题",
           "[ID]标题 + 密码",
           "标题[ID]",
