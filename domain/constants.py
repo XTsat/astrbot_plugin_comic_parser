@@ -259,6 +259,11 @@ class NsfwModelPreset:
             分数后面还挂着 mask 系数列，解析时必须少看这几列。
         sources: 下载地址候选，顺序即降级顺序，支持 ``{filename}`` 占位；空表示走
             EraX 的老路径（插件 Release + 加速镜像）。
+        family: 模型家族（``erax`` / ``anime`` / ``anime_seg``），面板按它分组。
+        license: 上游声明的许可协议，面板「模型下载」页原文列出，供用户自行判断。
+        upstream: 上游仓库地址，方便用户自己核对版本与许可。
+        note: 这一档的短板或适用场景，一句话，面板直接展示。
+        approx_bytes: 还没下载时用来预估体积（下载后以实际文件大小为准）。
     """
 
     filename: str
@@ -266,6 +271,11 @@ class NsfwModelPreset:
     labels: tuple[str, ...] = ()
     task: str = "detect"
     sources: tuple[str, ...] = ()
+    family: str = ""
+    license: str = ""
+    upstream: str = ""
+    note: str = ""
+    approx_bytes: int = 0
 
 
 NSFW_TASK_DETECT: Final = "detect"
@@ -326,58 +336,98 @@ NSFW_ANIME_SOURCES: Final = (
 )
 
 
-def _erax_preset(filename: str, summary: str) -> NsfwModelPreset:
-    """EraX 六档共用的预设构造：类别与下载源只有一套。"""
+# 三家上游的公共元数据：版本、许可与短板都写在预设里，面板直接读
+_ERAX_META: Final = {
+    "family": "erax",
+    "license": "Apache-2.0（上游 EraX-NSFW-V1.0；ONNX 由本插件导出）",
+    "upstream": "https://huggingface.co/erax-ai/EraX-NSFW-V1.0",
+    "note": "写实照片向：覆盖 anus / make_love 等场景，漫画封面上召回偏低",
+}
+_ANIME_META: Final = {
+    "family": "anime",
+    "license": "MIT（上游仓库标注）",
+    "upstream": "https://huggingface.co/deepghs/anime_censor_detection",
+    "note": "纯二次元 / 同人图训练，召回高、体积小；没有 make_love 这类场景类别",
+}
+_ANIME_SEG_META: Final = {
+    "family": "anime_seg",
+    "license": "MIT（上游仓库标注；权重内部另注 Ultralytics AGPL-3.0）",
+    "upstream": "https://huggingface.co/01miku/anime-nsfw-segm-yolo26",
+    "note": "二次元分割：框最贴边，带 anus / vagina；人脸类别不会被打码",
+}
+
+
+def _erax_preset(filename: str, summary: str, approx_bytes: int) -> NsfwModelPreset:
+    """EraX 六档共用的预设构造：类别、下载源与上游元数据只有一套。"""
     return NsfwModelPreset(
         filename=filename,
         summary=summary,
         labels=NSFW_ERAX_LABELS,
         sources=NSFW_ERAX_SOURCES,
+        approx_bytes=approx_bytes,
+        **_ERAX_META,
     )
 
 
-def _anime_preset(filename: str, summary: str) -> NsfwModelPreset:
+def _anime_preset(filename: str, summary: str, approx_bytes: int) -> NsfwModelPreset:
     """二次元检测档共用的预设构造。"""
     return NsfwModelPreset(
         filename=filename,
         summary=summary,
         labels=NSFW_ANIME_LABELS,
         sources=NSFW_ANIME_SOURCES,
+        approx_bytes=approx_bytes,
+        **_ANIME_META,
+    )
+
+
+def _anime_seg_preset(filename: str, summary: str, approx_bytes: int) -> NsfwModelPreset:
+    """二次元分割档共用的预设构造。"""
+    return NsfwModelPreset(
+        filename=filename,
+        summary=summary,
+        labels=NSFW_ANIME_SEG_LABELS,
+        task=NSFW_TASK_SEGMENT,
+        sources=NSFW_ANIME_SEG_SOURCES,
+        approx_bytes=approx_bytes,
+        **_ANIME_SEG_META,
     )
 
 
 NSFW_MODEL_PRESETS: Final[dict[str, NsfwModelPreset]] = {
     "m_fp32": _erax_preset(
-        "erax_nsfw_yolo11m.onnx", "medium · fp32 完整精度（约 77MB，推荐）"
+        "erax_nsfw_yolo11m.onnx", "medium · fp32 完整精度（约 77MB，推荐）", 80_651_274
     ),
-    "m_int8": _erax_preset("erax_nsfw_yolo11m_int8.onnx", "medium · int8 量化（约 20MB）"),
+    "m_int8": _erax_preset(
+        "erax_nsfw_yolo11m_int8.onnx", "medium · int8 量化（约 20MB）", 20_971_520
+    ),
     "s_fp32": _erax_preset(
-        "erax_nsfw_yolo11s.onnx", "small · fp32 完整精度（约 36MB）"
+        "erax_nsfw_yolo11s.onnx", "small · fp32 完整精度（约 36MB）", 37_748_736
     ),
-    "s_int8": _erax_preset("erax_nsfw_yolo11s_int8.onnx", "small · int8 量化（约 10MB）"),
+    "s_int8": _erax_preset(
+        "erax_nsfw_yolo11s_int8.onnx", "small · int8 量化（约 10MB）", 10_485_760
+    ),
     "n_fp32": _erax_preset(
-        "erax_nsfw_yolo11n.onnx", "nano · fp32 完整精度（约 10MB，最省）"
+        "erax_nsfw_yolo11n.onnx", "nano · fp32 完整精度（约 10MB，最省）", 10_485_760
     ),
-    "n_int8": _erax_preset("erax_nsfw_yolo11n_int8.onnx", "nano · int8 量化（约 3MB）"),
+    "n_int8": _erax_preset(
+        "erax_nsfw_yolo11n_int8.onnx", "nano · int8 量化（约 3MB）", 3_145_728
+    ),
     # 二次元封面用这两档：召回比写实模型高得多，而且小得多、快得多
     "anime_n": _anime_preset(
-        "anime_censor_v1.0_n.onnx", "二次元 · nano（约 12MB，漫画封面推荐）"
+        "anime_censor_v1.0_n.onnx", "二次元 · nano（约 12MB，漫画封面推荐）", 12_104_146
     ),
-    "anime_s": _anime_preset("anime_censor_v1.0_s.onnx", "二次元 · small（约 45MB）"),
-    # 二次元分割档：原生输入 640 / 1280，戴的是 7 类（含人脸，人脸不打码）
-    "anime_seg_n": NsfwModelPreset(
-        filename="anime_seg_nano_x640.onnx",
-        summary="二次元分割 · nano（原生 640 输入，约 6MB，最快）",
-        labels=NSFW_ANIME_SEG_LABELS,
-        task=NSFW_TASK_SEGMENT,
-        sources=NSFW_ANIME_SEG_SOURCES,
+    "anime_s": _anime_preset(
+        "anime_censor_v1.0_s.onnx", "二次元 · small（约 45MB）", 44_586_353
     ),
-    "anime_seg_m": NsfwModelPreset(
-        filename="anime_seg_medium_x1280.onnx",
-        summary="二次元分割 · medium（原生 1280 输入，约 48MB，更准更慢）",
-        labels=NSFW_ANIME_SEG_LABELS,
-        task=NSFW_TASK_SEGMENT,
-        sources=NSFW_ANIME_SEG_SOURCES,
+    # 二次元分割档：原生输入 640 / 1280，带的是 7 类（含人脸，人脸不打码）
+    "anime_seg_n": _anime_seg_preset(
+        "anime_seg_nano_x640.onnx", "二次元分割 · nano（原生 640 输入，约 6MB，最快）", 5_902_685
+    ),
+    "anime_seg_m": _anime_seg_preset(
+        "anime_seg_medium_x1280.onnx",
+        "二次元分割 · medium（原生 1280 输入，约 48MB，更准更慢）",
+        47_600_269,
     ),
 }
 DEFAULT_NSFW_MODEL_PRESET: Final = "m_fp32"

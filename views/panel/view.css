@@ -336,3 +336,5 @@ select.narrow { max-width: 160px; }
 .progress > i { display: block; height: 100%; background: var(--accent); width: 0; }
 .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .muted-line { color: var(--muted); font-size: 12px; }
+
+button.danger { color: var(--bad); border-color: var(--bad-line); }

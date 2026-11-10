@@ -421,16 +421,28 @@ class ComicParserPlugin(Star):
                 "插件面板：下载最近一次打码结果",
             ),
             (
-                f"/{PLUGIN_NAME}/panel/model/prepare",
-                self.api_panel_prepare_model,
-                ["POST"],
-                "打码实验台：下载指定档位的权重",
+                f"/{PLUGIN_NAME}/panel/models",
+                self.api_panel_models,
+                ["GET"],
+                "插件面板：模型清单（类别、大小、来源、许可、是否已装）",
             ),
             (
-                f"/{PLUGIN_NAME}/panel/model/status",
+                f"/{PLUGIN_NAME}/panel/models/download",
+                self.api_panel_model_download,
+                ["POST"],
+                "插件面板：下载指定档位的权重",
+            ),
+            (
+                f"/{PLUGIN_NAME}/panel/models/status",
                 self.api_panel_model_status,
                 ["GET"],
-                "打码实验台：权重下载进度与各档位是否就位",
+                "插件面板：权重下载进度与各档位状态",
+            ),
+            (
+                f"/{PLUGIN_NAME}/panel/models/delete",
+                self.api_panel_model_delete,
+                ["POST"],
+                "插件面板：删除指定档位已下载的权重",
             ),
         ):
             register_api(route, handler, methods, desc)
@@ -507,20 +519,44 @@ class ComicParserPlugin(Star):
             return plugin_web.error_response(str(exc), status_code=400)
         return plugin_web.json_response({"status": "ok", "data": data})
 
-    async def api_panel_prepare_model(self) -> Any:
+    async def api_panel_models(self) -> Any:
+        """「模型下载」页的清单：全部档位 + 下载进度快照。"""
+        return plugin_web.json_response(
+            {
+                "status": "ok",
+                "data": {
+                    "models_dir": str(self.panel.models_dir),
+                    "models": self.panel.models(),
+                    "download": self.panel.model_status(),
+                },
+            }
+        )
+
+    async def api_panel_model_download(self) -> Any:
         """下载页面选中的权重档位；下载在后台跑，进度靠 status 接口轮询。"""
         payload = await plugin_web.request.json(default={})
         if not isinstance(payload, dict):
             return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
         try:
-            data = await self.panel.prepare_model(payload.get("preset"))
+            data = await self.panel.download_model(payload.get("preset"))
         except PanelError as exc:
             return plugin_web.error_response(str(exc), status_code=400)
         return plugin_web.json_response({"status": "ok", "data": data})
 
     async def api_panel_model_status(self) -> Any:
-        """当前下载进度 + 各档位是否已就位。"""
+        """当前下载进度 + 各档位状态。"""
         return plugin_web.json_response({"status": "ok", "data": self.panel.model_status()})
+
+    async def api_panel_model_delete(self) -> Any:
+        """删掉某个档位已下载的权重。"""
+        payload = await plugin_web.request.json(default={})
+        if not isinstance(payload, dict):
+            return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            data = self.panel.delete_model(payload.get("preset"))
+        except PanelError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
 
     async def api_panel_download(self) -> Any:
         """把该图最近一次打码结果当文件发出去（视图走 bridge.download）。"""

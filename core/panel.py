@@ -128,6 +128,11 @@ class PanelService:
 
     # ---- 元信息 ----
 
+    @property
+    def models_dir(self) -> Path:
+        """权重目录（面板展示用，只读）。"""
+        return self._models_dir
+
     def presets(self) -> list[dict[str, Any]]:
         """全部档位 + 是否已安装。
 
@@ -148,6 +153,40 @@ class PanelService:
                     "installed": installed,
                     "available": installed,
                     "bytes": path.stat().st_size if installed else 0,
+                }
+            )
+        return items
+
+    def models(self) -> list[dict[str, Any]]:
+        """「模型下载」页要的详细清单：类别、大小、来源、许可、装没装。"""
+        downloading = self._prepare_state.get("preset") if self._prepare_state.get("state") == "downloading" else ""
+        items: list[dict[str, Any]] = []
+        for preset, spec in NSFW_MODEL_PRESETS.items():
+            path = self._models_dir / spec.filename
+            installed = path.is_file()
+            size = 0
+            if installed:
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    installed = False
+            items.append(
+                {
+                    "value": preset,
+                    "label": spec.summary,
+                    "file": spec.filename,
+                    "family": spec.family,
+                    "task": spec.task,
+                    "labels": list(spec.labels),
+                    "license": spec.license,
+                    "upstream": spec.upstream,
+                    "note": spec.note,
+                    "installed": installed,
+                    "bytes": size,
+                    "approx_bytes": spec.approx_bytes,
+                    "downloading": downloading == preset,
+                    "current": preset == self._defaults.get("preset"),
+                    "sources": list(spec.sources) or ["插件 Release（tag 见 README）"],
                 }
             )
         return items
@@ -260,7 +299,7 @@ class PanelService:
 
     # ---- 权重下载 ----
 
-    async def prepare_model(self, preset: Any) -> dict[str, Any]:
+    async def download_model(self, preset: Any) -> dict[str, Any]:
         """把某个档位的权重下下来（后台跑），页面用 :meth:`model_status` 轮询进度。
 
         下载源、代理、自定义地址全部沿用插件配置：页面上换档位不该绕过用户的网络设置。
@@ -292,8 +331,37 @@ class PanelService:
         return dict(self._prepare_state)
 
     def model_status(self) -> dict[str, Any]:
-        """当前下载状态 + 各档位是否就位（页面按秒轮询）。"""
-        return {**self._prepare_state, "presets": self.presets()}
+        """当前下载进度 + 各档位是否已装（「模型下载」页按秒轮询）。"""
+        return {**self._prepare_state, "models": self.models()}
+
+    def delete_model(self, preset: Any) -> dict[str, Any]:
+        """删掉某个档位已下载的权重。
+
+        只删预设表里认识的文件名：面板传进来的值一律按档位名收敛，不做路径拼接，
+        免得把 ``models/`` 以外的东西删掉。
+        """
+        key = str(preset or "").strip().lower()
+        if key not in NSFW_MODEL_PRESETS:
+            raise PanelError(f"没有这个模型档位：{preset}")
+        spec = NSFW_MODEL_PRESETS[key]
+        target = self._models_dir / spec.filename
+        part = target.with_name(spec.filename + ".part")
+
+        removed = False
+        for path in (target, part):
+            try:
+                if path.is_file():
+                    path.unlink()
+                    removed = True
+            except OSError as exc:
+                raise PanelError(f"删不掉 {path.name}：{exc}") from exc
+
+        # 删掉的档位如果正被缓存着，检测器得一起丢掉，否则还会拿它跑
+        self._detectors.pop(key, None)
+        if key == self._prepare_state.get("preset"):
+            self._prepare_state = _prepare_snapshot("idle", "", 0.0, "")
+        logger.info(f"[{PLUGIN_NAME}] 面板删除权重 {spec.filename}（{'已删' if removed else '本来就没有'}）")
+        return {"removed": removed, "models": self.models()}
 
     async def _download_model(self, preset: str) -> None:
         """后台任务：真正下载权重，结果写回 _prepare_state。"""
@@ -308,7 +376,7 @@ class PanelService:
         try:
             path, _ = await weights.ensure(require_preset=True)
         except Exception as exc:  # aiohttp 的异常类型很杂，这里统一收口
-            logger.warning(f"[{PLUGIN_NAME}] 打码实验台下载权重失败 {preset}: {exc}")
+            logger.warning(f"[{PLUGIN_NAME}] 面板下载权重失败 {preset}: {exc}")
             self._prepare_state = _prepare_snapshot("error", preset, 0.0, str(exc))
             return
 
@@ -325,7 +393,7 @@ class PanelService:
         # 之前可能缓存过「没有权重」时的检测器，换掉它才能真正用上新档位
         self._detectors.pop(preset, None)
         self._prepare_state = _prepare_snapshot("ready", preset, 1.0, "")
-        logger.info(f"[{PLUGIN_NAME}] 打码实验台权重就绪：{path.name}")
+        logger.info(f"[{PLUGIN_NAME}] 面板权重就绪：{path.name}")
 
     def _note_progress(self, ratio: float) -> None:
         if self._prepare_state.get("state") == "downloading":
