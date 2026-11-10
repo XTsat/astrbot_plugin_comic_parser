@@ -7,7 +7,8 @@ export default {
   mount(root, ctx) {
     const { el, api, toast, escapeHtml, EP } = ctx;
 
-    const state = { groups: [], dirty: new Map(), writable: true, skipped: [] };
+    // baseline 是「上一次读/存成功时的值」，徽标只用它算「有几项改了还没保存」
+    const state = { groups: [], baseline: null, writable: true, skipped: [] };
 
     root.innerHTML = `
       <div class="pane-grid">
@@ -128,6 +129,23 @@ export default {
       return values;
     }
 
+    /** 徽标只报「改了几项还没保存」：总项数看表单就够了，写满屏数字没人关心。 */
+    function syncDirty() {
+      if (!state.baseline) return;
+      const current = collect();
+      let dirty = 0;
+      for (const [key, value] of Object.entries(current)) {
+        const base = state.baseline[key];
+        const same =
+          Array.isArray(value) || Array.isArray(base)
+            ? JSON.stringify(value) === JSON.stringify(base)
+            : String(value ?? "") === String(base ?? "");
+        if (!same) dirty += 1;
+      }
+      el("cfgState").textContent = dirty ? `${dirty} 项未保存` : "没有未保存的改动";
+      el("cfgState").className = dirty ? "badge warn" : "badge";
+    }
+
     async function load() {
       const data = await api.get(EP.settings);
       state.groups = data.groups || [];
@@ -138,8 +156,8 @@ export default {
       el("cfgNote").textContent = state.writable
         ? "「模型档位」「渠道」「打包」这类改动保存后要重载插件才生效。"
         : "当前插件版本不支持在面板里保存配置，请用 AstrBot 的设置页。";
-      el("cfgState").textContent = `${state.groups.reduce((sum, group) => sum + group.items.length, 0)} 项`;
-      el("cfgState").className = "badge";
+      state.baseline = collect();
+      syncDirty();
     }
 
     async function save() {
@@ -154,13 +172,14 @@ export default {
         }
         if (data.need_reload) parts.push("改动要重载插件才生效");
         toast(parts.join("；"));
-        el("cfgState").textContent = "已保存";
-        el("cfgState").className = "badge ok";
         if (data.settings) {
           state.groups = data.settings.groups || state.groups;
           state.skipped = data.settings.skipped || state.skipped;
           render();
         }
+        state.baseline = collect();
+        el("cfgState").textContent = "已保存";
+        el("cfgState").className = "badge ok";
       } catch (err) {
         el("cfgState").textContent = "保存失败";
         el("cfgState").className = "badge bad";
@@ -169,6 +188,9 @@ export default {
         el("cfgSave").disabled = !state.writable;
       }
     }
+
+    container.addEventListener("input", syncDirty);
+    container.addEventListener("change", syncDirty);
 
     el("cfgSave").addEventListener("click", save);
     el("cfgReload").addEventListener("click", () => {
