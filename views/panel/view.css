@@ -51,11 +51,15 @@
   * { box-sizing: border-box; }
   /* 作者样式里的 display 会盖掉浏览器默认的 [hidden]{display:none}，这里补一道 */
   [hidden] { display: none !important; }
-  html { -webkit-text-size-adjust: 100%; }
+  html { -webkit-text-size-adjust: 100%; height: 100%; }
+  /* 高度必须一路锁到 body：只写 min-height 时 body 会被内容撑高，里面那些
+     overflow:auto 的滚动区就永远拿不到「比内容矮」的高度，于是缩略图列表不滚、
+     整页反而长出滚动条。面板是固定高度的应用外壳，超出部分交给各页自己滚 */
   body {
     margin: 0;
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     background: var(--bg);
@@ -94,6 +98,7 @@
     .header { position: sticky; top: 0; z-index: 20; }
   }
   .topbar {
+    flex: none;
     display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
     padding: 10px 16px;
   }
@@ -129,6 +134,7 @@
   /* ---- 三栏（窄屏逐级收成一栏） ---- */
   .layout {
     flex: 1 1 auto;
+    min-height: 0;
     display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px;
     grid-template-rows: minmax(0, 1fr) auto;   /* 内容区吃满剩余高度，页脚只占一行 */
     align-items: stretch;                      /* 左右两栏拉到底，别在下面留一片空 */
@@ -145,9 +151,13 @@
   .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
   @media (max-width: 1100px) {
-    /* 结果栏换到下一行，网格行高交回内容决定（页面纵向滚动） */
+    /* 结果栏换到下一行，网格行高交回内容决定 */
     .layout { grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: none; align-content: start; }
     .result { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); }
+    /* 收成一列后不再有「一屏高度」可分，改由页容器滚；列表仍限高、自己滚 */
+    .pane[data-tab="test"] { overflow-y: auto; }
+    .pane[data-tab="test"] .layout { flex: none; }
+    .thumbs { max-height: 45vh; }
   }
   @media (max-width: 720px) {
     .layout { grid-template-columns: 1fr; grid-template-rows: none; align-content: start; }
@@ -165,6 +175,7 @@
 
   /* ---- 左侧列表 ---- */
   .drop {
+    flex: none;
     border: 1px dashed var(--line-strong); border-radius: var(--radius);
     padding: 16px 10px; text-align: center; color: var(--muted);
     cursor: pointer; font-size: 13px; margin-bottom: 10px;
@@ -288,6 +299,7 @@
 
 /* ---- 面板外壳：标签页与页容器 ---- */
 .tabs {
+  flex: none;
   display: flex;
   gap: 4px;
   padding: 0 16px;
@@ -314,7 +326,16 @@
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
-.pane { padding: 0; }
+/* 页容器是高度链的中间一环：断了就必须为 0，下面的 flex:1 才吃得到边界 */
+#panes { flex: 1 1 auto; min-height: 0; display: flex; min-width: 0; }
+.pane {
+  flex: 1 1 auto; min-height: 0; min-width: 0; padding: 0;
+  display: flex; flex-direction: column;
+}
+/* 打码测试页自己分栏、各栏自己滚，整页不许滚；其余几页是卡片流，交给页容器滚 */
+.pane[data-tab="test"] { overflow: hidden; }
+.pane:not([data-tab="test"]) { overflow-y: auto; }
+.pane .params { flex: none; }
 .pane .params { border-bottom: 1px solid var(--line); }
 .field input[type="text"] {
   /* 可伸缩：给同一行的渠道下拉留出位置，别把下拉挤到只剩一个箭头 */
