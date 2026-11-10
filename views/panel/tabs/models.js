@@ -26,11 +26,7 @@ export default {
         <div class="page-head">
           <div>
             <h2>模型下载</h2>
-            <p class="hint">
-              权重不随插件分发，按需下载到 <code class="mono" id="modelsDir">models/</code>。下载源按档位走各自上游，
-              失败自动换源；配置里的「自定义下载地址」「代理」在这里同样生效。
-              实测同一批漫画封面：二次元检测与二次元分割都检出 10/11 张，写实档 6/11，所以下面的顺序就是推荐顺序。
-            </p>
+            <p class="hint">权重不随插件分发，按需下载到 <code class="mono" id="modelsDir">models/</code>。下载源按档位走各自上游，失败自动换源；配置里的「自定义下载地址」「代理」在这里同样生效。实测同一批漫画封面：二次元检测与二次元分割都检出 10/11 张，写实档 6/11，所以下面的顺序就是推荐顺序。</p>
           </div>
           <div class="row-actions">
             <span id="mRuntime" class="badge">—</span>

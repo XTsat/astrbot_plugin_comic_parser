@@ -15,10 +15,7 @@ export default {
         <div class="page-head">
           <div>
             <h2>设置</h2>
-            <p class="hint">
-              插件配置的表单版：改完点「保存」。渠道模板条目（每个站点的账号、域名、代理等）
-              结构较深，仍在 AstrBot 的设置页里改；其余项都能在这里改。
-            </p>
+            <p class="hint">插件配置的表单版：改完点「保存」。渠道模板条目（每个站点的账号、域名、代理等）结构较深，仍在 AstrBot 的设置页里改；其余项都能在这里改。</p>
             <p class="hint" id="cfgNote"></p>
           </div>
           <div class="row-actions">

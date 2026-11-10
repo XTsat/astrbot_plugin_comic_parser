@@ -277,6 +277,8 @@ button.ghost:hover { background: var(--panel-2); color: var(--text); border-colo
 }
 .card-head > h2 { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); letter-spacing: .04em; }
 .card-head .row-actions { margin-left: auto; }
+.card-head > .muted-line { margin-left: auto; }
+/* 长说明不跟着标题挤在右边：交给 .legend 单独占一行 */
 
 /* ---- 键值表：两列对齐，值靠右 ---- */
 .kv { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-sm); padding: 3px 0; }
@@ -715,10 +717,10 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 /* ---- 状态页的「渠道」卡：左边试一个渠道，右边是能力表 ---- */
 /* 左表单 : 右表格 ≈ 0.85 : 1.5，两边都不至于空；
    表格在这个位置占满自己的列，别用 compact 缩成一坨靠左 */
-.channel-split { display: grid; grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.5fr); gap: var(--sp-5); align-items: start; }
+.channel-split { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(0, 1.35fr); gap: var(--sp-5); align-items: start; }
 .channel-test { display: grid; gap: var(--sp-2); min-width: 0; }
 .channel-test .field { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: var(--sp-2); }
-.channel-test .field > select, .channel-test .field > input { width: 100%; min-width: 0; }
+.channel-test .field > select, .channel-test .field > input { width: 100%; min-width: 0; max-width: none; }
 @media (max-width: 900px) {
   .channel-split { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
   .channel-test .field { grid-template-columns: 1fr; gap: 2px; }
@@ -757,7 +759,6 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 
 /* 档位下拉里的名字很长：限宽 + 省略号，完整内容在 title 里 */
 #mUploadPreset, #mMode { max-width: 360px; text-overflow: ellipsis; }
-#cChannel { max-width: 220px; }
 
 /* ============================ 7. 窄屏与手机 ============================ */
 @media (max-width: 1100px) {

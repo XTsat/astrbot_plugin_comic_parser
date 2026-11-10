@@ -41,10 +41,8 @@ export default {
         </div>
 
         <div class="card">
-          <div class="card-head">
-            <h2>渠道</h2>
-            <span class="muted-line" style="margin-left: auto">「取封面」决定能不能在面板里做封面预览</span>
-          </div>
+          <div class="card-head"><h2>渠道</h2></div>
+          <p class="legend">「取封面」决定这个渠道能不能在面板里做封面预览（只取元信息、不下一整本）。</p>
           <div class="channel-split">
             <div class="channel-test">
               <div class="field">
