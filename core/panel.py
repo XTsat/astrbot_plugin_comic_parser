@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
 import shutil
 import threading
 import time
@@ -21,7 +22,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from PIL import Image
 from astrbot.api import logger
@@ -42,6 +43,7 @@ from ..domain.constants import (
     PANEL_IMGSZ_CHOICES,
     PANEL_MAX_IMAGES,
     PANEL_MAX_UPLOAD_BYTES,
+    PANEL_SETTINGS_SKIP_GROUPS,
     NSFW_MODEL_PRESETS,
     PLUGIN_NAME,
 )
@@ -94,6 +96,9 @@ class PanelService:
         plugin_info: Mapping[str, str] | None = None,
         channels_provider: Callable[[], dict[str, Any]] | None = None,
         tasks_provider: Callable[[], dict[str, Any]] | None = None,
+        config_provider: Callable[[], Mapping[str, Any]] | None = None,
+        config_writer: Callable[[dict[str, Any]], None] | None = None,
+        schema_path: Path | None = None,
     ) -> None:
         self._models_dir = Path(models_dir)
         self._temp_dir = Path(temp_root) / "panel"
@@ -117,6 +122,11 @@ class PanelService:
         self._channels_provider = channels_provider
         # 正在跑 / 排队的下载任务：只有插件主类知道，面板只读它
         self._tasks_provider = tasks_provider
+        # 「设置」页：读插件当前配置、写回插件配置（由主类注入，面板不直接碰 AstrBot 的配置对象）
+        self._config_provider = config_provider
+        self._config_writer = config_writer
+        # 配置项说明直接读插件自带的 schema，省得在页面里再抄一份文案
+        self._schema_path = Path(schema_path) if schema_path else None
         # 一次只允许一个下载：几十 MB 的文件并行下只会互相抢带宽
         self._prepare_task: asyncio.Task[None] | None = None
         self._prepare_state: dict[str, Any] = {
@@ -195,6 +205,112 @@ class PanelService:
                 }
             )
         return items
+
+    # ---- 设置 ----
+
+    def settings(self) -> dict[str, Any]:
+        """把 ``_conf_schema.json`` 摊成页面能直接渲染的表单 + 当前值。
+
+        嵌套的 ``object``（例如 ``cover.censor.*``）会摊平成 ``cover.censor.enable``
+        这种三段键，但保留所属子分组，页面按子分组折叠展示。
+        """
+        schema = self._load_schema()
+        values = self._config_values()
+        groups: list[dict[str, Any]] = []
+        for group_key, group_node in schema.items():
+            if group_key in PANEL_SETTINGS_SKIP_GROUPS:
+                continue
+            if not isinstance(group_node, dict) or group_node.get("type") != "object":
+                continue
+            items = [
+                _field_entry(path, node, values, parent)
+                for path, node, parent in _walk_schema(group_node.get("items") or {}, group_key)
+            ]
+            if not items:
+                continue
+            groups.append(
+                {
+                    "key": group_key,
+                    "label": str(group_node.get("description") or group_key),
+                    "hint": str(group_node.get("hint") or ""),
+                    "items": items,
+                }
+            )
+        return {
+            "groups": groups,
+            "skipped": [
+                {
+                    "key": key,
+                    "reason": "渠道模板条目多、结构深，请用 AstrBot 的设置页改（这里能看它的启用情况）",
+                }
+                for key in PANEL_SETTINGS_SKIP_GROUPS
+            ],
+            "writable": self._config_writer is not None,
+        }
+
+    def save_settings(self, payload: Any) -> dict[str, Any]:
+        """把页面提交的配置写回插件配置。
+
+        只接受 schema 里存在的键，并按 schema 的类型收敛（页面传来的值一律不可信）。
+        """
+        if self._config_writer is None:
+            raise PanelError("当前插件版本不支持在面板里改配置，请用 AstrBot 的设置页")
+        if not isinstance(payload, dict) or not payload:
+            raise PanelError("没有收到要保存的配置")
+
+        schema = self._load_schema()
+        cleaned: dict[str, Any] = {}
+        rejected: list[str] = []
+        for path, raw in payload.items():
+            node = _schema_node(schema, str(path))
+            if node is None:
+                rejected.append(str(path))
+                continue
+            try:
+                cleaned[str(path)] = _coerce_value(str(node.get("type") or "string"), raw, node)
+            except ValueError:
+                rejected.append(str(path))
+        if not cleaned:
+            raise PanelError("没有一个配置项通过校验，检查一下填的值")
+
+        self._config_writer(cleaned)
+        logger.info(f"[{PLUGIN_NAME}] 面板保存配置 {len(cleaned)} 项")
+        return {
+            "saved": len(cleaned),
+            "rejected": rejected,
+            # 渠道/权重档位这类改动要重新加载插件才生效，页面得说清楚
+            "need_reload": any(
+                path.split(".", 1)[0] in ("cover", "channels", "packing", "search", "access")
+                for path in cleaned
+            ),
+            "settings": self.settings(),
+        }
+
+    def _load_schema(self) -> dict[str, Any]:
+        if self._schema_path is None or not self._schema_path.is_file():
+            return {}
+        try:
+            return json.loads(self._schema_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 读配置 schema 失败: {exc}")
+            return {}
+
+    def _config_values(self) -> dict[str, Any]:
+        """把插件配置摊平成 ``{"组.键": 值}``，页面直接按这个键回写。"""
+        if self._config_provider is None:
+            return {}
+        try:
+            config = self._config_provider()
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 面板读配置失败: {exc}")
+            return {}
+        values: dict[str, Any] = {}
+        for group_key, group in dict(config or {}).items():
+            if not isinstance(group, Mapping):
+                continue
+            for key, value in group.items():
+                values[f"{group_key}.{key}"] = value
+        return values
 
     def status(self) -> dict[str, Any]:
         """「状态」页要的一份全景：运行时、权重、渠道、任务、磁盘。"""
@@ -780,6 +896,97 @@ def _clamp_float(value: Any, low: float, high: float, fallback: float) -> float:
 def _data_url(path: Path) -> str:
     mime = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+
+
+# 这些类型不收进「设置」页：模板列表与嵌套字典需要专门编辑器，留给 AstrBot 设置页
+_UNEDITABLE_TYPES: Final = ("object", "template_list", "dict")
+
+
+def _walk_schema(
+    items: Mapping[str, Any], prefix: str, parent: str = ""
+) -> list[tuple[str, Mapping[str, Any], str]]:
+    """递归摊平 schema，产出 ``(完整键, 节点, 所属子分组说明)``。"""
+    flat: list[tuple[str, Mapping[str, Any], str]] = []
+    for key, node in items.items():
+        if not isinstance(node, Mapping):
+            continue
+        path = f"{prefix}.{key}"
+        field_type = str(node.get("type") or "string")
+        if field_type == "object" and isinstance(node.get("items"), Mapping):
+            label = str(node.get("description") or key)
+            flat.extend(_walk_schema(node["items"], path, label))
+            continue
+        if field_type in _UNEDITABLE_TYPES:
+            continue
+        flat.append((path, node, parent))
+    return flat
+
+
+def _field_entry(
+    path: str, node: Mapping[str, Any], values: Mapping[str, Any], parent: str = ""
+) -> dict[str, Any]:
+    """一个配置项 → 页面用的描述（含当前值、默认值与所属子分组）。"""
+    key = path.rsplit(".", 1)[-1]
+    return {
+        "key": path,
+        "parent": parent,
+        "label": str(node.get("description") or key),
+        "hint": str(node.get("hint") or ""),
+        "type": str(node.get("type") or "string"),
+        "value": values.get(path, node.get("default")),
+        "default": node.get("default"),
+        "options": node.get("options"),
+        "option_labels": node.get("labels"),
+        "slider": node.get("slider"),
+        "secret": bool(node.get("secret")),
+        "invisible": bool(node.get("invisible")),
+    }
+
+
+def _schema_node(schema: Mapping[str, Any], path: str) -> Mapping[str, Any] | None:
+    """按任意深度的 ``组.子组.键`` 找到 schema 节点。"""
+    node: Any = schema
+    for part in path.split("."):
+        if not isinstance(node, Mapping):
+            return None
+        items = node.get("items") if node.get("type") == "object" else node
+        if not isinstance(items, Mapping):
+            return None
+        node = items.get(part)
+    return node if isinstance(node, Mapping) else None
+
+
+def _coerce_value(field_type: str, raw: Any, node: Mapping[str, Any]) -> Any:
+    """按 schema 的类型把页面传来的值收敛成插件配置能接受的样子。"""
+    if field_type == "bool":
+        if isinstance(raw, bool):
+            return raw
+        return str(raw).strip().lower() in ("1", "true", "on", "yes", "是")
+
+    if field_type in ("int", "float"):
+        try:
+            number = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"不是数字: {raw}") from exc
+        slider = node.get("slider") or {}
+        low = slider.get("min")
+        high = slider.get("max")
+        if isinstance(low, (int, float)) and number < low:
+            number = float(low)
+        if isinstance(high, (int, float)) and number > high:
+            number = float(high)
+        return int(round(number)) if field_type == "int" else float(number)
+
+    if field_type == "list":
+        if isinstance(raw, list):
+            return [str(item).strip() for item in raw if str(item).strip()]
+        return [item.strip() for item in str(raw).replace("，", ",").split(",") if item.strip()]
+
+    text = str(raw if raw is not None else "").strip()
+    options = node.get("options")
+    if isinstance(options, list) and options and text not in options:
+        raise ValueError(f"不在可选范围: {text}")
+    return text
 
 
 def _pick_channel(channels: Mapping[str, Any], name: str) -> Any | None:

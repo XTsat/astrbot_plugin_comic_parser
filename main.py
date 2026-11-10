@@ -263,6 +263,9 @@ class ComicParserPlugin(Star):
             },
             channels_provider=lambda: self.channels,
             tasks_provider=self._panel_tasks,
+            config_provider=lambda: self.config,
+            config_writer=self._panel_save_config,
+            schema_path=Path(__file__).resolve().parent / "_conf_schema.json",
         )
         self._register_panel_apis()
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
@@ -422,6 +425,12 @@ class ComicParserPlugin(Star):
                 "插件面板：下载最近一次打码结果",
             ),
             (
+                f"/{PLUGIN_NAME}/panel/settings",
+                self.api_panel_settings,
+                ["GET", "POST"],
+                "插件面板：读取 / 保存插件配置",
+            ),
+            (
                 f"/{PLUGIN_NAME}/panel/status",
                 self.api_panel_status,
                 ["GET"],
@@ -558,6 +567,40 @@ class ComicParserPlugin(Star):
             "queue_count": len(items) - len(running),
             "running": running[:8],
         }
+
+    def _panel_save_config(self, values: dict[str, Any]) -> None:
+        """把面板提交的 ``{"组.键": 值}`` 合并进插件配置并落盘。
+
+        分组的键不存在时新建：老配置可能还没有这个分组，直接写会丢掉整组。
+        """
+        for path, value in values.items():
+            parts = [part for part in str(path).split(".") if part]
+            if len(parts) < 2:
+                continue
+            node: Any = self.config
+            for part in parts[:-1]:
+                child = node.get(part)
+                if not isinstance(child, dict):  # 老配置可能还没有这个分组
+                    child = {}
+                    node[part] = child
+                node = child
+            node[parts[-1]] = value
+        save = getattr(self.config, "save_config", None)
+        if callable(save):
+            save()
+
+    async def api_panel_settings(self) -> Any:
+        """面板「设置」页：schema 摊平后的表单 + 当前值。"""
+        if plugin_web.request.method == "POST":
+            payload = await plugin_web.request.json(default={})
+            if not isinstance(payload, dict):
+                return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+            try:
+                data = self.panel.save_settings(payload.get("values"))
+            except PanelError as exc:
+                return plugin_web.error_response(str(exc), status_code=400)
+            return plugin_web.json_response({"status": "ok", "data": data})
+        return plugin_web.json_response({"status": "ok", "data": self.panel.settings()})
 
     async def api_panel_status(self) -> Any:
         """面板「状态」页的全景快照。"""

@@ -474,3 +474,5 @@ PANEL_MAX_UPLOAD_BYTES: Final = 16 * 1024 * 1024
 PANEL_MAX_IMAGES: Final = 24
 # 页面能选的推理输入尺寸：640 容易吐「覆盖整幅」的粗框，1280 掉召回，960 是默认档
 PANEL_IMGSZ_CHOICES: Final = (640, 960, 1280)
+# 面板「设置」页跳过的配置组：渠道是 template_list（条目多、结构深），留给 AstrBot 设置页
+PANEL_SETTINGS_SKIP_GROUPS: Final = ("channels",)
