@@ -8,6 +8,11 @@
 - 输出前四列永远是 ``cx, cy, w, h``（输入尺寸下的像素坐标），但排布有两种：
   ultralytics 导出是 ``(4 + 类别数, 候选数)``，deepghs 的导出是 ``(候选数, 4 + 类别数)``，
   所以 :meth:`OnnxDetector.decode` 自己判方向，不假设调用方知道用的是哪家权重。
+- **分割导出**（``task=segment``）在类别分数后面还挂着 :data:`NSFW_MASK_COEFFS` 列 mask
+  系数（可正可负、量级能到 5），另有一条 protos 输出。整行 argmax 会解出上百个「置信度
+  大于 4」的假框，所以类别分数只取 ``[4 : 4+类别数]`` 这一段。
+  解 mask 再收紧框这条路实测没有收益（分割模型的框本来就是从 mask 回归出来的，
+  收紧 0-7% 面积、单图多花约 40% 时间），因此这里只用检测头给的框。
 """
 
 from __future__ import annotations
@@ -26,6 +31,9 @@ from ...domain.constants import (
     DEFAULT_NSFW_IMGSZ,
     DEFAULT_NSFW_LABELS,
     DEFAULT_NSFW_THRESHOLD,
+    NSFW_MASK_COEFFS,
+    NSFW_TASK_DETECT,
+    NSFW_TASK_SEGMENT,
     PLUGIN_NAME,
 )
 from .coverage import union_coverage
@@ -55,12 +63,15 @@ class OnnxDetector:
     weights: ModelWeights
     threshold: float = DEFAULT_NSFW_THRESHOLD
     imgsz: int = DEFAULT_NSFW_IMGSZ
-    # 显式指定的类别顺序（预设给的）；留空则加载权重时按「预设 → 权重 metadata → 默认」解析
+    # 显式指定的类别顺序（预设给的）；留空则加载权重时按「metadata → 预设 → 默认」解析
     labels: tuple[str, ...] = ()
+    # 任务类型（detect / segment）；同样允许权重 metadata 校正
+    task: str = ""
     _session: _OnnxSession | None = field(default=None, init=False, repr=False)
     _load_failed: bool = field(default=False, init=False, repr=False)
     _imgsz_notice: bool = field(default=False, init=False, repr=False)
     _labels: tuple[str, ...] = field(default=(), init=False, repr=False)
+    _task: str = field(default="", init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     # ---- 可用性 ----
@@ -111,6 +122,7 @@ class OnnxDetector:
             self._session = None
             self._load_failed = False
             self._labels = ()
+            self._task = ""
 
     # ---- 类别 ----
 
@@ -120,6 +132,15 @@ class OnnxDetector:
             return self._labels
         preset_labels = getattr(self.weights, "labels", ())
         return tuple(self.labels) or tuple(preset_labels) or DEFAULT_NSFW_LABELS
+
+    def _resolve_task(self, session: _OnnxSession) -> str:
+        """定下任务类型：显式传入 → 权重 metadata → 预设 → 按纯检测处理。"""
+        if self.task:
+            return self.task
+        meta_task = _metadata_task(session)
+        if meta_task:
+            return meta_task
+        return str(getattr(self.weights, "task", "")) or NSFW_TASK_DETECT
 
     def _resolve_labels(self, session: _OnnxSession) -> tuple[str, ...]:
         """定下类别顺序：显式传入 → 权重 metadata → 预设（按实际权重文件查）→ 默认。
@@ -146,7 +167,10 @@ class OnnxDetector:
         conf = self.threshold if threshold is None else threshold
         try:
             blob, size, scale, pad = self._preprocess(image_path)
-            raw = session.run(None, {self._input_name(session): blob})[0]
+            outputs = session.run(None, {self._input_name(session): blob})
+            if not outputs:
+                return NsfwScore.empty()
+            raw = outputs[0]
         except Exception as exc:
             logger.warning(f"[{PLUGIN_NAME}] ONNX 推理失败 {Path(image_path).name}: {exc}")
             return NsfwScore.unavailable()
@@ -241,7 +265,7 @@ class OnnxDetector:
         """把网络输出解成原图坐标下的露骨部位框（含置信度过滤与 NMS）。
 
         Args:
-            raw: 网络输出，(4+类别数, 候选数) 或 (候选数, 4+类别数) 都认。
+            raw: 网络输出（只喂检测那一份），(4+类别数, 候选数) 或 (候选数, 4+类别数) 都认。
             size: 原图尺寸。
             scale: letterbox 缩放比。
             pad: letterbox 左上填充。
@@ -260,16 +284,23 @@ class OnnxDetector:
         if pred.shape[1] < 5:
             return []
 
-        class_scores = pred[:, 4:]
-        class_ids = class_scores.argmax(axis=1)
-        confidences = class_scores[np.arange(len(class_ids)), class_ids]
-        mask = confidences > conf
-        if not mask.any():
+        class_ids, confidences = self._class_scores(pred, names)
+        above = confidences > conf
+        if not above.any():
             return []
 
-        rows = pred[mask]
-        confs = confidences[mask]
-        ids = class_ids[mask]
+        rows = pred[above]
+        confs = confidences[above]
+        ids = class_ids[above]
+
+        # 先剔掉不打码的类别再 NMS：分割模型在人脸上能给到 0.9 分，类无关 NMS 会让这些
+        # 高分人脸框把重叠的部位框挤掉，等于自己丢召回
+        wanted = np.array(
+            [is_nsfw_label(_label_at(int(index), names)) for index in ids], dtype=bool
+        )
+        rows, confs, ids = rows[wanted], confs[wanted], ids[wanted]
+        if not len(rows):
+            return []
 
         cx, cy, bw, bh = rows[:, 0], rows[:, 1], rows[:, 2], rows[:, 3]
         x1 = (cx - bw / 2 - pad_x) / scale
@@ -286,21 +317,35 @@ class OnnxDetector:
             axis=1,
         )
 
-        keep = self._nms(boxes, confs)
-        detections: list[Detection] = []
-        for index in keep[:MAX_DETECTIONS]:
-            class_id = int(ids[index])
-            label = names[class_id] if class_id < len(names) else ""
-            if not is_nsfw_label(label):
-                continue
-            detections.append(
-                Detection(
-                    label=label,
-                    confidence=float(confs[index]),
-                    box=tuple(float(v) for v in boxes[index]),
-                )
+        keep = self._nms(boxes, confs)[:MAX_DETECTIONS]
+        return [
+            Detection(
+                label=_label_at(int(ids[index]), names),
+                confidence=float(confs[index]),
+                box=tuple(float(value) for value in boxes[index]),
             )
-        return detections
+            for index in keep
+        ]
+
+    def _class_scores(
+        self, pred: np.ndarray, names: tuple[str, ...]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """每个候选的 (类别下标, 该类分数)。
+
+        分割导出在类别分数后面挂着 ``NSFW_MASK_COEFFS`` 列 mask 系数，把它们一起
+        argmax 会解出一堆分数大于 4 的假框，所以按类别数截断。
+        """
+        columns = pred.shape[1]
+        count = len(names) or columns - 4
+        # decode 可能在会话加载前被单独调用（评测/单测），所以任务类型现取而不是只看缓存
+        task = self._task or self.task or str(getattr(self.weights, "task", ""))
+        if task == NSFW_TASK_SEGMENT:
+            count = min(count, columns - 4 - NSFW_MASK_COEFFS)
+        count = max(1, min(count, columns - 4))
+
+        scores = pred[:, 4 : 4 + count]
+        ids = scores.argmax(axis=1)
+        return ids, scores[np.arange(len(ids)), ids]
 
     @staticmethod
     def _nms(
@@ -371,9 +416,11 @@ class OnnxDetector:
                 return None
 
             self._session = session
+            self._task = self._resolve_task(session)
             self._labels = self._resolve_labels(session)
+            kind = "分割" if self._task == NSFW_TASK_SEGMENT else "检测"
             logger.info(
-                f"[{PLUGIN_NAME}] ONNX 检测模型已加载: {model_path.name}"
+                f"[{PLUGIN_NAME}] ONNX {kind}模型已加载: {model_path.name}"
                 f"（类别 {'/'.join(self._labels) or '未知'}）"
             )
             return session
@@ -384,6 +431,15 @@ class OnnxDetector:
         return str(getattr(inputs[0], "name", "images"))
 
 
+def _custom_metadata(session: _OnnxSession) -> dict[str, str]:
+    """权重自带的 metadata 表（读不到就是空表）。"""
+    try:
+        meta = session.get_modelmeta().custom_metadata_map
+    except (AttributeError, TypeError, ValueError):
+        return {}
+    return {str(key): str(value) for key, value in dict(meta).items()}
+
+
 def _metadata_labels(session: _OnnxSession) -> tuple[str, ...]:
     """读权重自带的类别表。
 
@@ -391,10 +447,12 @@ def _metadata_labels(session: _OnnxSession) -> tuple[str, ...]:
     Python 字典字面量（``{0: 'nipple_f', ...}``）。读不到就返回空，交给调用方兜底——
     老权重没有这段 metadata，硬猜只会猜错。
     """
+    raw = _custom_metadata(session).get("names", "")
+    if not raw:
+        return ()
     try:
-        raw = str(getattr(session.get_modelmeta(), "custom_metadata_map", {}).get("names", ""))
         parsed = ast.literal_eval(raw)
-    except (AttributeError, ValueError, SyntaxError, MemoryError, RecursionError):
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
         return ()
     if not isinstance(parsed, dict) or not parsed:
         return ()
@@ -403,6 +461,17 @@ def _metadata_labels(session: _OnnxSession) -> tuple[str, ...]:
     except (TypeError, ValueError):
         return ()
     return tuple(value for _, value in ordered)
+
+
+def _metadata_task(session: _OnnxSession) -> str:
+    """读权重声明的任务类型（``detect`` / ``segment``）；读不到或值不认识时返回空。"""
+    task = _custom_metadata(session).get("task", "").strip().lower()
+    return task if task in (NSFW_TASK_DETECT, NSFW_TASK_SEGMENT) else ""
+
+
+def _label_at(index: int, names: tuple[str, ...]) -> str:
+    """类别下标 → 类别名；越界返回空串（宁可当作类别不明，也不要 IndexError 打断整张图）。"""
+    return names[index] if 0 <= index < len(names) else ""
 
 
 def is_onnx(path: Path) -> bool:

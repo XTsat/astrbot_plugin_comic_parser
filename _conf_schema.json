@@ -840,11 +840,13 @@
           "preset": {
             "type": "string",
             "description": "模型档位",
-            "hint": "漫画 / 同人封面用「二次元」两档：纯二次元图训练，召回明显更高、模型也小得多。写实模型（EraX）覆盖 anus、make_love 等场景，二次元档没有这些类别。换档后需要在插件面板的「模型下载」里下载对应权重才会生效",
+            "hint": "漫画 / 同人封面用「二次元」四档：纯二次元图训练，召回明显更高、模型小得多；分割档的框更贴边、周围画面保得住。写实模型（EraX）覆盖 anus、make_love 等场景，二次元档没有 make_love 类别。换档后要先去插件面板的「模型下载」下好权重才会生效",
             "default": "m_fp32",
             "options": [
               "anime_n",
               "anime_s",
+              "anime_seg_n",
+              "anime_seg_m",
               "m_fp32",
               "m_int8",
               "s_fp32",
@@ -855,6 +857,8 @@
             "labels": [
               "二次元 · nano（12MB，漫画封面推荐）",
               "二次元 · small（45MB）",
+              "二次元分割 · nano（6MB，640 输入，最快）",
+              "二次元分割 · medium（48MB，1280 输入，更准）",
               "写实 · medium · fp32（77MB，推荐）",
               "写实 · medium · int8（20MB）",
               "写实 · small · fp32（36MB）",

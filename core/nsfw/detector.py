@@ -16,6 +16,7 @@ from ...domain.constants import (
     DEFAULT_NSFW_IMGSZ,
     DEFAULT_NSFW_THRESHOLD,
     NSFW_BOX_KEYWORDS,
+    NSFW_IGNORED_KEYWORDS,
 )
 from .weights import ModelWeights
 
@@ -106,6 +107,7 @@ def create_detector(
     threshold: float = DEFAULT_NSFW_THRESHOLD,
     imgsz: int = DEFAULT_NSFW_IMGSZ,
     labels: tuple[str, ...] = (),
+    task: str = "",
 ) -> Detector:
     """构造检测器（当前只有 ONNX 实现，保留工厂是为了上层不必知道具体类）。
 
@@ -115,6 +117,8 @@ def create_detector(
         imgsz: 推理输入尺寸。
         labels: 类别顺序覆盖；留空则交给检测器按权重文件名与权重自带 metadata 解析
             （不同上游的类别集合不同，不能在上层写死一份）。
+        task: 任务类型覆盖（detect / segment）；留空时取 weight 预设里的值，再由
+            权重 metadata 校正——分割导出必须知道这件事，否则会多解出 mask 系数列。
     """
     try:
         from .onnx_detector import OnnxDetector  # 局部 import：避免循环依赖
@@ -130,7 +134,11 @@ def create_detector(
         return NullDetector()
 
     return OnnxDetector(
-        weights=weights, threshold=threshold, imgsz=imgsz, labels=labels
+        weights=weights,
+        threshold=threshold,
+        imgsz=imgsz,
+        labels=labels or tuple(getattr(weights, "labels", ())),
+        task=task or str(getattr(weights, "task", "")),
     )
 
 
@@ -138,10 +146,12 @@ def is_nsfw_label(label: str) -> bool:
     """模型类别是否属于需要处理的露骨部位。
 
     用子串匹配，所以 `nipple`、`nipple_f`、`female_nipple` 这类带前后缀的写法都认；
-    关键词表里只收露骨部位（见 `domain/constants.py`），因此脸、手、人物这类类别
-    即使被模型检出来也不会打码。
+    先过一遍 `NSFW_IGNORED_KEYWORDS` 否定表：二次元分割档会给出分数高达 0.9 的
+    `female face` / `male face`，把脸糊掉既没必要，也会在类无关 NMS 里挤掉重叠的部位框。
     """
     lowered = label.lower()
+    if any(keyword in lowered for keyword in NSFW_IGNORED_KEYWORDS):
+        return False
     return any(keyword in lowered for keyword in NSFW_BOX_KEYWORDS)
 
 

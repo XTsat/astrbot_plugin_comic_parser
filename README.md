@@ -261,7 +261,7 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| 模型档位与精度（`model.preset`） | string | m_fp32 | 八选一，见下方两张表；默认写实 medium + fp32。漫画 / 同人封面建议换成「二次元」两档，召回明显更高、权重要小得多 |
+| 模型档位与精度（`model.preset`） | string | m_fp32 | 十选一，见下方两张表；默认写实 medium + fp32。漫画 / 同人封面建议换成「二次元」四档，召回明显更高、权重要小得多 |
 | 缺失时自动下载权重（`model.auto_download`） | bool | true | 插件加载/重载时后台下载到 `models/`；已存在就跳过，失败只记日志，下次重载再试。只在「下载完成后发送封面」与「给封面打码」都开启时才真的下载 |
 | 自定义下载地址（`model.download_url`） | string | 空 | 留空用插件 Release（tag `weights-erax-onnx-v1`），失败自动换加速镜像；可填多行，支持 `{filename}` |
 | 检测阈值（`model.threshold`） | float | 0.03 | 打码用的置信度下限，越低越严格（糊得更多、更易误糊） |
@@ -280,9 +280,12 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 | 家族 | 档位 | 类别 | 适合 | 来源 / 许可 |
 |------|------|------|------|-------------|
 | 写实（EraX） | `m_*` / `s_*` / `n_*` | anus、make_love、nipple、penis、vagina | 真人照片、写实风格 | EraX-NSFW-V1.0（Apache-2.0），本插件导出的 ONNX |
-| 二次元（deepghs） | `anime_n`（12MB）、`anime_s`（45MB） | nipple_f、penis、pussy | 漫画页、同人封面 | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection)（MIT） |
+| 二次元检测（deepghs） | `anime_n`（12MB）、`anime_s`（45MB） | nipple_f、penis、pussy | 漫画页、同人封面 | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection)（MIT） |
+| 二次元分割（01miku） | `anime_seg_n`（6MB）、`anime_seg_m`（48MB） | anus、nipple、penis、vagina、pubic hair、female face、male face | 漫画页；框最贴边 | [anime-nsfw-segm-yolo26](https://huggingface.co/01miku/anime-nsfw-segm-yolo26)（MIT） |
 
-二次元档是在纯二次元 / 同人图上训练的，同一批漫画封面上检出 10/11，写实 medium 档只有 6/11，而且快十倍以上；代价是它**没有 anus、make_love 这类场景类别**，性交画面与后穴会漏检。要不要换成二次元档，按你实际遇到的封面类型定。
+二次元档是在纯二次元 / 同人图上训练的，同一批漫画封面上检出 10/11，写实 medium 档只有 6/11，而且快十倍以上；代价是**检测档没有 make_love 这类场景类别**，性交画面会漏检。
+
+四档之间的取舍：**分割档的框最贴边**（覆盖常落到 6-34%，写实档常是覆盖 65-78% 的粗框，容易整张糊），而且带 anus、vagina 类别；不分割的检测档在近景图上会给覆盖整张的大框。分割档里的 `female face` / `male face` 类别不会被打码。要不要换成二次元档，按你实际遇到的封面类型定。
 
 </details>
 
@@ -325,7 +328,8 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 封面打码与露骨度依赖本地 YOLO 检测模型，现在可选两家的权重：
 
 - 写实档基于 [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0)（Apache-2.0 协议，类别为 anus / make_love / nipple / penis / vagina）的 nano / small / medium 三档；
-- 二次元档基于 [deepghs/anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection)（仓库标注 MIT 协议，类别为 nipple_f / penis / pussy），纯二次元 / 同人图训练，漫画封面召回更高。
+- 二次元检测档基于 [deepghs/anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection)（仓库标注 MIT 协议，类别为 nipple_f / penis / pussy）；
+- 二次元分割档基于 [01miku/anime-nsfw-segm-yolo26](https://huggingface.co/01miku/anime-nsfw-segm-yolo26)（仓库标注 MIT，权重内部标注 Ultralytics AGPL-3.0，与我们自己导出的写实 ONNX 情况相同），7 个类别，框更贴边。
 
 **插件用的是这套权重的 ONNX 版本**——由我们从上游 `.pt` 导出（固定 960 输入、opset 17），int8 档另外做过量化，因此和上游原始文件不是同一份。上游仓库只提供 `.pt`，**插件不支持 `.pt`，请不要从上游直接下载来用**。
 

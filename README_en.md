@@ -260,7 +260,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Model preset (`model.preset`) | string | m_fp32 | One of eight, see the two tables below; default realist medium + fp32. For manga / doujin covers pick one of the two anime presets: far better recall and much smaller weights |
+| Model preset (`model.preset`) | string | m_fp32 | One of ten, see the two tables below; default realist medium + fp32. For manga / doujin covers pick one of the four anime presets: far better recall and much smaller weights |
 | Auto-download weights (`model.auto_download`) | bool | true | Fetch into `models/` in the background at load time; skipped when present, failures are logged and retried on the next reload. Only downloads when both "Send cover after download" and "Censor the cover" are on |
 | Custom download URL (`model.download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`) and falls back to accelerator mirrors; multiple lines and `{filename}` supported |
 | Detection threshold (`model.threshold`) | float | 0.03 | Confidence floor for censoring; lower is stricter and censors more |
@@ -279,9 +279,12 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Family | Presets | Classes | Best for | Source / licence |
 |--------|---------|---------|----------|------------------|
 | Realist (EraX) | `m_*` / `s_*` / `n_*` | anus, make_love, nipple, penis, vagina | Real photos, realistic art | EraX-NSFW-V1.0 (Apache-2.0), ONNX exported by this plugin |
-| Anime (deepghs) | `anime_n` (12MB), `anime_s` (45MB) | nipple_f, penis, pussy | Manga pages, doujin covers | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection) (MIT) |
+| Anime detection (deepghs) | `anime_n` (12MB), `anime_s` (45MB) | nipple_f, penis, pussy | Manga pages, doujin covers | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection) (MIT) |
+| Anime segmentation (01miku) | `anime_seg_n` (6MB), `anime_seg_m` (48MB) | anus, nipple, penis, vagina, pubic hair, female face, male face | Manga pages; tightest boxes | [anime-nsfw-segm-yolo26](https://huggingface.co/01miku/anime-nsfw-segm-yolo26) (MIT) |
 
-The anime presets are trained on anime / doujin art only: on the same set of manga covers they detected 10 of 11 images, against 6 of 11 for realist medium, and they run more than ten times faster. The trade-off is that they have **no anus or make_love classes**, so sex scenes and anal close-ups are missed. Pick whichever matches the covers you actually get.
+The anime presets are trained on anime / doujin art only: on the same set of manga covers they detected 10 of 11 images, against 6 of 11 for realist medium, and they run more than ten times faster. The trade-off is that the **detection presets have no make_love class**, so sex scenes are missed.
+
+Between the four: the **segmentation presets give the tightest boxes** (coverage typically 6-34%, where the realist presets often return 65-78% boxes that lead to whole-cover masking) and do include anus and vagina; the plain detection presets can return near-full-image boxes on close-ups. The `female face` / `male face` classes of the segmentation presets are never masked.
 
 </details>
 
@@ -324,7 +327,8 @@ The anime presets are trained on anime / doujin art only: on the same set of man
 Cover censoring and the explicitness figure rely on a local YOLO detection model, with weights from two sources:
 
 - the realist presets are based on [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) (Apache-2.0, classes anus / make_love / nipple / penis / vagina), nano / small / medium variants;
-- the anime presets are based on [deepghs/anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection) (MIT per the repository, classes nipple_f / penis / pussy), trained purely on anime / doujin art, with noticeably better recall on manga covers.
+- the anime detection presets are based on [deepghs/anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection) (MIT per the repository, classes nipple_f / penis / pussy);
+- the anime segmentation presets are based on [01miku/anime-nsfw-segm-yolo26](https://huggingface.co/01miku/anime-nsfw-segm-yolo26) (MIT per the repository, the weights themselves carry an Ultralytics AGPL-3.0 notice, same as our own exported realist ONNX), 7 classes, tighter boxes.
 
 **The plugin uses an ONNX build of those weights**: we export them from the upstream `.pt` (fixed 960 input, opset 17) and quantize the int8 variants separately, so they are not the same files as upstream. Upstream only ships `.pt`, and **the plugin does not accept `.pt`, so do not download from upstream and drop it in**.
 

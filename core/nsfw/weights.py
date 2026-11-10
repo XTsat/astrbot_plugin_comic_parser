@@ -158,6 +158,11 @@ class ModelWeights:
         return pick_model(self.models_dir, self.preset)
 
     @property
+    def task(self) -> str:
+        """当前档位的任务类型（detect / segment）；目录里换过同名文件时以权重 metadata 为准。"""
+        return NSFW_MODEL_PRESETS[self.preset].task
+
+    @property
     def labels(self) -> tuple[str, ...]:
         """当前权重的类别顺序：按实际选中的文件名查预设，查不到交给检测器读 metadata。"""
         path = self.local_model()

@@ -232,7 +232,7 @@ DEFAULT_COVER_CAPTION: Final = False
 # 单个封面最多处理这么多个框，误检刷出成百上千个框时不至于把渲染拖死
 COVER_MAX_BOXES: Final = 64
 
-# ---- NSFW 检测模型（YOLO 检测 / 分割）----
+# ---- NSFW 检测模型（ONNX：目标检测 / 实例分割）----
 
 # 权重不随插件分发：几十 MB 的二进制不适合进 git，用不用得到也因人而异。
 # 运行时只认 ONNX（依赖 onnxruntime，约 200M）。
@@ -255,6 +255,8 @@ class NsfwModelPreset:
         summary: 下拉与状态页里给用户看的文案。
         labels: 输出通道对应的类别名，顺序必须与权重一致；空表示让检测器去读权重
             自带的 metadata（都没读到时才退回 ``DEFAULT_NSFW_LABELS``）。
+        task: 权重是纯检测（``detect``）还是实例分割（``segment``）。分割导出在类别
+            分数后面还挂着 mask 系数列，解析时必须少看这几列。
         sources: 下载地址候选，顺序即降级顺序，支持 ``{filename}`` 占位；空表示走
             EraX 的老路径（插件 Release + 加速镜像）。
     """
@@ -262,14 +264,35 @@ class NsfwModelPreset:
     filename: str
     summary: str
     labels: tuple[str, ...] = ()
+    task: str = "detect"
     sources: tuple[str, ...] = ()
 
+
+NSFW_TASK_DETECT: Final = "detect"
+NSFW_TASK_SEGMENT: Final = "segment"
+# Ultralytics 分割导出在类别分数之后固定挂这么多列 mask 系数（对应 32 个原型 mask）
+NSFW_MASK_COEFFS: Final = 32
 
 # EraX-NSFW-V1.0 的五个类别（训练数据偏真人照片，漫画封面召回差，所以另收二次元模型）
 NSFW_ERAX_LABELS: Final = ("anus", "make_love", "nipple", "penis", "vagina")
 # deepghs/anime_censor_detection（HuggingFace，仓库标签 MIT）：纯二次元 / 同人图训练。
 # 短板要认：它没有 anus、也没有 make_love 这类整体场景，性交画面与后穴会漏检。
 NSFW_ANIME_LABELS: Final = ("nipple_f", "penis", "pussy")
+# 01miku/anime-nsfw-segm-yolo26：二次元数据训的 YOLO26-seg 权重，类别比 EraX 多两档人脸。
+# 仓库标 MIT，但 ONNX metadata 里写的是 Ultralytics AGPL-3.0（与我们自己导出的 erax 同款情况）。
+NSFW_ANIME_SEG_LABELS: Final = (
+    "anus",
+    "nipple",
+    "penis",
+    "vagina",
+    "female face",
+    "male face",
+    "pubic hair",
+)
+NSFW_ANIME_SEG_SOURCES: Final = (
+    "https://hf-mirror.com/01miku/anime-nsfw-segm-yolo26/resolve/main/{filename}",
+    "https://huggingface.co/01miku/anime-nsfw-segm-yolo26/resolve/main/{filename}",
+)
 # 类别顺序完全没线索时的兜底（老权重没有 metadata，硬猜只会猜错，所以按 EraX 走）
 DEFAULT_NSFW_LABELS: Final = NSFW_ERAX_LABELS
 
@@ -341,6 +364,21 @@ NSFW_MODEL_PRESETS: Final[dict[str, NsfwModelPreset]] = {
         "anime_censor_v1.0_n.onnx", "二次元 · nano（约 12MB，漫画封面推荐）"
     ),
     "anime_s": _anime_preset("anime_censor_v1.0_s.onnx", "二次元 · small（约 45MB）"),
+    # 二次元分割档：原生输入 640 / 1280，戴的是 7 类（含人脸，人脸不打码）
+    "anime_seg_n": NsfwModelPreset(
+        filename="anime_seg_nano_x640.onnx",
+        summary="二次元分割 · nano（原生 640 输入，约 6MB，最快）",
+        labels=NSFW_ANIME_SEG_LABELS,
+        task=NSFW_TASK_SEGMENT,
+        sources=NSFW_ANIME_SEG_SOURCES,
+    ),
+    "anime_seg_m": NsfwModelPreset(
+        filename="anime_seg_medium_x1280.onnx",
+        summary="二次元分割 · medium（原生 1280 输入，约 48MB，更准更慢）",
+        labels=NSFW_ANIME_SEG_LABELS,
+        task=NSFW_TASK_SEGMENT,
+        sources=NSFW_ANIME_SEG_SOURCES,
+    ),
 }
 DEFAULT_NSFW_MODEL_PRESET: Final = "m_fp32"
 
@@ -361,6 +399,10 @@ NSFW_MIRROR_SOURCES: Final = (
 
 # EraX-NSFW-V1.0 的类别就是纯部位名，其它导出版本可能带前缀，因此用子串匹配
 NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple", "pussy")
+# 命中这些的类别一律不打码：二次元分割档会给出「female face / male face」这类高分类，
+# 把脸糊掉既没必要也会顺带糊掉周围的部位；pubic hair 的框常覆盖整片胯部，糊了反而
+# 把本来该保留的画面一起盖住（真露骨时会有 penis / vagina 框兜底）
+NSFW_IGNORED_KEYWORDS: Final = ("face", "pubic hair")
 
 # 实测（JM 真实页面 + nhentai 封面各一组）：露骨画面的置信度常见 0.02-0.2，漫画页里
 # 强信号能到 0.5-0.8；0.03 比 0.05 多捞到约 15% 的页，再低就只剩噪声了。
