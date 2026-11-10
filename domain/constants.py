@@ -299,10 +299,6 @@ NSFW_ANIME_SEG_LABELS: Final = (
     "male face",
     "pubic hair",
 )
-NSFW_ANIME_SEG_SOURCES: Final = (
-    "https://hf-mirror.com/01miku/anime-nsfw-segm-yolo26/resolve/main/{filename}",
-    "https://huggingface.co/01miku/anime-nsfw-segm-yolo26/resolve/main/{filename}",
-)
 # 类别顺序完全没线索时的兜底（老权重没有 metadata，硬猜只会猜错，所以按 EraX 走）
 DEFAULT_NSFW_LABELS: Final = NSFW_ERAX_LABELS
 
@@ -324,16 +320,17 @@ NSFW_ERAX_SOURCES: Final = (
     NSFW_ONNX_RELEASE_URL,
     *(mirror.format(url=NSFW_ONNX_RELEASE_URL) for mirror in NSFW_MIRROR_SOURCES),
 )
-# 二次元模型的上游在 HuggingFace：huggingface.co 境内基本不通，所以镜像排第一、源站兜底。
-# HF 镜像不套 GitHub 加速代理，两类镜像的通路不一样。
-_ANIME_HF_MIRROR: Final = "https://hf-mirror.com/deepghs/anime_censor_detection/resolve/main"
-_ANIME_HF_ORIGIN: Final = (
-    "https://huggingface.co/deepghs/anime_censor_detection/resolve/main"
-)
-NSFW_ANIME_SOURCES: Final = (
-    _ANIME_HF_MIRROR + "/{filename}",
-    _ANIME_HF_ORIGIN + "/{filename}",
-)
+def _hf_sources(repo: str, path: str) -> tuple[str, str]:
+    """HuggingFace 上一份权重的（镜像, 源站）直链。
+
+    这里**不能**用 ``{filename}`` 占位：上游路径是 ``censor_detect_v1.0_n/model.onnx``
+    这种「子目录 + model.onnx」形状，与本地落盘名完全不同，拿本地名去拼只会拿到 404
+    （实测 hf-mirror 直接回 404）。所以每个档位各自写死自己的上游路径。
+    """
+    return (
+        f"https://hf-mirror.com/{repo}/resolve/main/{path}",
+        f"https://huggingface.co/{repo}/resolve/main/{path}",
+    )
 
 
 # 三家上游的公共元数据：版本、许可与短板都写在预设里，面板直接读
@@ -369,26 +366,36 @@ def _erax_preset(filename: str, summary: str, approx_bytes: int) -> NsfwModelPre
     )
 
 
-def _anime_preset(filename: str, summary: str, approx_bytes: int) -> NsfwModelPreset:
-    """二次元检测档共用的预设构造。"""
+_ANIME_REPO: Final = "deepghs/anime_censor_detection"
+
+
+def _anime_preset(
+    filename: str, summary: str, approx_bytes: int, upstream_path: str
+) -> NsfwModelPreset:
+    """二次元检测档：本地文件名与上游路径分开给。"""
     return NsfwModelPreset(
         filename=filename,
         summary=summary,
         labels=NSFW_ANIME_LABELS,
-        sources=NSFW_ANIME_SOURCES,
+        sources=_hf_sources(_ANIME_REPO, upstream_path),
         approx_bytes=approx_bytes,
         **_ANIME_META,
     )
 
 
-def _anime_seg_preset(filename: str, summary: str, approx_bytes: int) -> NsfwModelPreset:
-    """二次元分割档共用的预设构造。"""
+_ANIME_SEG_REPO: Final = "01miku/anime-nsfw-segm-yolo26"
+
+
+def _anime_seg_preset(
+    filename: str, summary: str, approx_bytes: int, upstream_path: str
+) -> NsfwModelPreset:
+    """二次元分割档：本地文件名与上游路径分开给。"""
     return NsfwModelPreset(
         filename=filename,
         summary=summary,
         labels=NSFW_ANIME_SEG_LABELS,
         task=NSFW_TASK_SEGMENT,
-        sources=NSFW_ANIME_SEG_SOURCES,
+        sources=_hf_sources(_ANIME_SEG_REPO, upstream_path),
         approx_bytes=approx_bytes,
         **_ANIME_SEG_META,
     )
@@ -415,19 +422,29 @@ NSFW_MODEL_PRESETS: Final[dict[str, NsfwModelPreset]] = {
     ),
     # 二次元封面用这两档：召回比写实模型高得多，而且小得多、快得多
     "anime_n": _anime_preset(
-        "anime_censor_v1.0_n.onnx", "二次元 · nano（约 12MB，漫画封面推荐）", 12_104_146
+        "anime_censor_v1.0_n.onnx",
+        "二次元 · nano（约 12MB，漫画封面推荐）",
+        12_104_146,
+        "censor_detect_v1.0_n/model.onnx",
     ),
     "anime_s": _anime_preset(
-        "anime_censor_v1.0_s.onnx", "二次元 · small（约 45MB）", 44_586_353
+        "anime_censor_v1.0_s.onnx",
+        "二次元 · small（约 45MB）",
+        44_586_353,
+        "censor_detect_v1.0_s/model.onnx",
     ),
     # 二次元分割档：原生输入 640 / 1280，带的是 7 类（含人脸，人脸不打码）
     "anime_seg_n": _anime_seg_preset(
-        "anime_seg_nano_x640.onnx", "二次元分割 · nano（原生 640 输入，约 6MB，最快）", 5_902_685
+        "anime_seg_nano_x640.onnx",
+        "二次元分割 · nano（原生 640 输入，约 6MB，最快）",
+        5_902_685,
+        "nsfw-anime-nano-x640.onnx",
     ),
     "anime_seg_m": _anime_seg_preset(
         "anime_seg_medium_x1280.onnx",
         "二次元分割 · medium（原生 1280 输入，约 48MB，更准更慢）",
         47_600_269,
+        "nsfw-anime-medium-x1280.onnx",
     ),
 }
 DEFAULT_NSFW_MODEL_PRESET: Final = "m_fp32"
