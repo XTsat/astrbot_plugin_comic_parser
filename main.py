@@ -1017,10 +1017,15 @@ class ComicParserPlugin(Star):
         resolved = resolve_link(self.channels, text)
         if resolved is None:
             if text.isdigit():
+                # 越界/过期先说清是哪一种，别让用户拿着一个序号去猜为什么不动
+                hint = self.search_service.index_hint(session_id, text)
                 yield event.plain_result(
-                    "❌ 没有找到这个序号对应的搜索结果（可能已过期）："
-                    "先 /comic sou <关键词> 搜一次；按 ID 下载请用对应渠道命令，"
-                    "或直接贴作品链接"
+                    hint
+                    or (
+                        "❌ 没有找到这个序号对应的搜索结果（可能已过期）："
+                        "先 /comic sou <关键词> 搜一次；按 ID 下载请用对应渠道命令，"
+                        "或直接贴作品链接"
+                    )
                 )
             else:
                 yield event.plain_result(
@@ -1112,6 +1117,14 @@ class ComicParserPlugin(Star):
             if indexed is not None:
                 # 序号指向哪本就走哪个渠道：聚合搜索的结果跨渠道，命令只是入口
                 channel, text = indexed
+            else:
+                # 序号越界/过期时说清原因，别掉进渠道的「无法识别 ID」里让人以为是 ID 写错了
+                hint = self.search_service.index_hint(
+                    session_id, text, channel.display_command
+                )
+                if hint:
+                    yield event.plain_result(hint)
+                    return
 
         # 链接自带站点，命令只是入口别名：命令与链接指向的渠道不一致时，以链接为准。
         # 否则 `/jm <nhentai 链接>` 会从链接里抠出一串数字当成 JM 的本子 ID，下到另一本
@@ -1175,8 +1188,10 @@ class ComicParserPlugin(Star):
                     pack_format=pack_format,
                 )
                 try:
+                    # 传规范化后的 ID 而不是用户原话：搜索序号（`/pica 1`）与作品链接
+                    # 都已在上面解析成 comic_id，再交给任务重新 normalize 会把序号当 ID
                     outcome = await task.run(
-                        raw_id,
+                        comic_id,
                         self._progress_callback(event, use_text_progress, slot),
                         cancel_token,
                     )

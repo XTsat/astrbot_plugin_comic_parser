@@ -32,6 +32,7 @@ from ..domain import (
 )
 from ..domain.constants import (
     SEARCH_CACHE_MAX_ENTRIES,
+    SEARCH_INDEX_HINT_MAX,
     SEARCH_MAX_TEXT_CHARS,
     SEARCH_RESULT_MAX_SESSIONS,
     SEARCH_RESULT_TTL,
@@ -104,6 +105,7 @@ class SearchService:
         self._cache: dict[tuple[str, str, int], _CacheEntry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._last_search: dict[str, float] = {}
+        self._searched_at: dict[str, float] = {}
         self._sessions: dict[str, _SearchSession] = {}
 
     # ---- 能力与冷却 ----
@@ -125,24 +127,42 @@ class SearchService:
         冷却比下载防抖短得多，且只拦「同一会话连续搜索」——搜索结果会被缓存，
         正常翻看/换关键词不受影响。
         """
-        interval = max(0, int(getattr(self.settings, "search_cooldown", 0)))
-        if interval <= 0:
-            return None
-
         now = time.monotonic()
-        last = self._last_search.get(session_id)
-        if last is not None:
-            remain = interval - (now - last)
-            if remain > 0:
-                return f"⏳ 搜索太快了，请 {math.ceil(remain)} 秒后再试"
-        self._last_search[session_id] = now
-        if len(self._last_search) > 512:
-            # 会话数量不可控，超限时清掉已过冷却期的记录；搜索冷却只是防刷，不必精确
-            cutoff = now - interval
-            for key, value in list(self._last_search.items()):
-                if value < cutoff:
-                    self._last_search.pop(key, None)
+        interval = max(0, int(getattr(self.settings, "search_cooldown", 0)))
+        if interval > 0:
+            last = self._last_search.get(session_id)
+            if last is not None:
+                remain = interval - (now - last)
+                if remain > 0:
+                    return f"⏳ 搜索太快了，请 {math.ceil(remain)} 秒后再试"
+            self._last_search[session_id] = now
+            if len(self._last_search) > 512:
+                # 会话数量不可控，超限时清掉已过冷却期的记录；搜索冷却只是防刷，不必精确
+                cutoff = now - interval
+                for key, value in list(self._last_search.items()):
+                    if value < cutoff:
+                        self._last_search.pop(key, None)
+
+        # 放行的搜索才留痕：冷却关掉时也要记，否则「序号过期」没法解释
+        self._searched_at[session_id] = now
+        self._prune_searched_at(now)
         return None
+
+    def _prune_searched_at(self, now: float) -> None:
+        """搜索留痕只用于解释序号失效，条数不可控：超限时先清过期的，再丢最早的。"""
+        if len(self._searched_at) <= SEARCH_RESULT_MAX_SESSIONS:
+            return
+        cutoff = now - SEARCH_RESULT_TTL
+        for key, value in list(self._searched_at.items()):
+            if value < cutoff:
+                self._searched_at.pop(key, None)
+        overflow = len(self._searched_at) - SEARCH_RESULT_MAX_SESSIONS
+        if overflow > 0:
+            oldest = sorted(
+                self._searched_at, key=lambda key: self._searched_at[key]
+            )[:overflow]
+            for key in oldest:
+                self._searched_at.pop(key, None)
 
     # ---- 单渠道搜索 ----
     async def search_one(
@@ -557,6 +577,42 @@ class SearchService:
         if channel is None or not channel.enabled:
             return None
         return channel, str(item.comic_id)
+
+    def index_hint(
+        self, session_id: str, token: str, command: str = "comic"
+    ) -> str | None:
+        """纯数字没能当成序号时，给一句人话解释；不属于「序号语境」时返回 None。
+
+        只解释两种情况：数字还在序号体量内（≤ ``SEARCH_INDEX_HINT_MAX``）却超出本次
+        展示的条数，以及搜索结果已过期。作品 ID 的量级（六位以上数字、`gid-token`、
+        24 位 ObjectId）一律返回 None，继续按 ID 解析，不会被这条提示拦下。
+        """
+        if not session_id or not token.isdigit():
+            return None
+        index = int(token)
+        if not 1 <= index <= SEARCH_INDEX_HINT_MAX:
+            return None
+
+        session = self._sessions.get(session_id)
+        if session is not None:
+            if index <= len(session.entries):
+                return None
+            return (
+                f"❌ 本次搜索只显示到 {len(session.entries)} 条，"
+                f"序号 {index} 超出范围：发「下一页」继续看，或直接贴作品链接"
+            )
+
+        searched = self._searched_at.get(session_id)
+        if searched is None:
+            return None
+        if time.monotonic() - searched <= SEARCH_RESULT_TTL:
+            # 搜过但没留下结果（没命中或失败）：让渠道按 ID 再给一次自己的说法
+            return None
+        minutes = max(1, round(SEARCH_RESULT_TTL / 60))
+        return (
+            f"❌ 搜索结果已过期（{minutes} 分钟内有效），"
+            f"请重新 /{command} sou <关键词> 再回序号"
+        )
 
     # ---- 渲染 ----
     async def render_one(

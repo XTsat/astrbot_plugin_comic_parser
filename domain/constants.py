@@ -70,6 +70,9 @@ SEARCH_RESULT_MAX_SESSIONS: Final = 512
 # 上游搜索一次请求最多取回多少条：上游一页通常是 20–50 条，取大值确保整页不丢；
 # 展示层再按「单渠道结果条数 / 聚合结果条数」切片，因此一页上游结果能翻好几页展示页
 SEARCH_UPSTREAM_FETCH_LIMIT: Final = 100
+# 「这个纯数字是不是打错的序号」只用来说明原因，不参与判定：越界的数字在这个体量内
+# 当序号误用解释，再大就按作品 ID 原样往下解析（六位以上的 ID 不会被这句提示拦下）
+SEARCH_INDEX_HINT_MAX: Final = 99
 # 翻页命令词：动作与中文都认，用户不用记英文；匹配的是命令后的整个参数
 SEARCH_NEXT_WORDS: Final = frozenset({"next", "下一页", "下页"})
 SEARCH_PREV_WORDS: Final = frozenset({"prev", "previous", "上一页", "上页"})
