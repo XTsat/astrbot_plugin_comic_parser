@@ -29,6 +29,9 @@ class ProgressState:
     unit: str = "图片"
     done: int = 0
     total: int = 0
+    # 整本一共多少张图，0 表示渠道没给。多章节本的主计数是章节，`total` 就不是张数，
+    # 需要按「张」说话的地方（暂停/取消提示）只能用它
+    image_total: int = 0
     # 第二个计数的人话描述（如 JM 多章节本的「12/50 页」），与主计数一起展示
     detail: str = ""
     bytes_downloaded: int = 0

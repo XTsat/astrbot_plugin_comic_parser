@@ -41,6 +41,7 @@ from .channel import (
     BaseChannel,
     CancelToken,
     ProgressCallback,
+    ProgressState,
 )
 from .packer import Packer
 
@@ -63,6 +64,43 @@ class DownloadOutcome:
         if not self.pack.success or self.pack.fmt == "none":
             return None
         return self.pack.output_path
+
+
+def _count_text(saved: int, total: int) -> str:
+    """「已存多少张」文案：分母只认真实总页数，不知道就不写分母。
+
+    ``ComicMeta.page_count`` 在 JM、哔咔上是**章节数**（单章本 = 1），拿它当总张数会
+    写出「已保存 85/1 张」这种自相矛盾的提示，所以暂停/取消文案改用进度快照里的总数。
+    """
+    return f"{saved}/{total} 张" if total > 0 else f"{saved} 张"
+
+
+@dataclass(slots=True)
+class _ProgressTap:
+    """接住渠道的进度回调，顺手留下最后一份快照。
+
+    暂停/取消发生时要写「已保存 N/总数 张」，而真正的总页数只出现在进度快照里；
+    渠道到点被叫停后不会再报进度，只能由这一层把最后一份留下来。
+    """
+
+    callback: ProgressCallback | None = None
+    state: ProgressState | None = None
+
+    @property
+    def total(self) -> int:
+        """整本多少张图；渠道没给就返回 0（文案里干脆不写分母）。"""
+        state = self.state
+        if state is None:
+            return 0
+        if state.image_total > 0:
+            return state.image_total
+        # 章节型主计数的 total 是章节数，拿来当「张」的分母就会写出「85/1 张」
+        return 0 if state.unit == "章节" else state.total
+
+    async def __call__(self, state: ProgressState) -> None:
+        self.state = state
+        if self.callback is not None:
+            await self.callback(state)
 
 
 def _human_span(seconds: int) -> str:
@@ -101,12 +139,11 @@ class DownloadTask:
         started = time.monotonic()
         comic_id = self.channel.normalize_id(raw_id)
         work_dir = self._prepare_work_dir(comic_id)
+        tap = _ProgressTap(on_progress)
 
         try:
             meta = await self._fetch_meta(comic_id, work_dir)
-            downloaded = await self._download(
-                comic_id, work_dir, on_progress, meta, cancel
-            )
+            downloaded = await self._download(comic_id, work_dir, tap, meta, cancel)
         except (DownloadPaused, DownloadCancelled):
             # 到点暂停 / 手动取消：断点要留着给下一次接着下，绝不能清目录
             raise
@@ -178,33 +215,49 @@ class DownloadTask:
             count += 1
         return count, size
 
+    def _resume_tail(self) -> str:
+        """「怎么接着下」这半句：断点留不留，取决于保留时长与启动清理。"""
+        if self.settings.resume_ttl <= 0:
+            return "发 /comic retry 会从头下载（「断点保留时长」配成了 0）"
+        tail = (
+            "发 /comic retry 会从断点接着下，断点保留 "
+            f"{_human_span(self.settings.resume_ttl)}"
+        )
+        if self.settings.clean_temp_on_start:
+            tail += "（「启动时清理临时目录」开着，插件一重载断点就没了）"
+        return tail
+
     def _halted_text(
-        self, work_dir: Path, meta: ComicMeta, *, prefix: str
+        self, work_dir: Path, tap: _ProgressTap, *, prefix: str
     ) -> tuple[str, int, int]:
         """暂停/取消共用的「停在哪儿」文案：已存多少张、多大、怎么接着下。"""
         saved, size = self._scan_images(work_dir)
-        saved_text = (
-            f"{saved}/{meta.page_count} 张" if meta.page_count else f"{saved} 张"
-        )
         text = (
-            f"{prefix}：已保存 {saved_text}（{format_size(size)}）。\n"
-            f"发 /comic retry 会从断点接着下，断点保留 "
-            f"{_human_span(self.settings.resume_ttl)}"
+            f"{prefix}：已保存 {_count_text(saved, tap.total)}"
+            f"（{format_size(size)}）。\n{self._resume_tail()}"
         )
         return text, saved, size
 
     def _cancelled(
-        self, work_dir: Path, meta: ComicMeta, comic_id: str, token: CancelToken
+        self,
+        work_dir: Path,
+        comic_id: str,
+        token: CancelToken,
+        tap: _ProgressTap,
     ) -> DownloadCancelled:
         """取消：用户按停就照暂停文案说；插件重载另说，因为图可能真的没了。"""
         if token.reason == INTERRUPT_RELOAD:
-            return self._reload_interrupted(work_dir, meta, comic_id, token)
-        text, saved, _ = self._halted_text(work_dir, meta, prefix="⏹ 已取消下载")
+            return self._reload_interrupted(work_dir, comic_id, token, tap)
+        text, saved, _ = self._halted_text(work_dir, tap, prefix="⏹ 已取消下载")
         logger.info(f"[{PLUGIN_NAME}] {comic_id} 被用户取消，断点保留：{saved} 张")
         return DownloadCancelled(text)
 
     def _reload_interrupted(
-        self, work_dir: Path, meta: ComicMeta, comic_id: str, token: CancelToken
+        self,
+        work_dir: Path,
+        comic_id: str,
+        token: CancelToken,
+        tap: _ProgressTap,
     ) -> DownloadCancelled:
         """插件重载/卸载打断下载：如实说停在哪儿，以及这些图到底还在不在。
 
@@ -216,10 +269,8 @@ class DownloadTask:
         if state is not None:
             # 目录可能已经清空，优先用取消那一刻记下的进度，别在这里数出一个 0
             done_text, done_size = state.headline, state.bytes_downloaded
-        elif meta.page_count:
-            done_text, done_size = f"{saved}/{meta.page_count} 张", size
         else:
-            done_text, done_size = f"{saved} 张", size
+            done_text, done_size = _count_text(saved, tap.total), size
 
         kept = not self.settings.clean_temp_on_start and self.settings.resume_ttl > 0
         if kept:
@@ -243,11 +294,11 @@ class DownloadTask:
             f"（{format_size(done_size)}）。\n{tail}"
         )
 
-    def _paused(self, work_dir: Path, meta: ComicMeta, comic_id: str) -> DownloadPaused:
+    def _paused(
+        self, work_dir: Path, comic_id: str, tap: _ProgressTap
+    ) -> DownloadPaused:
         saved, size = self._scan_images(work_dir)
-        saved_text = (
-            f"{saved}/{meta.page_count} 张" if meta.page_count else f"{saved} 张"
-        )
+        saved_text = _count_text(saved, tap.total)
         minutes = max(1, round(self.settings.segment_timeout / 60))
         logger.info(
             f"[{PLUGIN_NAME}] {comic_id} 连续下载 {minutes} 分钟，先停下保留断点："
@@ -255,11 +306,9 @@ class DownloadTask:
         )
         return DownloadPaused(
             f"⏸ 已连续下载 {minutes} 分钟，先停在这里：已保存 {saved_text}"
-            f"（{format_size(size)}）。\n"
-            f"发 /comic retry 会从断点接着下，断点保留 "
-            f"{_human_span(self.settings.resume_ttl)}",
+            f"（{format_size(size)}）。\n{self._resume_tail()}",
             saved=saved,
-            total=meta.page_count,
+            total=tap.total,
         )
 
     # ---- 元信息与下载 ----
@@ -294,7 +343,7 @@ class DownloadTask:
         self,
         comic_id: str,
         work_dir: Path,
-        on_progress: ProgressCallback | None,
+        tap: _ProgressTap,
         meta: ComicMeta,
         cancel: CancelToken | None = None,
     ) -> DownloadedComic:
@@ -306,28 +355,28 @@ class DownloadTask:
 
         for attempt in range(1, attempts + 1):
             download = asyncio.create_task(
-                self.channel.download(comic_id, work_dir, on_progress, cancel=token)
+                self.channel.download(comic_id, work_dir, tap, cancel=token)
             )
             outcome, error = await self._watch(download, token, timeout)
 
             if outcome == "cancelled":
                 # 手动取消 / 插件重载：都留断点逻辑由 _cancelled 按原因分流，且不重试
-                raise self._cancelled(work_dir, meta, comic_id, token)
+                raise self._cancelled(work_dir, comic_id, token, tap)
             if outcome == "timeout":
                 if pause_on_deadline:
-                    raise self._paused(work_dir, meta, comic_id)
+                    raise self._paused(work_dir, comic_id, tap)
                 last_error = DownloadError("下载超时，请稍后重试")
             elif error is None:
                 return download.result()
             elif isinstance(error, asyncio.CancelledError):
                 # 下载在非「到点」的情况下被叫停（外部取消 / 插件卸载）：同样留断点
-                raise self._cancelled(work_dir, meta, comic_id, token)
+                raise self._cancelled(work_dir, comic_id, token, tap)
             elif (
                 isinstance(error, DownloadCancelled)
                 and token.reason == INTERRUPT_RELOAD
             ):
                 # 渠道自己先发现「插件在重载」时只报了半句话，进度与去留由任务层统一说清
-                raise self._cancelled(work_dir, meta, comic_id, token)
+                raise self._cancelled(work_dir, comic_id, token, tap)
             elif isinstance(error, (DownloadPaused, DownloadCancelled)):
                 # 暂停/取消不是失败：配额或封禁状态下重试只会再撞一次，
                 # 直接交给上层展示「断点已保留」

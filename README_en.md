@@ -229,7 +229,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Auto-create group folder (`group_file_create_folder`) | bool | true | Only used when "Upload to group files" is on. Create the folder when missing (bot must be admin/owner), else fall back to the root |
 | Local save directory (`download_dir`) | string | downloads | Where "keep on disk only" mode stores the files |
 | Delete local files after sending (`auto_delete_after_send`) | bool | true | Removes temporary output after delivery; local-only mode never deletes |
-| Clean temp on startup (`clean_temp_on_start`) | bool | true | Empties the temp directory at load time, removing leftovers from crashes; breakpoints are cleared too |
+| Clean temp on startup (`clean_temp_on_start`) | bool | false | Leave it off to keep breakpoints: emptying the temp directory at load removes leftovers from crashes, but it also wipes breakpoints, so a reloaded plugin cannot continue the download. Off by default, so breakpoints simply expire after the breakpoint retention time; turn it on when disk space is tight |
 
 </details>
 

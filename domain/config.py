@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from .constants import (
     COVER_CENSOR_STYLES,
+    DEFAULT_CLEAN_TEMP_ON_START,
     DEFAULT_COVER_CAPTION,
     DEFAULT_COVER_CENSOR,
     DEFAULT_COVER_CENSOR_BLOCK,
@@ -130,7 +131,7 @@ class PluginSettings:
     group_file_create_folder: bool = True
     progress_style: str = DEFAULT_PROGRESS_STYLE
     show_result_summary: bool = True
-    clean_temp_on_start: bool = True
+    clean_temp_on_start: bool = DEFAULT_CLEAN_TEMP_ON_START
     max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT
     download_retry_times: int = DEFAULT_RETRY_TIMES
@@ -251,7 +252,7 @@ class PluginSettings:
                 download.get("show_result_summary"), True
             ),
             clean_temp_on_start=_as_bool(
-                packing.get("clean_temp_on_start"), True
+                packing.get("clean_temp_on_start"), DEFAULT_CLEAN_TEMP_ON_START
             ),
             max_concurrent_tasks=_as_int(
                 download.get("max_concurrent_tasks"),

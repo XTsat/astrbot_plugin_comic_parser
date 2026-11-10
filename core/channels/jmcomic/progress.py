@@ -45,6 +45,7 @@ class DownloadSession:
                 unit="章节",
                 done=self.chapters_done,
                 total=self.chapters_total,
+                image_total=self.pages_total,
                 detail=(
                     f"{self.pages_done}/{self.pages_total} 页"
                     if self.pages_total
@@ -59,6 +60,7 @@ class DownloadSession:
             unit="图片",
             done=self.pages_done,
             total=self.pages_total,
+            image_total=self.pages_total,
             bytes_downloaded=self.bytes_downloaded,
             elapsed=elapsed,
             failed=self.failed,

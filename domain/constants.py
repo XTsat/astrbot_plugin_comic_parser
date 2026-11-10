@@ -22,6 +22,10 @@ DEFAULT_MAX_CONCURRENT_TASKS: Final = 1
 DEFAULT_SEGMENT_TIMEOUT: Final = 900
 # 断点保留时长（秒）：过期就在下次下载前清掉，避免改过配置的旧半成品一直占盘；0 表示不留断点
 DEFAULT_RESUME_TTL: Final = 7200
+# 启动时是否清空临时目录：默认关。开着会在插件加载那一刻连 temp/resume 一起删掉，等于把
+# 「断点保留」作废（改配置、更新插件都会触发重载）；关着时断点只按上面的时长过期，
+# 代价是异常退出留下的临时目录要手动清
+DEFAULT_CLEAN_TEMP_ON_START: Final = False
 
 # 下载前测速（探测）：候选域名/图床同时探测、按实测速度排序，镜像「连得上但极慢」时才不干等。
 # 四项都可调（配置分组 probe），默认值取「够用、不用调」的档位。
