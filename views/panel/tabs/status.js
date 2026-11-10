@@ -5,7 +5,7 @@ export default {
   title: "状态",
 
   mount(root, ctx) {
-    const { el, api, toast, escapeHtml, fmtBytes, EP } = ctx;
+    const { el, api, toast, escapeHtml, fmtBytes, EP, go } = ctx;
 
     let timer = 0;
 
@@ -41,13 +41,36 @@ export default {
         </div>
 
         <div class="card">
-          <div class="card-head"><h2>渠道</h2></div>
-          <div class="table-scroll"><table class="data-table compact" id="sChannels"></table></div>
+          <div class="card-head">
+            <h2>渠道</h2>
+            <span class="muted-line" style="margin-left: auto">「取封面」决定能不能在面板里做封面预览</span>
+          </div>
+          <div class="channel-split">
+            <div class="channel-test">
+              <div class="field">
+                <label for="cChannel">渠道</label>
+                <select id="cChannel"></select>
+              </div>
+              <div class="field">
+                <label for="cText">作品 ID / 链接</label>
+                <input type="text" id="cText" placeholder="例如 1047667 或 https://…/g/1047667" />
+              </div>
+              <div class="row-actions">
+                <button id="cFetch" class="primary">测试</button>
+                <span id="cState" class="badge"></span>
+              </div>
+              <div id="cResult" hidden></div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table" id="sChannels"></table>
+            </div>
+          </div>
         </div>
 
         <div class="card">
           <div class="card-head"><h2>磁盘与暂存</h2></div>
           <div class="defs" id="sDisk"></div>
+        </div>
         </div>
       </div>`;
 
@@ -131,6 +154,23 @@ export default {
       ]);
 
       const channels = data.channels || [];
+      // 渠道下拉：jm 最常用，排最前并默认选中；它排在清单里第二位时不必让人每次翻下拉
+      const tests = [...channels].sort((a, b) => rankChannel(a) - rankChannel(b));
+      const previous = el("cChannel").value;
+      el("cChannel").innerHTML = tests
+        .map(
+          (item) =>
+            `<option value="${escapeHtml(item.command)}"${item.enabled ? "" : " disabled"}>${escapeHtml(
+              item.display_command,
+            )}（${escapeHtml(item.command)}）${item.enabled ? "" : " · 未启用"}</option>`,
+        )
+        .join("");
+      // 每 5 秒刷新会重建下拉：把用户当前选的渠道留着，别一刷新就跳回默认
+      const keep = tests.find((item) => item.command === previous);
+      const fallback = tests.find((item) => item.enabled);
+      if (keep) el("cChannel").value = keep.command;
+      else if (fallback) el("cChannel").value = fallback.command;
+
       el("sChannels").innerHTML = channels.length
         ? `<thead><tr><th>渠道</th><th>命令</th><th>状态</th><th>搜索</th><th>取封面</th></tr></thead><tbody>${channels
             .map(
@@ -176,6 +216,90 @@ export default {
       el("sUpdated").textContent = `更新于 ${new Date().toLocaleTimeString()}`;
       el("sUpdated").className = "badge ok";
     }
+
+    /** jm 优先，其余保持后端给的顺序（后端顺序 = 渠道注册顺序）。 */
+    function rankChannel(item) {
+      return item.command === "jmcomic" || item.display_command === "jm" ? 0 : 1;
+    }
+
+    function renderResult(data) {
+      const card = el("cResult");
+      const comic = data.comic || {};
+      const tags = (comic.tags || []).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
+      const cover = data.image
+        ? `<img src="${data.image.data_url}" alt="封面" />`
+        : `<div class="hint warn">${escapeHtml(data.cover_error || "没有封面")}</div>`;
+      card.hidden = false;
+      card.innerHTML = `
+        <div class="card-head" style="margin-top: var(--sp-3)">
+          <h2>${escapeHtml(comic.title || comic.comic_id || "结果")}</h2>
+        </div>
+        <div class="result-split">
+          <div class="result-facts">
+            <div class="kv"><span>渠道</span><span class="mono">${escapeHtml(comic.channel || "")}</span></div>
+            <div class="kv"><span>作品 ID</span><span class="mono">${escapeHtml(comic.comic_id || "")}</span></div>
+            <div class="kv"><span>作者</span><span>${escapeHtml(comic.author || "—")}</span></div>
+            <div class="kv"><span>页数 / 章节</span><span class="mono">${comic.page_count || "—"}</span></div>
+            <div class="kv"><span>标签</span><span class="tag-row" style="justify-content:flex-end">${tags || "—"}</span></div>
+            <div class="row-actions" style="margin-top: 10px">
+              ${data.image ? '<button id="cToTest" class="primary">送去打码测试</button>' : ""}
+              <button id="cCopyId">复制作品 ID</button>
+            </div>
+          </div>
+          <div class="result-cover">${cover}</div>
+        </div>`;
+
+      const toTest = card.querySelector("#cToTest");
+      if (toTest) {
+        toTest.addEventListener("click", () => {
+          // 交给测试页消化：面板内共享一张「待处理图片」，切过去就自动加进列表
+          ctx.shared.pendingImage = {
+            image_id: data.image.image_id,
+            data_url: data.image.data_url,
+            width: data.image.width,
+            height: data.image.height,
+            bytes: data.image.bytes,
+            name: `${comic.title || comic.comic_id} · 封面`,
+          };
+          go("test");
+        });
+      }
+      card.querySelector("#cCopyId").addEventListener("click", () => ctx.copyText(comic.comic_id || ""));
+    }
+
+    async function fetchOne() {
+      const channel = el("cChannel").value;
+      const text = el("cText").value.trim();
+      if (!channel || !text) {
+        toast("先选渠道并填作品 ID 或链接", true);
+        return;
+      }
+      const button = el("cFetch");
+      button.disabled = true;
+      el("cState").textContent = "测试中…";
+      el("cState").className = "badge warn";
+      const started = performance.now();
+      try {
+        const data = await api.post(EP.channelsFetch, { channel, text });
+        const ms = Math.round(performance.now() - started);
+        renderResult(data);
+        el("cState").textContent = `通 · ${ms} ms`;
+        el("cState").className = "badge ok";
+      } catch (err) {
+        el("cState").textContent = "失败";
+        el("cState").className = "badge bad";
+        el("cResult").hidden = false;
+        el("cResult").innerHTML = `<div class="hint warn" style="margin-top: var(--sp-3)">${escapeHtml(err.message)}</div>`;
+        toast(`测试失败：${err.message}`, true);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    el("cFetch").addEventListener("click", fetchOne);
+    el("cText").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") fetchOne();
+    });
 
     async function refresh(manual) {
       try {

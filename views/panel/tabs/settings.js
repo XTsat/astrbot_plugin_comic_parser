@@ -27,7 +27,7 @@ export default {
             <button id="cfgSave" class="primary">保存</button>
           </div>
         </div>
-        <div id="cfgGroups" class="page"></div>
+        <div id="cfgGroups" class="stack"></div>
       </div>`;
 
     const container = root.querySelector("#cfgGroups");

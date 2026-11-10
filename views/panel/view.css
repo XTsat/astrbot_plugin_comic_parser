@@ -603,7 +603,25 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 
 /* ============================ 6. 文档型页（模型 / 渠道 / 状态 / 设置） ============================ */
 /* minmax(0,1fr) 而不是默认的 auto：默认列宽会被内容的最小宽度顶开，长句一多就横向溢出 */
-.page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-content: start; padding: var(--sp-5); max-width: 1080px; }
+.page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-content: start;
+  padding: var(--sp-5);
+}
+/* 卡片区：宽屏自动分两列，把横向空间用起来；窄了自然回到一列。
+   page-head 与需要通栏的卡片自己声明 grid-column: 1 / -1。 */
+/* min(420px, 100%)：窄屏时 420px 的下限会把页面顶宽，套一层 min() 才能老实退成一列 */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: var(--sp-4); align-content: start; }
+.cards > .span-all { grid-column: 1 / -1; }
+/* 超宽屏最多两列：auto-fit 在 1920 上会拆成三列，中间的卡片被挤成窄条 */
+@media (min-width: 1500px) {
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-content: start; }
+/* 正文类的长句别跟着卡片一起拉到一屏宽，读起来会跳行 */
+.page-head .hint, .legend, .card > .hint { max-width: 92ch; }
 .page > *, .page-head > * { min-width: 0; }
 .page-head { display: flex; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
 .page-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
@@ -673,7 +691,7 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
   background: var(--panel);
 }
 .stat > span { font-size: var(--fs-sm); color: var(--muted); }
-.stat > b { font-size: var(--fs-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat > b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .stat > b.ok { color: var(--ok); }
 .stat > b.bad { color: var(--bad); }
 
@@ -692,6 +710,18 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 .def > div { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 620px) {
   .def { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* ---- 状态页的「渠道」卡：左边试一个渠道，右边是能力表 ---- */
+/* 左表单 : 右表格 ≈ 0.85 : 1.5，两边都不至于空；
+   表格在这个位置占满自己的列，别用 compact 缩成一坨靠左 */
+.channel-split { display: grid; grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.5fr); gap: var(--sp-5); align-items: start; }
+.channel-test { display: grid; gap: var(--sp-2); min-width: 0; }
+.channel-test .field { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: var(--sp-2); }
+.channel-test .field > select, .channel-test .field > input { width: 100%; min-width: 0; }
+@media (max-width: 900px) {
+  .channel-split { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+  .channel-test .field { grid-template-columns: 1fr; gap: 2px; }
 }
 
 /* ---- 渠道测试结果：左边事实、右边封面，窄屏竖排 ---- */

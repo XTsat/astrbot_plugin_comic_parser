@@ -255,11 +255,17 @@ export default {
   }
   self.pushExternalImage = pushExternalImage;
 
-  /** 渠道下拉：有封面预览能力的渠道优先排前面。 */
+  /** 拉封面：能取封面的渠道优先，jm 再优先，其余保持后端顺序。 */
+  function rankCoverChannel(item) {
+    return item.command === "jmcomic" || item.display_command === "jm" ? 0 : 1;
+  }
+
   function renderCoverChannels(channels) {
     const usable = (channels || [])
       .filter((item) => item.enabled)
       .sort((a, b) => Number(Boolean(b.supports_cover)) - Number(Boolean(a.supports_cover)));
+    // jm 最常用：排最前并默认选中，不必每次都翻下拉
+    usable.sort((a, b) => rankCoverChannel(a) - rankCoverChannel(b));
     el("coverChannel").innerHTML = usable.length
       ? usable
           .map(

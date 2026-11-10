@@ -5,11 +5,10 @@
 // 才调用一次（懒加载：打开面板不会同时打五个接口）。
 import testTab from "./tabs/test.js";
 import modelsTab from "./tabs/models.js";
-import channelsTab from "./tabs/channels.js";
 import statusTab from "./tabs/status.js";
 import settingsTab from "./tabs/settings.js";
 
-const TABS = [testTab, modelsTab, channelsTab, statusTab, settingsTab];
+const TABS = [testTab, modelsTab, statusTab, settingsTab];
 
 const bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
 

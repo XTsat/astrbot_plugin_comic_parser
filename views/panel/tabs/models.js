@@ -38,7 +38,8 @@ export default {
           </div>
         </div>
 
-        <div class="card" id="downloadCard" hidden>
+        <div class="cards">
+        <div class="card span-all" id="downloadCard" hidden>
           <h2>正在下载</h2>
           <div class="kv"><span id="downloadName">—</span><span class="mono" id="downloadPercent">0%</span></div>
           <div class="progress"><i id="downloadBar"></i></div>
@@ -82,7 +83,9 @@ export default {
           </div>
         </div>
 
-        <div id="modelSections"></div>
+        </div>
+
+        <div id="modelSections" class="cards"></div>
       </div>`;
 
     const sectionsRoot = root.querySelector("#modelSections");
