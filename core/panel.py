@@ -46,6 +46,7 @@ from ..domain.constants import (
 )
 from ..domain.errors import PanelError
 from .nsfw import Detector, ModelWeights, create_detector, censor_cover
+from .registry import resolve_link
 
 
 @dataclass(slots=True)
@@ -190,6 +191,110 @@ class PanelService:
                 }
             )
         return items
+
+    async def fetch_from_channel(self, channel_name: Any, text: Any) -> dict[str, Any]:
+        """按渠道取一本作品的元信息与封面，封面直接进面板的图片暂存表。
+
+        Args:
+            channel_name: 渠道全称或简写（``nhentai`` / ``nh``）。
+            text: 作品 ID 或作品链接；链接指向别的站点时按链接那家走。
+
+        Returns:
+            dict: ``comic`` 是元信息，``image`` 是封面（取不到时为 None，``cover_error``
+            说明原因）。
+        """
+        raw = str(text or "").strip()
+        if not raw:
+            raise PanelError("先填作品 ID 或作品链接")
+
+        channels = self._channel_objects()
+        if not channels:
+            raise PanelError("当前没有可用渠道")
+
+        channel = _pick_channel(channels, str(channel_name or ""))
+        if channel is None:
+            raise PanelError(f"没有这个渠道：{channel_name}")
+
+        # 贴的是作品链接就按链接走：命令/渠道只是入口，不能拿 A 站的 ID 去问 B 站
+        if raw.lower().startswith(("http://", "https://")):
+            resolved = resolve_link(channels, raw)
+            if resolved is None:
+                raise PanelError("认不出这条链接属于哪个渠道，检查一下链接或改用作品 ID")
+            channel, comic_id = resolved
+        else:
+            try:
+                comic_id = channel.normalize_id(raw)
+            except Exception as exc:
+                raise PanelError(f"{channel.display_command} 的作品 ID 看着不对：{exc}") from exc
+
+        if not channel.enabled:
+            raise PanelError(
+                f"渠道 {channel.display_command} 没有启用；先在插件设置里打开它"
+            )
+
+        work_dir = self._ensure_temp_dir() / "channel" / uuid.uuid4().hex
+        try:
+            work_dir.mkdir(parents=True, exist_ok=True)
+            meta = await channel.fetch_meta(comic_id, work_dir)
+        except PanelError:
+            raise
+        except Exception as exc:  # 各渠道抛的异常类型不统一，这里统一变成页面文案
+            logger.warning(f"[{PLUGIN_NAME}] 面板取元信息失败 {channel.command}/{comic_id}: {exc}")
+            raise PanelError(f"{channel.display_command} 取元信息失败：{exc}") from exc
+
+        payload: dict[str, Any] = {
+            "channel": channel.command,
+            "display_command": channel.display_command,
+            "comic": {
+                "channel": meta.channel,
+                "comic_id": meta.comic_id,
+                "title": meta.title,
+                "author": meta.author,
+                "page_count": meta.page_count,
+                "tags": list(meta.tags),
+            },
+            "image": None,
+            "cover_error": "",
+        }
+
+        if not channel.supports_cover:
+            payload["cover_error"] = (
+                f"渠道 {channel.display_command} 只支持查元信息，取不到封面预览；可以直接上传图片试"
+            )
+            return payload
+
+        try:
+            raw_cover = await channel.fetch_cover(comic_id)
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 面板取封面失败 {channel.command}/{comic_id}: {exc}")
+            raw_cover = None
+
+        if not raw_cover:
+            payload["cover_error"] = (
+                f"没取到 {channel.display_command} 的封面：可能被站点风控、站点结构有变或网络不通，"
+                "详情看插件日志；可以直接上传图片试"
+            )
+            return payload
+
+        item = self.add_image(raw_cover, _image_suffix(raw_cover))
+        payload["image"] = {
+            "image_id": item.id,
+            "width": item.width,
+            "height": item.height,
+            "bytes": item.size,
+            "data_url": _data_url(item.path),
+        }
+        return payload
+
+    def _channel_objects(self) -> dict[str, Any]:
+        """渠道对象表（键是渠道名）；没有注入时返回空表。"""
+        if self._channels_provider is None:
+            return {}
+        try:
+            return dict(self._channels_provider())
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 面板取渠道对象失败: {exc}")
+            return {}
 
     def channels(self) -> list[dict[str, Any]]:
         """可用渠道清单：面板的「渠道测试」与测试页的「拉封面」都靠它。"""
@@ -635,6 +740,34 @@ def _clamp_float(value: Any, low: float, high: float, fallback: float) -> float:
 def _data_url(path: Path) -> str:
     mime = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+
+
+def _pick_channel(channels: Mapping[str, Any], name: str) -> Any | None:
+    """按全称、简写或渠道名找到渠道对象。"""
+    wanted = name.strip().lower()
+    if not wanted:
+        return None
+    for key, channel in channels.items():
+        if wanted in {str(key).lower(), str(getattr(channel, "command", "")).lower()}:
+            return channel
+        names = {str(item).lower() for item in getattr(channel, "command_names", ())}
+        aliases = {str(item).lower() for item in getattr(channel, "command_aliases", ())}
+        if wanted in names or wanted in aliases:
+            return channel
+    return None
+
+
+def _image_suffix(raw: bytes) -> str:
+    """按文件头猜图片后缀：渠道给的字节没有文件名，只能看魔数。"""
+    if raw[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return ".webp"
+    if raw[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    return ".jpg"
 
 
 def _runtime_info() -> dict[str, Any]:

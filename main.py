@@ -421,6 +421,18 @@ class ComicParserPlugin(Star):
                 "插件面板：下载最近一次打码结果",
             ),
             (
+                f"/{PLUGIN_NAME}/panel/channels",
+                self.api_panel_channels,
+                ["GET"],
+                "插件面板：可用渠道清单（是否启用、能否取封面）",
+            ),
+            (
+                f"/{PLUGIN_NAME}/panel/channels/fetch",
+                self.api_panel_channels_fetch,
+                ["POST"],
+                "插件面板：按渠道 + 作品 ID/链接取元信息与封面",
+            ),
+            (
                 f"/{PLUGIN_NAME}/panel/models",
                 self.api_panel_models,
                 ["GET"],
@@ -514,6 +526,23 @@ class ComicParserPlugin(Star):
                 block=payload.get("block"),
                 padding=payload.get("padding"),
                 full_area=payload.get("full_area"),
+            )
+        except PanelError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
+
+    async def api_panel_channels(self) -> Any:
+        """渠道清单：页面据此决定「渠道测试」能不能用、支持哪些能力。"""
+        return plugin_web.json_response({"status": "ok", "data": {"channels": self.panel.channels()}})
+
+    async def api_panel_channels_fetch(self) -> Any:
+        """按渠道取一本作品的元信息与封面（封面进面板的图片暂存表）。"""
+        payload = await plugin_web.request.json(default={})
+        if not isinstance(payload, dict):
+            return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            data = await self.panel.fetch_from_channel(
+                payload.get("channel"), payload.get("text")
             )
         except PanelError as exc:
             return plugin_web.error_response(str(exc), status_code=400)

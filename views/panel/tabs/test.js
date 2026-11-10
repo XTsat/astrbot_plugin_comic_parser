@@ -7,6 +7,8 @@ export default {
   "use strict";
 
   const el = (id) => root.querySelector("#" + id);
+  const self = this;
+  self._ctx = ctx;
   const bridge = ctx.bridge;
   const api = ctx.api;
   const EP = ctx.EP;
@@ -208,6 +210,39 @@ export default {
     syncModelUi();
   }
 
+  /** 把别处送来的图（渠道页的封面、拉封面接口返回的封面）放进列表并立刻评分。 */
+  function pushExternalImage(payload) {
+    if (!payload || !payload.image_id) return;
+    state.items.set(payload.image_id, {
+      id: payload.image_id,
+      name: payload.name || "渠道封面",
+      bytes: payload.bytes || 0,
+      width: payload.width,
+      height: payload.height,
+      url: payload.data_url,
+      score: null,
+      coverage: null,
+      detections: [],
+      failed: false,
+      stale: false,
+      ms: null,
+      threshold: null,
+      censored: null,
+      censoredChanged: false,
+      censoredCoverage: 0,
+      censoredFull: false,
+      scoring: null,
+      needsRescore: false,
+      scoreToken: 0,
+      censorToken: 0,
+    });
+    state.currentId = payload.image_id;
+    renderList();
+    render();
+    requestScore(state.currentId, true);
+  }
+  self.pushExternalImage = pushExternalImage;
+
   /** 渠道下拉：有封面预览能力的渠道优先排前面。 */
   function renderCoverChannels(channels) {
     const usable = (channels || []).filter((item) => item.enabled);
@@ -242,33 +277,14 @@ export default {
         toast(data && data.cover_error ? data.cover_error : "这个渠道没取到封面", true);
         return;
       }
-      state.items.set(data.image.image_id, {
-        id: data.image.image_id,
-        name: `${data.comic.title || data.comic.comic_id} · 封面`,
-        bytes: data.image.bytes || 0,
+      pushExternalImage({
+        image_id: data.image.image_id,
+        data_url: data.image.data_url,
         width: data.image.width,
         height: data.image.height,
-        url: data.image.data_url,
-        score: null,
-        coverage: null,
-        detections: [],
-        failed: false,
-        stale: false,
-        ms: null,
-        threshold: null,
-        censored: null,
-        censoredChanged: false,
-        censoredCoverage: 0,
-        censoredFull: false,
-        scoring: null,
-        needsRescore: false,
-        scoreToken: 0,
-        censorToken: 0,
+        bytes: data.image.bytes,
+        name: `${data.comic.title || data.comic.comic_id} · 封面`,
       });
-      state.currentId = data.image.image_id;
-      renderList();
-      render();
-      requestScore(state.currentId, true);
       toast(`已拉取「${data.comic.title || data.comic.comic_id}」的封面`);
     } catch (err) {
       toast(`拉取失败：${err.message}`, true);
@@ -644,5 +660,14 @@ export default {
   }
 
   boot();
+  },
+
+  /** 每次切到本页都会被调用：把「渠道页送来的封面」接住并评分。 */
+  activate() {
+    const ctx = this._ctx;
+    if (!ctx || !ctx.shared.pendingImage || typeof this.pushExternalImage !== "function") return;
+    const pending = ctx.shared.pendingImage;
+    ctx.shared.pendingImage = null;
+    this.pushExternalImage(pending);
   },
 };
