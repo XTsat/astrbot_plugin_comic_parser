@@ -11,6 +11,9 @@ export default {
     let pendingDelete = "";
 
     const state = {
+      mode: "auto",
+      customUrl: "",
+      uploadFile: null,
       models: [],
       modelsDir: "",
       download: { state: "idle", preset: "", percent: 0, error: "" },
@@ -27,9 +30,42 @@ export default {
             下载源按档位走各自上游（写实档走插件 Release，二次元档走 HuggingFace 镜像），失败会自动换源；
             插件配置里的「自定义下载地址」「代理」在这里同样生效。
           </div>
-          <div class="row-actions" style="margin-top:10px">
-            <button id="mRefresh">刷新</button>
+          <div class="params" style="border:0;padding:10px 0 0">
+            <div class="field">
+              <label for="mMode">下载线路</label>
+              <select id="mMode">
+                <option value="auto">自动（按档位默认源）</option>
+                <option value="mirror">只走镜像（国内直连不通时）</option>
+                <option value="direct">只走上游源站</option>
+                <option value="custom">自定义地址</option>
+              </select>
+              <span id="mModeHint" class="hint-inline"></span>
+            </div>
+            <div class="field wide" id="mCustomField" hidden>
+              <label for="mCustomUrl">自定义地址</label>
+              <input type="text" id="mCustomUrl" placeholder="https://镜像地址/{filename}，可多行" />
+            </div>
+            <span class="spacer"></span>
             <span id="mRuntime" class="badge">—</span>
+            <button id="mRefresh">刷新</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>手动上传权重</h2>
+          <div class="hint">
+            服务器连镜像都通不了、或者你有自己导出的 ONNX 时走这里：先选文件上传（最大 256MB），
+            再挑它对应的档位安装——档位决定类别顺序，装错档位会把部位打错码。
+          </div>
+          <div class="params" style="border:0;padding:10px 0 0">
+            <div class="field">
+              <label for="mUploadPreset">安装为</label>
+              <select id="mUploadPreset"></select>
+            </div>
+            <input type="file" id="mUploadFile" accept=".onnx" hidden />
+            <button id="mUploadPick">选择 .onnx 文件</button>
+            <button id="mUploadGo" class="primary" disabled>上传并安装</button>
+            <span id="mUploadState" class="hint-inline"></span>
           </div>
         </div>
 
@@ -171,6 +207,8 @@ export default {
       el("modelsDir").textContent = state.modelsDir ? `${state.modelsDir}` : "models/";
       renderSections();
       renderDownloadCard();
+      renderUploadPresets();
+      syncModeUi();
     }
 
     async function load() {
@@ -223,7 +261,11 @@ export default {
 
     async function startDownload(preset) {
       try {
-        const data = await api.post(EP.modelsDownload, { preset });
+        const data = await api.post(EP.modelsDownload, {
+          preset,
+          mode: state.mode,
+          custom_url: state.customUrl,
+        });
         state.download = {
           state: data.state || "downloading",
           preset: data.preset || preset,
@@ -253,6 +295,75 @@ export default {
         toast(`删除失败：${err.message}`, true);
       }
     }
+
+    function syncModeUi() {
+      const hint = el("mModeHint");
+      el("mCustomField").hidden = state.mode !== "custom";
+      const text = {
+        auto: "各档默认源：二次元档先走 HF 镜像，写实档走插件 Release + 加速镜像",
+        mirror: "只用镜像域名（hf-mirror / ghfast / gh-proxy）",
+        direct: "只用上游源站（huggingface.co / github.com）",
+        custom: "这一行地址只对本次下载生效，不影响插件配置",
+      }[state.mode] || "";
+      hint.textContent = text;
+      hint.className = "hint-inline";
+    }
+
+    el("mMode").addEventListener("change", () => {
+      state.mode = el("mMode").value;
+      if (state.mode === "custom") el("mCustomUrl").focus();
+      syncModeUi();
+    });
+    el("mCustomUrl").addEventListener("input", () => {
+      state.customUrl = el("mCustomUrl").value;
+    });
+
+    // ---- 手动上传安装 ----
+    function renderUploadPresets() {
+      el("mUploadPreset").innerHTML = state.models
+        .map(
+          (item) =>
+            `<option value="${item.value}">${escapeHtml(item.label)}${
+              item.installed ? "（已安装，会被覆盖）" : ""
+            }</option>`,
+        )
+        .join("");
+    }
+
+    el("mUploadPick").addEventListener("click", () => el("mUploadFile").click());
+    el("mUploadFile").addEventListener("change", (event) => {
+      const file = (event.target.files || [])[0] || null;
+      state.uploadFile = file;
+      el("mUploadGo").disabled = !file;
+      el("mUploadState").textContent = file ? `${file.name} · ${fmtBytes(file.size)}` : "";
+      el("mUploadState").className = "hint-inline";
+      event.target.value = "";
+    });
+
+    el("mUploadGo").addEventListener("click", async () => {
+      const file = state.uploadFile;
+      if (!file) return;
+      el("mUploadGo").disabled = true;
+      el("mUploadState").textContent = "上传中…";
+      try {
+        const staged = await ctx.api.upload(EP.modelsUpload, file);
+        const preset = el("mUploadPreset").value;
+        const done = await api.post(EP.modelsInstall, {
+          upload_id: staged.upload_id,
+          preset,
+        });
+        toast(`已安装为 ${done.file}`);
+        state.uploadFile = null;
+        el("mUploadState").textContent = "";
+        await load();
+      } catch (err) {
+        el("mUploadState").textContent = `失败：${err.message}`;
+        el("mUploadState").className = "hint-inline warn";
+        toast(`安装失败：${err.message}`, true);
+      } finally {
+        el("mUploadGo").disabled = !state.uploadFile;
+      }
+    });
 
     root.querySelector("#mRefresh").addEventListener("click", () => {
       load().catch((err) => toast(`刷新失败：${err.message}`, true));

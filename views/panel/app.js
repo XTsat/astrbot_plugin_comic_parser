@@ -76,6 +76,8 @@ const ctx = {
     modelsStatus: "panel/models/status",
     modelsDownload: "panel/models/download",
     modelsDelete: "panel/models/delete",
+    modelsUpload: "panel/models/upload",
+    modelsInstall: "panel/models/install",
     channels: "panel/channels",
     channelsFetch: "panel/channels/fetch",
     status: "panel/status",

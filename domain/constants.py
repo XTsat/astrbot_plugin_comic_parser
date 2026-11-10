@@ -474,6 +474,23 @@ PANEL_MAX_UPLOAD_BYTES: Final = 16 * 1024 * 1024
 PANEL_MAX_IMAGES: Final = 24
 # 页面能选的推理输入尺寸：640 容易吐「覆盖整幅」的粗框，1280 掉召回，960 是默认档
 PANEL_IMGSZ_CHOICES: Final = (640, 960, 1280)
+# 面板下载线路：把「用哪条源」做成页面上的一次选择，不用再改配置里的自定义地址
+NSFW_DOWNLOAD_MODE_AUTO: Final = "auto"        # 按档位默认源（HF 镜像优先 / 插件 Release + 加速镜像）
+NSFW_DOWNLOAD_MODE_MIRROR: Final = "mirror"    # 只走镜像（国内直连不通时）
+NSFW_DOWNLOAD_MODE_DIRECT: Final = "direct"    # 只走上游源站
+NSFW_DOWNLOAD_MODE_CUSTOM: Final = "custom"    # 用页面上填的地址
+NSFW_DOWNLOAD_MODES: Final = (
+    NSFW_DOWNLOAD_MODE_AUTO,
+    NSFW_DOWNLOAD_MODE_MIRROR,
+    NSFW_DOWNLOAD_MODE_DIRECT,
+    NSFW_DOWNLOAD_MODE_CUSTOM,
+)
+# 哪些主机算「镜像」、哪些算「上游源站」：下载线路按主机名分流，不写死整套地址
+NSFW_MIRROR_HOSTS: Final = ("hf-mirror.com", "ghfast.top", "gh-proxy.com")
+NSFW_ORIGIN_HOSTS: Final = ("huggingface.co", "github.com")
+# 手动上传权重的体积上限：最大的 medium 档约 80MB，给到 256MB 够用又不至于被人塞满磁盘
+PANEL_MODEL_UPLOAD_MAX_BYTES: Final = 256 * 1024 * 1024
+
 # 面板「渠道测试 / 拉封面」单次动作上限：hanime1 这类要抓两三个页面、还带图床择优，
 # 网络差时能拖到分钟级；面板是一次交互，卡太久不如直接告诉用户「这渠道现在不通」
 PANEL_CHANNEL_TIMEOUT: Final = 30.0

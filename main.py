@@ -92,6 +92,7 @@ from .domain.constants import (
     STOP_ALL_WORDS,
     STOP_WORDS,
     PANEL_MAX_UPLOAD_BYTES,
+    PANEL_MODEL_UPLOAD_MAX_BYTES,
 )
 from .utils import describe_pack_format, format_size, split_pack_format
 
@@ -467,6 +468,18 @@ class ComicParserPlugin(Star):
                 "插件面板：权重下载进度与各档位状态",
             ),
             (
+                f"/{PLUGIN_NAME}/panel/models/upload",
+                self.api_panel_model_upload,
+                ["POST"],
+                "插件面板：手动上传权重文件（先暂存）",
+            ),
+            (
+                f"/{PLUGIN_NAME}/panel/models/install",
+                self.api_panel_model_install,
+                ["POST"],
+                "插件面板：把上传的权重装成指定档位",
+            ),
+            (
                 f"/{PLUGIN_NAME}/panel/models/delete",
                 self.api_panel_model_delete,
                 ["POST"],
@@ -642,7 +655,11 @@ class ComicParserPlugin(Star):
         if not isinstance(payload, dict):
             return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
         try:
-            data = await self.panel.download_model(payload.get("preset"))
+            data = await self.panel.download_model(
+                payload.get("preset"),
+                payload.get("mode"),
+                payload.get("custom_url"),
+            )
         except PanelError as exc:
             return plugin_web.error_response(str(exc), status_code=400)
         return plugin_web.json_response({"status": "ok", "data": data})
@@ -650,6 +667,36 @@ class ComicParserPlugin(Star):
     async def api_panel_model_status(self) -> Any:
         """当前下载进度 + 各档位状态。"""
         return plugin_web.json_response({"status": "ok", "data": self.panel.model_status()})
+
+    async def api_panel_model_upload(self) -> Any:
+        """收一个用户手动上传的 .onnx：先暂存，再由页面挑档位安装。
+
+        体积自己卡（插件扩展路由没有统一上限）；只认得出来的整文件，太小的一律拒掉。
+        """
+        files = await plugin_web.request.files()
+        upload = files.get("file")
+        if upload is None:
+            return plugin_web.error_response("没有收到权重文件（表单字段名固定为 file）", status_code=400)
+
+        raw = await upload.read(PANEL_MODEL_UPLOAD_MAX_BYTES + 1)
+        try:
+            data = self.panel.stash_uploaded_model(raw, upload.filename or "")
+        except PanelError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
+
+    async def api_panel_model_install(self) -> Any:
+        """把暂存的上传权重装成某个档位。"""
+        payload = await plugin_web.request.json(default={})
+        if not isinstance(payload, dict):
+            return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+        try:
+            data = self.panel.install_uploaded_model(
+                payload.get("upload_id"), payload.get("preset")
+            )
+        except PanelError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
 
     async def api_panel_model_delete(self) -> Any:
         """删掉某个档位已下载的权重。"""

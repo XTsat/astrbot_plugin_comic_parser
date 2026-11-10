@@ -23,6 +23,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import urlparse
 
 from PIL import Image
 from astrbot.api import logger
@@ -39,11 +40,19 @@ from ..domain.constants import (
     DEFAULT_NSFW_MODEL_PRESET,
     DEFAULT_NSFW_THRESHOLD,
     IMAGE_SUFFIXES,
+    NSFW_DOWNLOAD_MODE_AUTO,
+    NSFW_DOWNLOAD_MODE_CUSTOM,
+    NSFW_DOWNLOAD_MODE_DIRECT,
+    NSFW_DOWNLOAD_MODE_MIRROR,
     NSFW_IMGSZ_RANGE,
+    NSFW_MIN_MODEL_BYTES,
+    NSFW_MIRROR_HOSTS,
+    NSFW_ORIGIN_HOSTS,
     PANEL_IMGSZ_CHOICES,
     PANEL_MAX_IMAGES,
     PANEL_CHANNEL_TIMEOUT,
     PANEL_MAX_UPLOAD_BYTES,
+    PANEL_MODEL_UPLOAD_MAX_BYTES,
     PANEL_SETTINGS_SKIP_GROUPS,
     NSFW_MODEL_PRESETS,
     PLUGIN_NAME,
@@ -576,18 +585,24 @@ class PanelService:
 
     # ---- 权重下载 ----
 
-    async def download_model(self, preset: Any) -> dict[str, Any]:
+    async def download_model(
+        self, preset: Any, mode: Any = NSFW_DOWNLOAD_MODE_AUTO, custom_url: Any = ""
+    ) -> dict[str, Any]:
         """把某个档位的权重下下来（后台跑），页面用 :meth:`model_status` 轮询进度。
 
         下载源、代理、自定义地址全部沿用插件配置：页面上换档位不该绕过用户的网络设置。
 
         Args:
             preset: 档位名；未知值退回默认档。
+            mode: 下载线路（auto / mirror / direct / custom）。页面上的选择只影响这一次，
+                不用去改插件配置里的「自定义下载地址」。
+            custom_url: mode=custom 时用的地址模板，支持 ``{filename}`` 占位。
 
         Returns:
-            dict: 当前下载状态快照。
+            dict: 当前下载状态快照（含本次实际走的源）。
         """
         preset = preset if preset in NSFW_MODEL_PRESETS else DEFAULT_NSFW_MODEL_PRESET
+        urls = _download_urls_for(preset, str(mode or ""), str(custom_url or ""))
         filename = NSFW_MODEL_PRESETS[preset].filename
         if (self._models_dir / filename).is_file():
             self._prepare_state = _prepare_snapshot("ready", preset, 1.0, "")
@@ -604,12 +619,73 @@ class PanelService:
             raise PanelError(f"正在下载 {busy}，等它下完再换档位")
 
         self._prepare_state = _prepare_snapshot("downloading", preset, 0.0, "")
-        self._prepare_task = asyncio.create_task(self._download_model(preset))
+        self._prepare_state["sources"] = list(urls)
+        self._prepare_task = asyncio.create_task(self._download_model(preset, urls))
         return dict(self._prepare_state)
 
     def model_status(self) -> dict[str, Any]:
         """当前下载进度 + 各档位是否已装（「模型下载」页按秒轮询）。"""
         return {**self._prepare_state, "models": self.models()}
+
+    def stash_uploaded_model(self, raw: bytes, filename: str = "") -> dict[str, Any]:
+        """收一个用户手动上传的权重，先落到暂存位，等他挑好档位再装。
+
+        两条路各有用处：服务器连镜像都通不了、或者想用自己导出的权重时，上传是最快的办法。
+        """
+        if not raw:
+            raise PanelError("没有收到权重文件")
+        if len(raw) > PANEL_MODEL_UPLOAD_MAX_BYTES:
+            raise PanelError(
+                f"权重超过 {PANEL_MODEL_UPLOAD_MAX_BYTES // 1024 // 1024}MB 上限，确认一下传的是不是 .onnx"
+            )
+        if len(raw) < NSFW_MIN_MODEL_BYTES:
+            raise PanelError("这个文件太小，基本可以断定不是 ONNX 权重")
+
+        upload_id = uuid.uuid4().hex
+        path = self._ensure_temp_dir() / f"upload-{upload_id}.onnx"
+        try:
+            path.write_bytes(raw)
+        except OSError as exc:
+            raise PanelError(f"暂存上传文件失败：{exc}") from exc
+
+        logger.info(
+            f"[{PLUGIN_NAME}] 面板收到上传权重 {filename or '(未命名)'} "
+            f"{len(raw) / 1048576:.1f}MB"
+        )
+        return {
+            "upload_id": upload_id,
+            "filename": filename,
+            "bytes": len(raw),
+            "presets": [
+                {"value": key, "label": spec.summary}
+                for key, spec in NSFW_MODEL_PRESETS.items()
+            ],
+        }
+
+    def install_uploaded_model(self, upload_id: Any, preset: Any) -> dict[str, Any]:
+        """把暂存的权重装成某个档位：文件名换成该档位的名字，选择器才认得出类别。"""
+        key = str(preset or "").strip().lower()
+        if key not in NSFW_MODEL_PRESETS:
+            raise PanelError(f"没有这个模型档位：{preset}")
+
+        source = self._ensure_temp_dir() / f"upload-{str(upload_id or '').strip()}.onnx"
+        if not source.is_file():
+            raise PanelError("上传的文件已经不在了（面板暂存会定期清理），重新传一次")
+
+        spec = NSFW_MODEL_PRESETS[key]
+        target = self._models_dir / spec.filename
+        part = target.with_name(spec.filename + ".part")
+        try:
+            self._models_dir.mkdir(parents=True, exist_ok=True)
+            source.replace(part)
+            part.replace(target)
+        except OSError as exc:
+            raise PanelError(f"安装失败：{exc}") from exc
+
+        self._detectors.pop(key, None)
+        self._prepare_state = _prepare_snapshot("ready", key, 1.0, "")
+        logger.info(f"[{PLUGIN_NAME}] 面板安装上传权重 {spec.filename}")
+        return {"installed": key, "file": spec.filename, "models": self.models()}
 
     def delete_model(self, preset: Any) -> dict[str, Any]:
         """删掉某个档位已下载的权重。
@@ -640,13 +716,16 @@ class PanelService:
         logger.info(f"[{PLUGIN_NAME}] 面板删除权重 {spec.filename}（{'已删' if removed else '本来就没有'}）")
         return {"removed": removed, "models": self.models()}
 
-    async def _download_model(self, preset: str) -> None:
-        """后台任务：真正下载权重，结果写回 _prepare_state。"""
+    async def _download_model(self, preset: str, urls: list[str] | None = None) -> None:
+        """后台任务：真正下载权重，结果写回 _prepare_state。
+
+        ``urls`` 非空时用它（页面选的线路），否则退回插件配置里的自定义地址。
+        """
         weights = ModelWeights(
             self._models_dir,
             preset=preset,
             auto_download=True,
-            download_url=self._download_url,
+            download_url=" ".join(urls) if urls else self._download_url,
             proxy=self._proxy,
             on_progress=self._note_progress,
         )
@@ -957,6 +1036,49 @@ def _field_entry(
         "secret": bool(node.get("secret")),
         "invisible": bool(node.get("invisible")),
     }
+
+
+def _host_of(url: str) -> str:
+    """从地址模板里取主机名（模板里可能只有 {filename} 占位，取不到就返回空）。"""
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _download_urls_for(preset: str, mode: str, custom_url: str) -> list[str]:
+    """按「下载线路」给出这一次要试的地址列表。
+
+    ``auto`` 返回空表示「按档位默认源走」（含插件配置里的自定义地址），其它模式都显式给列表：
+    线路只对这一次下载生效，所以用户不必去改配置。
+    """
+    key = mode.strip().lower()
+    if key in ("", NSFW_DOWNLOAD_MODE_AUTO):
+        return []
+
+    if key == NSFW_DOWNLOAD_MODE_CUSTOM:
+        raw = custom_url.replace(",", " ").split()
+        if not raw:
+            raise PanelError("选了「自定义地址」就要填地址（支持 {filename} 占位，可填多行）")
+        for url in raw:
+            if not url.lower().startswith(("http://", "https://")):
+                raise PanelError(f"自定义地址必须是 http(s) 链接：{url}")
+        return raw
+
+    spec = NSFW_MODEL_PRESETS[preset]
+    if key == NSFW_DOWNLOAD_MODE_MIRROR:
+        urls = [url for url in spec.sources if _host_of(url) in NSFW_MIRROR_HOSTS]
+        if not urls:
+            raise PanelError(f"{spec.summary} 没有可用的镜像源，改用「自动」或「直连」")
+        return urls
+
+    if key == NSFW_DOWNLOAD_MODE_DIRECT:
+        urls = [url for url in spec.sources if _host_of(url) in NSFW_ORIGIN_HOSTS]
+        if not urls:
+            raise PanelError(f"{spec.summary} 没有直连源，改用「自动」或「只走镜像」")
+        return urls
+
+    raise PanelError(f"不认识的下载线路：{mode}")
 
 
 def _schema_node(schema: Mapping[str, Any], path: str) -> Mapping[str, Any] | None:
