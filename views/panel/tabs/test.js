@@ -14,6 +14,7 @@ export default {
   const EP = ctx.EP;
   const toast = ctx.toast;
   const escapeHtml = ctx.escapeHtml;
+  const fmtBytes = ctx.fmtBytes;
 
   /** 这一页自己的兜底提示：顶栏状态由 app.js 管，这里只弹提示。 */
   function fatal(message) {
@@ -191,8 +192,19 @@ export default {
   /** 档位下拉只列**已安装**的权重：没装的在「模型下载」页里下，免得选了跑不起来。 */
   function renderPresets(presets, preferred) {
     state.presets = (presets || []).filter((item) => item.installed);
+    // 下拉 = 权重名（去掉 .onnx）+ 段位 + 体积：文件名是用户认得的，段位和大小才是区分点
+    const stem = (item) => String(item.file || item.value).replace(/\.onnx$/i, "");
+    const shortLabel = (item) => String(item.label || "").split("（")[0].trim();
+    // 体积按整 MB 报，跟设置页下拉里的写法一致（11.5 MB → 12MB）
+    const sizeOf = (item) => {
+      const mb = Math.round((item.bytes || item.approx_bytes || 0) / 1048576);
+      return mb ? `${mb}MB` : "";
+    };
     el("preset").innerHTML = state.presets
-      .map((item) => `<option value="${item.value}">${item.label}</option>`)
+      .map((item) => {
+        const parts = [stem(item), shortLabel(item), sizeOf(item)].filter(Boolean);
+        return `<option value="${item.value}">${escapeHtml(parts.join(" · "))}</option>`;
+      })
       .join("");
 
     if (!state.presets.length) {
@@ -315,7 +327,7 @@ export default {
     const hint = el("modelHint");
     if (item) {
       hint.className = "hint-inline";
-      hint.textContent = `${item.task === "segment" ? "分割" : "检测"}模型 · ${item.labels.length} 类`;
+      hint.textContent = `${item.task === "segment" ? "分割" : "检测"} · ${item.labels.length} 类`;
       return;
     }
     hint.className = "hint-inline warn";

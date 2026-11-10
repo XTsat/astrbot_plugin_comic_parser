@@ -131,7 +131,9 @@ export default {
       const item = state.models.find((entry) => entry.value === state.download.preset);
       const active = state.download.state === "downloading";
       card.hidden = !active && !state.download.error;
-      el("downloadName").textContent = item ? item.label : state.download.preset || "—";
+      el("downloadName").textContent = item
+        ? `${item.file || item.value} · ${item.label || ""}`
+        : state.download.preset || "—";
       const percent = Math.round((state.download.percent || 0) * 100);
       el("downloadPercent").textContent = `${percent}%`;
       el("downloadBar").style.width = `${percent}%`;
@@ -159,7 +161,7 @@ export default {
             state.download.state === "downloading" ? " disabled" : ""
           }>下载</button>`;
       return `<tr>
-        <td><b>${escapeHtml(item.label)}</b><div class="muted-line mono">${escapeHtml(item.file)}</div></td>
+        <td><b class="mono">${escapeHtml(item.file)}</b><div class="muted-line">${escapeHtml(item.label)}</div></td>
         <td>${kind}</td>
         <td>${labels}</td>
         <td class="mono" style="white-space:nowrap">${size}</td>

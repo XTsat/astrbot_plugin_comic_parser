@@ -451,7 +451,7 @@ NSFW_MODEL_PRESETS: Final[dict[str, NsfwModelPreset]] = {
         "nsfw-anime-medium-x1280.onnx",
     ),
 }
-DEFAULT_NSFW_MODEL_PRESET: Final = "m_fp32"
+DEFAULT_NSFW_MODEL_PRESET: Final = "anime_n"
 
 # 小于这个体积基本可以断定下到的是错误页而不是权重
 NSFW_MIN_MODEL_BYTES: Final = 1024 * 1024

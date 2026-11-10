@@ -260,7 +260,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Model preset (`model.preset`) | string | m_fp32 | One of ten, see the two tables below; default realist medium + fp32. For manga / doujin covers pick one of the four anime presets: far better recall and much smaller weights |
+| Model preset (`model.preset`) | string | anime_n | One of ten, see the two tables below; defaults to the anime detection nano build (`anime_censor_v1.0_n.onnx`) since it has the best recall and the smallest footprint on manga covers. Pick anime segmentation nano for tighter boxes, or one of the six EraX presets for real photos |
 | Auto-download weights (`model.auto_download`) | bool | true | Fetch into `models/` in the background at load time; skipped when present, failures are logged and retried on the next reload. Only downloads when both "Send cover after download" and "Censor the cover" are on |
 | Custom download URL (`model.download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`) and falls back to accelerator mirrors; multiple lines and `{filename}` supported |
 | Detection threshold (`model.threshold`) | float | 0.03 | Confidence floor for censoring; lower is stricter and censors more |

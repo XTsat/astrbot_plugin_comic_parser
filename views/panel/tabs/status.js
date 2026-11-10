@@ -81,6 +81,12 @@ export default {
             )
             .join(""),
         ]);
+        rows.push([
+          "权重文件",
+          installed
+            .map((item) => `<div class="muted-line mono">${escapeHtml(item.file || "")}</div>`)
+            .join(""),
+        ]);
       }
       const download = models.download || {};
       if (download.state === "downloading") {

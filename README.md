@@ -261,7 +261,7 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| 模型档位与精度（`model.preset`） | string | m_fp32 | 十选一，见下方两张表；默认写实 medium + fp32。漫画 / 同人封面建议换成「二次元」四档，召回明显更高、权重要小得多 |
+| 模型档位与精度（`model.preset`） | string | anime_n | 十选一，见下方两张表；默认用二次元检测 nano（`anime_censor_v1.0_n.onnx`），漫画 / 同人封面召回最高、体积最小；想框更贴边换二次元分割 nano，真人写实图才用 EraX 六档 |
 | 缺失时自动下载权重（`model.auto_download`） | bool | true | 插件加载/重载时后台下载到 `models/`；已存在就跳过，失败只记日志，下次重载再试。只在「下载完成后发送封面」与「给封面打码」都开启时才真的下载 |
 | 自定义下载地址（`model.download_url`） | string | 空 | 留空用插件 Release（tag `weights-erax-onnx-v1`），失败自动换加速镜像；可填多行，支持 `{filename}` |
 | 检测阈值（`model.threshold`） | float | 0.03 | 打码用的置信度下限，越低越严格（糊得更多、更易误糊） |
@@ -273,7 +273,7 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 |------|----------|-----------|------|
 | nano（`n_*`） | 10MB | 3MB | 最快，但框更粗、更容易整张糊 |
 | small（`s_*`） | 36MB | 10MB | 速度约 medium 两倍，判定略降 |
-| medium（`m_*`） | 77MB | 20MB | 最准（默认）；int8 版在 CPU 上反而更慢 |
+| medium（`m_*`） | 77MB | 20MB | 写实档里最准；int8 版在 CPU 上反而更慢 |
 
 **模型家族对照**
 
@@ -283,7 +283,7 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 | 二次元检测（deepghs） | `anime_n`（12MB）、`anime_s`（45MB） | nipple_f、penis、pussy | 漫画页、同人封面 | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection)（MIT） |
 | 二次元分割（01miku） | `anime_seg_n`（6MB）、`anime_seg_m`（48MB） | anus、nipple、penis、vagina、pubic hair、female face、male face | 漫画页；框最贴边 | [anime-nsfw-segm-yolo26](https://huggingface.co/01miku/anime-nsfw-segm-yolo26)（MIT） |
 
-二次元档是在纯二次元 / 同人图上训练的，同一批漫画封面上检出 10/11，写实 medium 档只有 6/11，而且快十倍以上；代价是**检测档没有 make_love 这类场景类别**，性交画面会漏检。
+二次元档是在纯二次元 / 同人图上训练的，同一批漫画封面上检出 10/11，写实 medium 档只有 6/11，而且快十倍以上，所以默认档位就是二次元检测 nano；代价是**检测档没有 make_love 这类场景类别**，性交画面会漏检。
 
 四档之间的取舍：**分割档的框最贴边**（覆盖常落到 6-34%，写实档常是覆盖 65-78% 的粗框，容易整张糊），而且带 anus、vagina 类别；不分割的检测档在近景图上会给覆盖整张的大框。分割档里的 `female face` / `male face` 类别不会被打码。要不要换成二次元档，按你实际遇到的封面类型定。
 
