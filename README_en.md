@@ -260,7 +260,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| Model preset (`model.preset`) | string | m_fp32 | One of six, see below; default medium + fp32 |
+| Model preset (`model.preset`) | string | m_fp32 | One of eight, see the two tables below; default realist medium + fp32. For manga / doujin covers pick one of the two anime presets: far better recall and much smaller weights |
 | Auto-download weights (`model.auto_download`) | bool | true | Fetch into `models/` in the background at load time; skipped when present, failures are logged and retried on the next reload. Only downloads when both "Send cover after download" and "Censor the cover" are on |
 | Custom download URL (`model.download_url`) | string | empty | Empty uses the plugin release (tag `weights-erax-onnx-v1`) and falls back to accelerator mirrors; multiple lines and `{filename}` supported |
 | Detection threshold (`model.threshold`) | float | 0.03 | Confidence floor for censoring; lower is stricter and censors more |
@@ -273,6 +273,15 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | nano (`n_*`) | 10MB | 3MB | Fastest, but coarser boxes and more whole-cover censoring |
 | small (`s_*`) | 36MB | 10MB | About twice as fast as medium, slightly lower agreement |
 | medium (`m_*`) | 77MB | 20MB | Most accurate (default); its int8 build is actually slower on CPU |
+
+**Model families**
+
+| Family | Presets | Classes | Best for | Source / licence |
+|--------|---------|---------|----------|------------------|
+| Realist (EraX) | `m_*` / `s_*` / `n_*` | anus, make_love, nipple, penis, vagina | Real photos, realistic art | EraX-NSFW-V1.0 (Apache-2.0), ONNX exported by this plugin |
+| Anime (deepghs) | `anime_n` (12MB), `anime_s` (45MB) | nipple_f, penis, pussy | Manga pages, doujin covers | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection) (MIT) |
+
+The anime presets are trained on anime / doujin art only: on the same set of manga covers they detected 10 of 11 images, against 6 of 11 for realist medium, and they run more than ten times faster. The trade-off is that they have **no anus or make_love classes**, so sex scenes and anal close-ups are missed. Pick whichever matches the covers you actually get.
 
 </details>
 
@@ -312,7 +321,10 @@ A JM field search can only target one field at a time. When extra keywords, mult
 
 ### How the cover features are powered
 
-Cover censoring and the explicitness figure rely on a local YOLO detection model. The weights are based on [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) (Apache-2.0, classes anus / make_love / nipple / penis / vagina), nano / small / medium variants.
+Cover censoring and the explicitness figure rely on a local YOLO detection model, with weights from two sources:
+
+- the realist presets are based on [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0) (Apache-2.0, classes anus / make_love / nipple / penis / vagina), nano / small / medium variants;
+- the anime presets are based on [deepghs/anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection) (MIT per the repository, classes nipple_f / penis / pussy), trained purely on anime / doujin art, with noticeably better recall on manga covers.
 
 **The plugin uses an ONNX build of those weights**: we export them from the upstream `.pt` (fixed 960 input, opset 17) and quantize the int8 variants separately, so they are not the same files as upstream. Upstream only ships `.pt`, and **the plugin does not accept `.pt`, so do not download from upstream and drop it in**.
 

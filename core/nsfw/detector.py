@@ -105,8 +105,17 @@ def create_detector(
     *,
     threshold: float = DEFAULT_NSFW_THRESHOLD,
     imgsz: int = DEFAULT_NSFW_IMGSZ,
+    labels: tuple[str, ...] = (),
 ) -> Detector:
-    """构造检测器（当前只有 ONNX 实现，保留工厂是为了上层不必知道具体类）。"""
+    """构造检测器（当前只有 ONNX 实现，保留工厂是为了上层不必知道具体类）。
+
+    Args:
+        weights: 权重管理对象，负责「用哪份权重」与「从哪下」。
+        threshold: 置信度下限。
+        imgsz: 推理输入尺寸。
+        labels: 类别顺序覆盖；留空则交给检测器按权重文件名与权重自带 metadata 解析
+            （不同上游的类别集合不同，不能在上层写死一份）。
+    """
     try:
         from .onnx_detector import OnnxDetector  # 局部 import：避免循环依赖
     except ImportError as exc:  # numpy / onnxruntime 还没装好
@@ -120,11 +129,18 @@ def create_detector(
         )
         return NullDetector()
 
-    return OnnxDetector(weights=weights, threshold=threshold, imgsz=imgsz)
+    return OnnxDetector(
+        weights=weights, threshold=threshold, imgsz=imgsz, labels=labels
+    )
 
 
 def is_nsfw_label(label: str) -> bool:
-    """模型类别是否属于需要处理的露骨部位。"""
+    """模型类别是否属于需要处理的露骨部位。
+
+    用子串匹配，所以 `nipple`、`nipple_f`、`female_nipple` 这类带前后缀的写法都认；
+    关键词表里只收露骨部位（见 `domain/constants.py`），因此脸、手、人物这类类别
+    即使被模型检出来也不会打码。
+    """
     lowered = label.lower()
     return any(keyword in lowered for keyword in NSFW_BOX_KEYWORDS)
 

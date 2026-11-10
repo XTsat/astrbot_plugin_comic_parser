@@ -5,11 +5,14 @@
 预处理与后处理必须和 ultralytics 对齐，否则框会整体偏移。两个坑记在这里：
 - 缩放要用「半像素中心 + 落回 uint8」的最近邻双线性（等价 cv2.INTER_LINEAR）；
   PIL 的 BILINEAR 会在缩小时抗锯齿，置信度能差 27%（实测 0.385 vs 0.304）。
-- 输出是 ``(4 + 类别数, 候选数)``，前四列是 ``cx, cy, w, h``（输入尺寸下的像素坐标）。
+- 输出前四列永远是 ``cx, cy, w, h``（输入尺寸下的像素坐标），但排布有两种：
+  ultralytics 导出是 ``(4 + 类别数, 候选数)``，deepghs 的导出是 ``(候选数, 4 + 类别数)``，
+  所以 :meth:`OnnxDetector.decode` 自己判方向，不假设调用方知道用的是哪家权重。
 """
 
 from __future__ import annotations
 
+import ast
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,15 +24,13 @@ from astrbot.api import logger
 
 from ...domain.constants import (
     DEFAULT_NSFW_IMGSZ,
+    DEFAULT_NSFW_LABELS,
     DEFAULT_NSFW_THRESHOLD,
     PLUGIN_NAME,
 )
 from .coverage import union_coverage
 from .detector import Detection, NsfwScore, is_nsfw_label
 from .weights import ModelWeights
-
-# YOLO11 检测头的固定类别顺序（权重自带，导出前后一致）
-DEFAULT_LABELS = ("anus", "make_love", "nipple", "penis", "vagina")
 
 # NMS 的 IoU 门限与单图保留上限，与模型训练时的默认后处理一致
 NMS_IOU = 0.45
@@ -38,11 +39,13 @@ PAD_VALUE = 114
 
 
 class _OnnxSession(Protocol):
-    """onnxruntime 会话只需要这两件事。"""
+    """onnxruntime 会话只需要这几件事。"""
 
     def run(self, output_names: object, input_feed: dict[str, np.ndarray]) -> list[np.ndarray]: ...
 
     def get_inputs(self) -> list[object]: ...
+
+    def get_modelmeta(self) -> object: ...
 
 
 @dataclass(slots=True)
@@ -52,9 +55,12 @@ class OnnxDetector:
     weights: ModelWeights
     threshold: float = DEFAULT_NSFW_THRESHOLD
     imgsz: int = DEFAULT_NSFW_IMGSZ
+    # 显式指定的类别顺序（预设给的）；留空则加载权重时按「预设 → 权重 metadata → 默认」解析
+    labels: tuple[str, ...] = ()
     _session: _OnnxSession | None = field(default=None, init=False, repr=False)
     _load_failed: bool = field(default=False, init=False, repr=False)
     _imgsz_notice: bool = field(default=False, init=False, repr=False)
+    _labels: tuple[str, ...] = field(default=(), init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     # ---- 可用性 ----
@@ -104,6 +110,30 @@ class OnnxDetector:
         with self._lock:
             self._session = None
             self._load_failed = False
+            self._labels = ()
+
+    # ---- 类别 ----
+
+    def _active_labels(self) -> tuple[str, ...]:
+        """当前生效的类别顺序，给 ``decode`` 兜底用。"""
+        if self._labels:
+            return self._labels
+        preset_labels = getattr(self.weights, "labels", ())
+        return tuple(self.labels) or tuple(preset_labels) or DEFAULT_NSFW_LABELS
+
+    def _resolve_labels(self, session: _OnnxSession) -> tuple[str, ...]:
+        """定下类别顺序：显式传入 → 权重 metadata → 预设（按实际权重文件查）→ 默认。
+
+        metadata 排在最前：它是导出时写进权重里的，和这份权重的输出通道天然对齐；
+        预设只是「按文件名认」，用户手动换过同名文件时会认错。两者都拿不到才退回默认。
+        """
+        if self.labels:
+            return tuple(self.labels)
+        return (
+            _metadata_labels(session)
+            or tuple(getattr(self.weights, "labels", ()))
+            or DEFAULT_NSFW_LABELS
+        )
 
     # ---- 推理 ----
 
@@ -206,9 +236,19 @@ class OnnxDetector:
         scale: float,
         pad: tuple[int, int],
         conf: float,
-        labels: tuple[str, ...] = DEFAULT_LABELS,
+        labels: tuple[str, ...] = (),
     ) -> list[Detection]:
-        """把网络输出解成原图坐标下的露骨部位框（含置信度过滤与 NMS）。"""
+        """把网络输出解成原图坐标下的露骨部位框（含置信度过滤与 NMS）。
+
+        Args:
+            raw: 网络输出，(4+类别数, 候选数) 或 (候选数, 4+类别数) 都认。
+            size: 原图尺寸。
+            scale: letterbox 缩放比。
+            pad: letterbox 左上填充。
+            conf: 置信度下限。
+            labels: 覆盖类别顺序；留空用本检测器解析出的那份（见 :meth:`_resolve_labels`）。
+        """
+        names = labels or self._active_labels()
         width, height = size
         pad_x, pad_y = pad
 
@@ -249,7 +289,8 @@ class OnnxDetector:
         keep = self._nms(boxes, confs)
         detections: list[Detection] = []
         for index in keep[:MAX_DETECTIONS]:
-            label = labels[int(ids[index])] if int(ids[index]) < len(labels) else ""
+            class_id = int(ids[index])
+            label = names[class_id] if class_id < len(names) else ""
             if not is_nsfw_label(label):
                 continue
             detections.append(
@@ -330,7 +371,11 @@ class OnnxDetector:
                 return None
 
             self._session = session
-            logger.info(f"[{PLUGIN_NAME}] ONNX 检测模型已加载: {model_path.name}")
+            self._labels = self._resolve_labels(session)
+            logger.info(
+                f"[{PLUGIN_NAME}] ONNX 检测模型已加载: {model_path.name}"
+                f"（类别 {'/'.join(self._labels) or '未知'}）"
+            )
             return session
 
     @staticmethod
@@ -339,9 +384,30 @@ class OnnxDetector:
         return str(getattr(inputs[0], "name", "images"))
 
 
+def _metadata_labels(session: _OnnxSession) -> tuple[str, ...]:
+    """读权重自带的类别表。
+
+    Ultralytics 与 deepghs 的导出都会把类别写进 ``metadata_props["names"]``，值是
+    Python 字典字面量（``{0: 'nipple_f', ...}``）。读不到就返回空，交给调用方兜底——
+    老权重没有这段 metadata，硬猜只会猜错。
+    """
+    try:
+        raw = str(getattr(session.get_modelmeta(), "custom_metadata_map", {}).get("names", ""))
+        parsed = ast.literal_eval(raw)
+    except (AttributeError, ValueError, SyntaxError, MemoryError, RecursionError):
+        return ()
+    if not isinstance(parsed, dict) or not parsed:
+        return ()
+    try:
+        ordered = sorted((int(key), str(value)) for key, value in parsed.items())
+    except (TypeError, ValueError):
+        return ()
+    return tuple(value for _, value in ordered)
+
+
 def is_onnx(path: Path) -> bool:
     """权重是否为 ONNX 格式。"""
     return path.suffix.lower() == ".onnx"
 
 
-__all__ = ["DEFAULT_LABELS", "OnnxDetector", "is_onnx"]
+__all__ = ["OnnxDetector", "is_onnx"]

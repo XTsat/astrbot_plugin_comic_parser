@@ -128,13 +128,13 @@ class NsfwLabService:
         只是标成 ``available: False``，由页面给一个下载入口。
         """
         items: list[dict[str, Any]] = []
-        for preset, (filename, label) in NSFW_MODEL_PRESETS.items():
-            path = self._models_dir / filename
+        for preset, spec in NSFW_MODEL_PRESETS.items():
+            path = self._models_dir / spec.filename
             items.append(
                 {
                     "value": preset,
-                    "label": label,
-                    "file": filename,
+                    "label": spec.summary,
+                    "file": spec.filename,
                     "available": path.is_file(),
                     "bytes": path.stat().st_size if path.is_file() else 0,
                 }
@@ -231,7 +231,7 @@ class NsfwLabService:
             dict: 当前下载状态快照。
         """
         preset = preset if preset in NSFW_MODEL_PRESETS else DEFAULT_NSFW_MODEL_PRESET
-        filename = NSFW_MODEL_PRESETS[preset][0]
+        filename = NSFW_MODEL_PRESETS[preset].filename
         if (self._models_dir / filename).is_file():
             self._prepare_state = _prepare_snapshot("ready", preset, 1.0, "")
             return dict(self._prepare_state)

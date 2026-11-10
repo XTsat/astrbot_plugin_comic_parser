@@ -261,7 +261,7 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| 模型档位与精度（`model.preset`） | string | m_fp32 | 六选一，见下表；默认 medium + fp32 |
+| 模型档位与精度（`model.preset`） | string | m_fp32 | 八选一，见下方两张表；默认写实 medium + fp32。漫画 / 同人封面建议换成「二次元」两档，召回明显更高、权重要小得多 |
 | 缺失时自动下载权重（`model.auto_download`） | bool | true | 插件加载/重载时后台下载到 `models/`；已存在就跳过，失败只记日志，下次重载再试。只在「下载完成后发送封面」与「给封面打码」都开启时才真的下载 |
 | 自定义下载地址（`model.download_url`） | string | 空 | 留空用插件 Release（tag `weights-erax-onnx-v1`），失败自动换加速镜像；可填多行，支持 `{filename}` |
 | 检测阈值（`model.threshold`） | float | 0.03 | 打码用的置信度下限，越低越严格（糊得更多、更易误糊） |
@@ -274,6 +274,15 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 | nano（`n_*`） | 10MB | 3MB | 最快，但框更粗、更容易整张糊 |
 | small（`s_*`） | 36MB | 10MB | 速度约 medium 两倍，判定略降 |
 | medium（`m_*`） | 77MB | 20MB | 最准（默认）；int8 版在 CPU 上反而更慢 |
+
+**模型家族对照**
+
+| 家族 | 档位 | 类别 | 适合 | 来源 / 许可 |
+|------|------|------|------|-------------|
+| 写实（EraX） | `m_*` / `s_*` / `n_*` | anus、make_love、nipple、penis、vagina | 真人照片、写实风格 | EraX-NSFW-V1.0（Apache-2.0），本插件导出的 ONNX |
+| 二次元（deepghs） | `anime_n`（12MB）、`anime_s`（45MB） | nipple_f、penis、pussy | 漫画页、同人封面 | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection)（MIT） |
+
+二次元档是在纯二次元 / 同人图上训练的，同一批漫画封面上检出 10/11，写实 medium 档只有 6/11，而且快十倍以上；代价是它**没有 anus、make_love 这类场景类别**，性交画面与后穴会漏检。要不要换成二次元档，按你实际遇到的封面类型定。
 
 </details>
 
@@ -313,11 +322,14 @@ JM 的字段搜索一次只能选一个域：同时带附加关键词、多个�
 
 ### 封面与 NSFW 检测的前提
 
-封面打码与露骨度依赖本地 YOLO 检测模型，权重基于 [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0)（Apache-2.0 协议，类别为 anus / make_love / nipple / penis / vagina）的 nano / small / medium 三档。
+封面打码与露骨度依赖本地 YOLO 检测模型，现在可选两家的权重：
+
+- 写实档基于 [EraX-NSFW-V1.0](https://huggingface.co/erax-ai/EraX-NSFW-V1.0)（Apache-2.0 协议，类别为 anus / make_love / nipple / penis / vagina）的 nano / small / medium 三档；
+- 二次元档基于 [deepghs/anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection)（仓库标注 MIT 协议，类别为 nipple_f / penis / pussy），纯二次元 / 同人图训练，漫画封面召回更高。
 
 **插件用的是这套权重的 ONNX 版本**——由我们从上游 `.pt` 导出（固定 960 输入、opset 17），int8 档另外做过量化，因此和上游原始文件不是同一份。上游仓库只提供 `.pt`，**插件不支持 `.pt`，请不要从上游直接下载来用**。
 
-取权重的方式：在「封面与模型 → 模型与检测」里打开「缺失时自动下载权重」（从插件 Release 下载），或到插件的 [Release 页面](https://github.com/XTsat/astrbot_plugin_comic_parser/releases) 下载对应 `.onnx`，手动放进插件目录的 `models/`。自动下载会先走 GitHub 直连，失败后自动改用内置加速镜像；也可以在「自定义下载地址」里填自己的镜像或对象存储直链（支持 `{filename}` 占位、可填多行）。检测运行时只依赖 `onnxruntime`（约 100MB）。它**不随插件安装**：只要开着「下载完成后发送封面」和「给封面打码」，插件每次加载/重载都会检查一次，缺了就在后台自动装上；装完重载插件即可用。装不上（容器没网、pip 不可用）时插件照常下载发文件，只是不发封面，可手动 `pip install onnxruntime`。
+取权重的方式：在「封面与模型 → 模型与检测」里打开「缺失时自动下载权重」（从插件 Release 下载），或到插件的 [Release 页面](https://github.com/XTsat/astrbot_plugin_comic_parser/releases) 下载对应 `.onnx`，手动放进插件目录的 `models/`。自动下载按档位走对应的上游：写实档先走 GitHub 直连、失败后自动改用内置加速镜像；二次元档优先走 HuggingFace 镜像、再退回源站。也可以在「自定义下载地址」里填自己的镜像或对象存储直链（支持 `{filename}` 占位、可填多行）。检测运行时只依赖 `onnxruntime`（约 100MB）。它**不随插件安装**：只要开着「下载完成后发送封面」和「给封面打码」，插件每次加载/重载都会检查一次，缺了就在后台自动装上；装完重载插件即可用。装不上（容器没网、pip 不可用）时插件照常下载发文件，只是不发封面，可手动 `pip install onnxruntime`。
 
 调参可以直接用插件详情页里的「封面打码 / 评分实验台」视图：拖图进去就能看到这套模型给多少分、框在哪、不同样式糊出来什么样，判定的阈值与参数现场可调，不用真下一本来试；缺哪个档位的权重也能在页面里直接下载（沿用这里的下载源与代理设置）。
 

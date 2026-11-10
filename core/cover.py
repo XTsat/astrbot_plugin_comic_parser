@@ -284,5 +284,5 @@ class CoverService:
         model_path = detector.model_path
         if model_path is not None:
             return model_path.name
-        label = NSFW_MODEL_PRESETS.get(preset, ("", preset))[1]
+        label = getattr(NSFW_MODEL_PRESETS.get(preset), "summary", preset)
         return f"未配置（可在配置里开启自动下载：{label}）"

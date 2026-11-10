@@ -1,5 +1,6 @@
 """插件级常量：所有散落的字面量取值都应定义在这里。"""
 
+from dataclasses import dataclass
 from typing import Final
 
 PLUGIN_NAME: Final = "astrbot_plugin_comic_parser"
@@ -231,25 +232,47 @@ DEFAULT_COVER_CAPTION: Final = False
 # 单个封面最多处理这么多个框，误检刷出成百上千个框时不至于把渲染拖死
 COVER_MAX_BOXES: Final = 64
 
-# ---- NSFW 检测模型（YOLO 目标检测）----
+# ---- NSFW 检测模型（YOLO 检测 / 分割）----
 
 # 权重不随插件分发：几十 MB 的二进制不适合进 git，用不用得到也因人而异。
-# 权重统一用 ONNX（运行时只需 onnxruntime，约 200M 依赖），由上游 EraX-NSFW-V1.0
-# 的 .pt 导出；上游只提供 .pt，不能直接拿来用。
+# 运行时只认 ONNX（依赖 onnxruntime，约 200M）。
 #
-# 预设 = 档位（n/s/m）× 精度（fp32/int8）。两个维度相互独立：
+# 一份预设要说清四件事：用哪个权重文件、给用户看的文案、这份权重的类别按什么顺序排、
+# 从哪几个地址下载。
+# 类别必须跟着预设走：不同上游的类别集合与输出通道顺序都不一样（EraX 是五个写实部位，
+# 二次元模型只有三个），顺序错位就会把部位打错码，所以推理代码里不再写死一份。
+#
+# EraX 那六个预设 = 档位（n/s/m）× 精度（fp32/int8）。两个维度相互独立：
 # - 档位决定模型容量（nano < small < medium），越大越准也越慢；
 # - 精度决定权重怎么存：fp32 是训练时的 32 位浮点（无损），int8 把权重压成 8 位整数
 #   （体积约 1/4，但 CPU 上实测反而更慢、边缘样本会掉档），所以默认 medium + fp32。
-NSFW_MODEL_PRESETS: Final = {
-    "m_fp32": ("erax_nsfw_yolo11m.onnx", "medium · fp32 完整精度（约 77MB，推荐）"),
-    "m_int8": ("erax_nsfw_yolo11m_int8.onnx", "medium · int8 量化（约 20MB）"),
-    "s_fp32": ("erax_nsfw_yolo11s.onnx", "small · fp32 完整精度（约 36MB）"),
-    "s_int8": ("erax_nsfw_yolo11s_int8.onnx", "small · int8 量化（约 10MB）"),
-    "n_fp32": ("erax_nsfw_yolo11n.onnx", "nano · fp32 完整精度（约 10MB，最省）"),
-    "n_int8": ("erax_nsfw_yolo11n_int8.onnx", "nano · int8 量化（约 3MB）"),
-}
-DEFAULT_NSFW_MODEL_PRESET: Final = "m_fp32"
+@dataclass(frozen=True, slots=True)
+class NsfwModelPreset:
+    """一份可选权重：文件名、下拉文案、类别顺序与下载源。
+
+    Attributes:
+        filename: 落在 `models/` 下的文件名，也是自动下载的落盘名。
+        summary: 下拉与状态页里给用户看的文案。
+        labels: 输出通道对应的类别名，顺序必须与权重一致；空表示让检测器去读权重
+            自带的 metadata（都没读到时才退回 ``DEFAULT_NSFW_LABELS``）。
+        sources: 下载地址候选，顺序即降级顺序，支持 ``{filename}`` 占位；空表示走
+            EraX 的老路径（插件 Release + 加速镜像）。
+    """
+
+    filename: str
+    summary: str
+    labels: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+
+
+# EraX-NSFW-V1.0 的五个类别（训练数据偏真人照片，漫画封面召回差，所以另收二次元模型）
+NSFW_ERAX_LABELS: Final = ("anus", "make_love", "nipple", "penis", "vagina")
+# deepghs/anime_censor_detection（HuggingFace，仓库标签 MIT）：纯二次元 / 同人图训练。
+# 短板要认：它没有 anus、也没有 make_love 这类整体场景，性交画面与后穴会漏检。
+NSFW_ANIME_LABELS: Final = ("nipple_f", "penis", "pussy")
+# 类别顺序完全没线索时的兜底（老权重没有 metadata，硬猜只会猜错，所以按 EraX 走）
+DEFAULT_NSFW_LABELS: Final = NSFW_ERAX_LABELS
+
 # 权重发布用的独立 tag：和插件版本解耦，换权重不用动插件版本号
 NSFW_ONNX_RELEASE_TAG: Final = "weights-erax-onnx-v1"
 NSFW_ONNX_RELEASE_URL: Final = (
@@ -257,12 +280,69 @@ NSFW_ONNX_RELEASE_URL: Final = (
     + NSFW_ONNX_RELEASE_TAG
     + "/{filename}"
 )
-NSFW_MODEL_VARIANT_LABELS: Final = {
-    "n": "nano（约 5MB，最省资源）",
-    "s": "small（约 18MB）",
-    "m": "medium（约 39MB，推荐）",
+# GitHub 直连不通或太慢时的兜底加速代理（第三方公共服务，只做公开权重的中转）。
+# 顺序即降级顺序；{url} 会被替换成完整的 GitHub 下载地址。
+NSFW_MIRROR_SOURCES: Final = (
+    "https://ghfast.top/{url}",
+    "https://gh-proxy.com/{url}",
+)
+# EraX 的下载源：Release 直连 → 两个加速镜像。展开后与预设的 sources 同一格式。
+NSFW_ERAX_SOURCES: Final = (
+    NSFW_ONNX_RELEASE_URL,
+    *(mirror.format(url=NSFW_ONNX_RELEASE_URL) for mirror in NSFW_MIRROR_SOURCES),
+)
+# 二次元模型的上游在 HuggingFace：huggingface.co 境内基本不通，所以镜像排第一、源站兜底。
+# HF 镜像不套 GitHub 加速代理，两类镜像的通路不一样。
+_ANIME_HF_MIRROR: Final = "https://hf-mirror.com/deepghs/anime_censor_detection/resolve/main"
+_ANIME_HF_ORIGIN: Final = (
+    "https://huggingface.co/deepghs/anime_censor_detection/resolve/main"
+)
+NSFW_ANIME_SOURCES: Final = (
+    _ANIME_HF_MIRROR + "/{filename}",
+    _ANIME_HF_ORIGIN + "/{filename}",
+)
+
+
+def _erax_preset(filename: str, summary: str) -> NsfwModelPreset:
+    """EraX 六档共用的预设构造：类别与下载源只有一套。"""
+    return NsfwModelPreset(
+        filename=filename,
+        summary=summary,
+        labels=NSFW_ERAX_LABELS,
+        sources=NSFW_ERAX_SOURCES,
+    )
+
+
+def _anime_preset(filename: str, summary: str) -> NsfwModelPreset:
+    """二次元检测档共用的预设构造。"""
+    return NsfwModelPreset(
+        filename=filename,
+        summary=summary,
+        labels=NSFW_ANIME_LABELS,
+        sources=NSFW_ANIME_SOURCES,
+    )
+
+
+NSFW_MODEL_PRESETS: Final[dict[str, NsfwModelPreset]] = {
+    "m_fp32": _erax_preset(
+        "erax_nsfw_yolo11m.onnx", "medium · fp32 完整精度（约 77MB，推荐）"
+    ),
+    "m_int8": _erax_preset("erax_nsfw_yolo11m_int8.onnx", "medium · int8 量化（约 20MB）"),
+    "s_fp32": _erax_preset(
+        "erax_nsfw_yolo11s.onnx", "small · fp32 完整精度（约 36MB）"
+    ),
+    "s_int8": _erax_preset("erax_nsfw_yolo11s_int8.onnx", "small · int8 量化（约 10MB）"),
+    "n_fp32": _erax_preset(
+        "erax_nsfw_yolo11n.onnx", "nano · fp32 完整精度（约 10MB，最省）"
+    ),
+    "n_int8": _erax_preset("erax_nsfw_yolo11n_int8.onnx", "nano · int8 量化（约 3MB）"),
+    # 二次元封面用这两档：召回比写实模型高得多，而且小得多、快得多
+    "anime_n": _anime_preset(
+        "anime_censor_v1.0_n.onnx", "二次元 · nano（约 12MB，漫画封面推荐）"
+    ),
+    "anime_s": _anime_preset("anime_censor_v1.0_s.onnx", "二次元 · small（约 45MB）"),
 }
-DEFAULT_NSFW_MODEL_VARIANT: Final = "m"
+DEFAULT_NSFW_MODEL_PRESET: Final = "m_fp32"
 
 # 小于这个体积基本可以断定下到的是错误页而不是权重
 NSFW_MIN_MODEL_BYTES: Final = 1024 * 1024
@@ -280,7 +360,7 @@ NSFW_MIRROR_SOURCES: Final = (
 )
 
 # EraX-NSFW-V1.0 的类别就是纯部位名，其它导出版本可能带前缀，因此用子串匹配
-NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple")
+NSFW_BOX_KEYWORDS: Final = ("make_love", "penis", "vagina", "anus", "nipple", "pussy")
 
 # 实测（JM 真实页面 + nhentai 封面各一组）：露骨画面的置信度常见 0.02-0.2，漫画页里
 # 强信号能到 0.5-0.8；0.03 比 0.05 多捞到约 15% 的页，再低就只剩噪声了。

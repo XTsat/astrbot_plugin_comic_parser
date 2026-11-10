@@ -839,10 +839,12 @@
         "items": {
           "preset": {
             "type": "string",
-            "description": "模型档位与精度",
-            "hint": "档位 nano<small<medium（越大越准越慢）；fp32 无损、int8 体积约 1/4 但更慢且易掉档。默认 medium+fp32",
+            "description": "模型档位",
+            "hint": "漫画 / 同人封面用「二次元」两档：纯二次元图训练，召回明显更高、模型也小得多。写实模型（EraX）覆盖 anus、make_love 等场景，二次元档没有这些类别。换档后需要在插件面板的「模型下载」里下载对应权重才会生效",
             "default": "m_fp32",
             "options": [
+              "anime_n",
+              "anime_s",
               "m_fp32",
               "m_int8",
               "s_fp32",
@@ -851,12 +853,14 @@
               "n_int8"
             ],
             "labels": [
-              "medium · fp32 完整精度（77MB，推荐）",
-              "medium · int8 量化（20MB）",
-              "small · fp32 完整精度（36MB）",
-              "small · int8 量化（10MB）",
-              "nano · fp32 完整精度（10MB，最快）",
-              "nano · int8 量化（3MB）"
+              "二次元 · nano（12MB，漫画封面推荐）",
+              "二次元 · small（45MB）",
+              "写实 · medium · fp32（77MB，推荐）",
+              "写实 · medium · int8（20MB）",
+              "写实 · small · fp32（36MB）",
+              "写实 · small · int8（10MB）",
+              "写实 · nano · fp32（10MB，最快）",
+              "写实 · nano · int8（3MB）"
             ]
           },
           "auto_download": {

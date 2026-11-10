@@ -1,12 +1,16 @@
 """NSFW 模型权重的定位与自动下载。
 
-权重是上游 `EraX-NSFW-V1.0`（Apache-2.0，YOLO11 的 n/s/m 三档微调版，类别为
-anus / make_love / nipple / penis / vagina）的 **ONNX 导出件**：由本插件从上游 `.pt`
-导出（固定 960 输入、opset 17），int8 档额外量化，因此与上游文件不是同一份。
-上游只提供 `.pt`，这里只认 `.onnx`。
-
 插件不内置权重：几十 MB 的二进制不适合进 git，用不到的人也不该被迫下载，
-因此默认关闭、由配置开关按需拉取。
+因此默认关闭、由配置开关按需拉取。运行时只认 `.onnx`。
+
+现有两家的权重，各自的上游与下载源都写在预设里（见 `domain/constants.py`）：
+
+- `EraX-NSFW-V1.0`（Apache-2.0）的 ONNX 导出件：本插件从上游 `.pt` 导出
+  （固定 960 输入、opset 17），int8 档额外量化，因此与上游文件不是同一份；
+- `deepghs/anime_censor_detection`（仓库标签 MIT）：作者直接提供 ONNX，
+  纯二次元 / 同人图训练，镜像源在国内的可达性比 HuggingFace 源站好得多。
+
+「从哪下载」因此按预设走，而不是全球一个地址：换模型时上游可能整个换掉。
 """
 
 from __future__ import annotations
@@ -23,12 +27,12 @@ from ...domain.constants import (
     DEFAULT_NSFW_MODEL_PRESET,
     NSFW_DOWNLOAD_CONNECT_TIMEOUT,
     NSFW_DOWNLOAD_READ_TIMEOUT,
+    NSFW_ERAX_SOURCES,
     NSFW_MIN_MODEL_BYTES,
-    NSFW_MIRROR_SOURCES,
     NSFW_MODEL_DOWNLOAD_TIMEOUT,
     NSFW_MODEL_PRESETS,
-    NSFW_ONNX_RELEASE_URL,
     PLUGIN_NAME,
+    NsfwModelPreset,
 )
 
 # 下载进度只在跨过这些比例时打一条日志，避免每个分片都刷屏
@@ -36,6 +40,11 @@ _PROGRESS_STEPS: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0)
 
 # 进度回调：参数是已下载比例（0-1）
 ProgressCallback = Callable[[float], None]
+
+# 权重文件名 → 类别顺序：`models/` 里堆着好几家的权重时，靠文件名认出用的是哪份
+_PRESET_LABELS_BY_FILE: dict[str, tuple[str, ...]] = {
+    preset.filename.lower(): preset.labels for preset in NSFW_MODEL_PRESETS.values()
+}
 
 
 def preset_key(preset: str) -> str:
@@ -46,7 +55,25 @@ def preset_key(preset: str) -> str:
 
 def preset_filename(preset: str) -> str:
     """预设 → ONNX 权重文件名。"""
-    return NSFW_MODEL_PRESETS[preset_key(preset)][0]
+    return NSFW_MODEL_PRESETS[preset_key(preset)].filename
+
+
+def preset_spec(preset: str) -> NsfwModelPreset:
+    """预设 → 整份描述（文件名、文案、类别、下载源）。"""
+    return NSFW_MODEL_PRESETS[preset_key(preset)]
+
+
+def labels_for_filename(name: str) -> tuple[str, ...]:
+    """按权重文件名反查类别顺序；对不上任何预设时返回空（交给权重 metadata）。"""
+    return _PRESET_LABELS_BY_FILE.get(name.strip().lower(), ())
+
+
+def _format_source(template: str, filename: str) -> str:
+    """把下载地址模板里的 ``{filename}`` 换掉；写不出占位的地址原样使用。"""
+    try:
+        return template.format(filename=filename)
+    except (KeyError, IndexError):
+        return template
 
 
 # 兼容旧调用名（external 只是本仓内部用，保留别名免得逐处改）
@@ -81,7 +108,11 @@ def find_model_files(models_dir: Path) -> list[Path]:
 
 
 def pick_model(models_dir: Path, preferred_preset: str) -> Path | None:
-    """挑一份权重：优先配置预设对应的文件，否则用目录里第一个可用的 .onnx。"""
+    """挑一份权重：先认预设对应的文件，再认目录里其它已知预设，最后才认第一个 .onnx。
+
+    目录里可能同时躺着自动下载的和用户手动放进去的权重，随便取一个就会把 A 模型的
+    类别套到 B 权重上（类别错位 = 打错码），所以按文件名认比按名字排序取第一个稳。
+    """
     candidates = find_model_files(models_dir)
     if not candidates:
         return None
@@ -89,6 +120,9 @@ def pick_model(models_dir: Path, preferred_preset: str) -> Path | None:
     wanted = preset_filename(preferred_preset).lower()
     for path in candidates:
         if path.name.lower() == wanted:
+            return path
+    for path in candidates:
+        if path.name.lower() in _PRESET_LABELS_BY_FILE:
             return path
     return candidates[0]
 
@@ -122,6 +156,14 @@ class ModelWeights:
         但「下载并切换到某个档位」不能这样兜，那种场景请用 :meth:`model_for_preset`。
         """
         return pick_model(self.models_dir, self.preset)
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """当前权重的类别顺序：按实际选中的文件名查预设，查不到交给检测器读 metadata。"""
+        path = self.local_model()
+        if path is None:
+            return NSFW_MODEL_PRESETS[self.preset].labels
+        return labels_for_filename(path.name)
 
     def model_for_preset(self) -> Path | None:
         """严格按档位取权重：文件名对不上就返回 None，绝不拿别的档位顶替。"""
@@ -162,24 +204,19 @@ class ModelWeights:
 
         允许 ``{filename}`` 占位，方便填镜像或自建地址；写不了占位的地址原样使用。
         """
-        urls: list[str] = []
-        for raw in self.download_url.replace(",", " ").split():
-            try:
-                urls.append(raw.format(filename=filename))
-            except (KeyError, IndexError):
-                urls.append(raw)
-        return urls
+        return [
+            _format_source(raw, filename)
+            for raw in self.download_url.replace(",", " ").split()
+        ]
 
     def _download_urls(self, filename: str) -> list[str]:
-        """按顺序给出下载源：配置了自定义地址就只用它，否则 GitHub 直连 + 加速镜像兜底。"""
+        """按顺序给出下载源：配置了自定义地址就只用它，否则用预设里的那几条。"""
         custom = self._candidate_urls(filename)
         if custom:
             return custom
 
-        primary = NSFW_ONNX_RELEASE_URL.format(filename=filename)
-        urls = [primary]
-        urls.extend(template.format(url=primary) for template in NSFW_MIRROR_SOURCES)
-        return urls
+        sources = NSFW_MODEL_PRESETS[self.preset].sources or NSFW_ERAX_SOURCES
+        return [_format_source(source, filename) for source in sources]
 
     async def _download(self) -> tuple[Path | None, bool]:
         try:
@@ -194,10 +231,10 @@ class ModelWeights:
 
         urls = self._download_urls(filename)
         for index, url in enumerate(urls, 1):
-            label = "主源" if index == 1 else f"镜像 {index - 1}"
+            label = f"源 {index}/{len(urls)}"
             try:
                 logger.info(
-                    f"[{PLUGIN_NAME}] 开始下载 NSFW 权重 {filename}（{label} {index}/{len(urls)}）: {url}"
+                    f"[{PLUGIN_NAME}] 开始下载 NSFW 权重 {filename}（{label}）: {url}"
                 )
                 size = await self._fetch(url, part_path)
                 if size < NSFW_MIN_MODEL_BYTES:
