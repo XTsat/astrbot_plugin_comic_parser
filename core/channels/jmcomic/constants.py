@@ -33,3 +33,7 @@ DEFAULT_HTML_DOMAINS: Final = "\n".join(
 DEFAULT_REQUEST_TIMEOUT: Final = 30
 # 单请求重试次数：与 jmcomic 的 client.retry_times 默认一致，配置里直接写具体数字
 DEFAULT_REQUEST_RETRY_TIMES: Final = 5
+
+# 取封面的单域名超时（秒）：封面只有一张小图，实测一半图床域名会直接超时，
+# 等满 30 秒的请求超时只会让面板等到没脾气，8 秒没回就换下一个域名
+COVER_TIMEOUT: Final = 8

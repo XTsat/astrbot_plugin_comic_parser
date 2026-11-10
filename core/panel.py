@@ -451,9 +451,16 @@ class PanelService:
             raw_cover = None
 
         if not raw_cover:
+            # 渠道自己在 fetch_cover 里记了失败原因（哪几个域名、什么错）就直接透给用户，
+            # 光说「没取到」用户没法判断是该开代理、换域名还是这个本子下架了
+            reason = str(getattr(channel, "cover_error", "") or "").strip()
             payload["cover_error"] = (
-                f"没取到 {channel.display_command} 的封面：可能被站点风控、站点结构有变或网络不通"
-                f"（面板最多等 {PANEL_CHANNEL_TIMEOUT:.0f} 秒）；详情看插件日志，也可以直接上传图片试"
+                f"没取到 {channel.display_command} 的封面：{reason}"
+                if reason
+                else (
+                    f"没取到 {channel.display_command} 的封面：可能被站点风控、站点结构有变或网络不通"
+                    f"（面板最多等 {PANEL_CHANNEL_TIMEOUT:.0f} 秒）；详情看插件日志，也可以直接上传图片试"
+                )
             )
             return payload
 

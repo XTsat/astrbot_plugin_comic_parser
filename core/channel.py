@@ -144,6 +144,9 @@ class BaseChannel(ABC):
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
         self.options: dict[str, Any] = dict(options)
         self.settings = settings
+        # 上一次 fetch_cover 的失败原因：面板「从渠道拉封面」拿它告诉用户为什么没取到图。
+        # 各渠道在自己的 fetch_cover 里置位，空串表示「没补充说明」，面板会退回通用文案
+        self.cover_error: str = ""
 
     # ---- 命令名 ----
     @property
@@ -331,6 +334,9 @@ class BaseChannel(ABC):
 
         返回原始图片字节（jpg/png/webp 都行），取不到返回 ``None``。面板会把它存进临时表
         直接拿去评分/打码，因此这里**不做任何落盘**。
+
+        取不到时把自己那边的失败原因写进 ``self.cover_error``：面板没有别的渠道能知道
+        「是域名没了、还是被风控」，笼统报一句「没取到」用户没法判断要不要开代理。
         """
         return None
 

@@ -36,6 +36,7 @@ from ...channel import (
 from ...progress import ProgressHeartbeat, ProgressState
 from ...search_query import field_label
 from .constants import (
+    COVER_TIMEOUT,
     DEFAULT_API_DOMAINS,
     DEFAULT_HTML_DOMAINS,
     DEFAULT_REQUEST_RETRY_TIMES,
@@ -62,6 +63,29 @@ def _looks_like_image(payload: bytes) -> bool:
     return payload.startswith(_IMAGE_SIGNATURES) or (
         payload[:4] == b"RIFF" and payload[8:12] == b"WEBP"
     )
+
+
+def _cover_url(domain: str, album_id: int) -> str:
+    """按图床/站点域名拼封面地址；域名可带协议也可只写主机名。"""
+    host = domain.strip().rstrip("/")
+    if not host:
+        return ""
+    if not host.startswith(("http://", "https://")):
+        host = f"https://{host}"
+    return f"{host}/media/albums/{album_id}.jpg"
+
+
+def _host_of(url: str) -> str:
+    """提示里只留主机名：完整地址太长，用户关心的是「哪家图床挂了」。"""
+    return url.split("//", 1)[-1].split("/", 1)[0]
+
+
+def _album_id(jmcomic: Any, comic_id: str) -> int | None:
+    """把 ID 收敛成 jmcomic 认的相册号；认不出来返回 None，由调用方给用户文案。"""
+    try:
+        return int(jmcomic.JmcomicText.parse_to_jm_id(comic_id))
+    except Exception:  # 解析失败抛的是 jmcomic 自家的 JmcomicException，类型不稳定，统一当「认不出」
+        return None
 
 
 # jmcomic 的 search_* 方法按 main_tag 区分搜索域：0 综合 / 1 作品 / 2 作者 / 3 标签 / 4 角色
@@ -260,59 +284,144 @@ class JMComicChannel(BaseChannel):
     async def fetch_cover(self, comic_id: str) -> bytes | None:
         """只取相册封面图，供面板的「从渠道拉封面」用。
 
-        JM 的封面是独立的一张图（`/media/albums/<aid>.jpg`，不加密、不参与页序），jmcomic
-        自带 `JmcomicText.get_album_cover_url` 按它自己的图床域名拼地址。所以这条路径既不用
-        取相册详情、也不碰下载器：单发一次 GET 就够，不落盘、不重试整本。
+        JM 的封面是独立的一张图（`/media/albums/<aid>.jpg`，不加密、不参与页序），所以这条
+        路径既不取相册详情、也不碰下载器：单发 GET 就够，不落盘。
+
+        上游图床域名常年换，`JmModuleConfig.DOMAIN_IMAGE_LIST` 里实测有一半已经超时，而
+        jmcomic 自带的取地址工具是**随机挑一个**——挑中就成、挑不中就报「取不到」，这也是
+        以前「拉封面时好时坏」的来源。这里把所有候选域名并发试一遍，第一个拿到图就算成功；
+        全失败时把每个域名的结果写进 `self.cover_error`，面板原样显示给用户。
         """
+        self.cover_error = ""
         jmcomic = import_jmcomic()
         if jmcomic is None:
+            self.cover_error = "jmcomic 没装上，装好依赖再重载插件"
             logger.warning(
                 f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：jmcomic 未安装"
             )
             return None
 
-        try:
-            url = jmcomic.JmcomicText.get_album_cover_url(
-                jmcomic.JmcomicText.parse_to_jm_id(comic_id)
-            )
-            payload = await self._fetch_image_bytes(jmcomic, url)
-        except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，封面失败不能打挂面板
+        album_id = _album_id(jmcomic, comic_id)
+        if album_id is None:
+            self.cover_error = f"作品 ID 看着不对：{comic_id}"
             logger.warning(
-                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：{exc}"
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：ID 认不出来"
             )
             return None
-        if not payload:
-            logger.warning(
-                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}："
-                "图片节点没有返回可用图片（可能风控、本子已下架或图床域名失效）"
-            )
-            return None
-        return payload
 
-    async def _fetch_image_bytes(self, jmcomic: Any, url: str) -> bytes | None:
-        """GET 一张图的原始字节：请求头直接用 jmcomic 的图片模板，与它下载时保持一致。"""
+        urls = self._cover_urls(jmcomic, album_id)
+        payload, errors = await self._fetch_first_image(jmcomic, urls)
+        if payload:
+            return payload
+
+        detail = "；".join(errors[:6]) if errors else "没有可用的图床域名"
+        self.cover_error = f"{len(urls)} 个候选图床都没取到图：{detail}"
+        logger.warning(
+            f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：{self.cover_error}"
+        )
+        return None
+
+    def _cover_urls(self, jmcomic: Any, album_id: int) -> list[str]:
+        """候选封面地址：jmcomic 的图床清单在前，配置里的 API / 网页域名在后。
+
+        实测 API 域名与网页域名也能直接回 `/media/albums/<aid>.jpg`，所以它们不只是兜底：
+        图床清单整批挂掉时，这一批往往还活着。
+        """
+        urls: list[str] = []
+        seen: set[str] = set()
+
+        def add(url: str) -> None:
+            if url and url not in seen:
+                seen.add(url)
+                urls.append(url)
+
+        text_api = getattr(jmcomic, "JmcomicText", None)
+        image_domains = getattr(
+            getattr(jmcomic, "JmModuleConfig", None), "DOMAIN_IMAGE_LIST", ()
+        )
+        for domain in image_domains or ():
+            try:
+                add(text_api.get_album_cover_url(album_id, image_domain=str(domain)))
+            except (AttributeError, TypeError, ValueError):
+                # 第三方工具签名变了就退回自己拼地址：路径本身多年没变过
+                add(_cover_url(str(domain), album_id))
+
+        impl = "html" if self.opt_str("client_type", "api").startswith("html") else "api"
+        key = "html_domains" if impl == "html" else "api_domains"
+        default_domains = DEFAULT_HTML_DOMAINS if impl == "html" else DEFAULT_API_DOMAINS
+        for domain in self.opt_list(key) or split_option_list(default_domains):
+            add(_cover_url(str(domain), album_id))
+        return urls
+
+    async def _fetch_first_image(
+        self, jmcomic: Any, urls: list[str]
+    ) -> tuple[bytes | None, list[str]]:
+        """并发请求所有候选地址，第一个回图的胜出；返回（图片字节, 每个失败的简述）。
+
+        封面只有几十 KB，与其按顺序一个个等超时，不如全部发出去抢第一个 200。
+        """
+        if not urls:
+            return None, ["没有可用的图床域名"]
         try:
             import aiohttp
         except ImportError:  # 缺 aiohttp 时交给依赖检查报错，封面直接算取不到
-            return None
+            return None, ["缺少 aiohttp，装上依赖再试"]
+
         headers: dict[str, str] = dict(jmcomic.JmModuleConfig.APP_HEADERS_TEMPLATE)
         headers.update(jmcomic.JmModuleConfig.APP_HEADERS_IMAGE)
         proxy = self.resolve_proxy(default_enabled=False)[0]
+        timeout = min(
+            self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1),
+            COVER_TIMEOUT,
+        )
+
+        errors: list[str] = []
+        async with aiohttp.ClientSession(headers=headers, trust_env=False) as client:
+            tasks = {
+                asyncio.create_task(self._get_image(client, url, proxy, timeout)): url
+                for url in urls
+            }
+            try:
+                pending = set(tasks)
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for task in done:
+                        try:
+                            payload, reason = task.result()
+                        except Exception as exc:  # 兜住意外异常，一张封面不该把整页拖挂
+                            payload, reason = None, type(exc).__name__
+                        if payload:
+                            return payload, errors
+                        errors.append(f"{_host_of(tasks[task])} {reason}".strip())
+            finally:
+                # 已经拿到图之后剩下的请求就没意义了，不取消会一直占着连接等超时
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+        return None, errors
+
+    async def _get_image(
+        self, client: Any, url: str, proxy: str | None, timeout: int
+    ) -> tuple[bytes | None, str]:
+        """GET 一张图：返回（字节, 失败原因）；原因只写短句，留给面板拼提示用。"""
+        import aiohttp
+
         try:
-            async with aiohttp.ClientSession(headers=headers, trust_env=False) as client:
-                async with client.get(
-                    url,
-                    proxy=proxy or None,
-                    timeout=self.opt_int(
-                        "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
-                    ),
-                ) as response:
-                    if response.status != 200:
-                        return None
-                    payload = await response.read()
-        except (asyncio.TimeoutError, OSError, aiohttp.ClientError):
-            return None
-        return payload if _looks_like_image(payload) else None
+            async with client.get(
+                url,
+                proxy=proxy or None,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as response:
+                if response.status != 200:
+                    return None, f"HTTP {response.status}"
+                payload = await response.read()
+        except asyncio.TimeoutError:
+            return None, f"{timeout} 秒没响应"
+        except (OSError, aiohttp.ClientError):
+            return None, "连不上"
+        return (payload, "") if _looks_like_image(payload) else (None, "回来的不是图片")
 
     # ---- 搜索 ----
     async def search(
