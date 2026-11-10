@@ -300,7 +300,9 @@
 .pane { padding: 0; }
 .pane .params { border-bottom: 1px solid var(--line); }
 .field input[type="text"] {
-  min-width: 220px;
+  /* 可伸缩：给同一行的渠道下拉留出位置，别把下拉挤到只剩一个箭头 */
+  flex: 1 1 180px;
+  min-width: 120px;
   padding: 6px 8px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -309,7 +311,10 @@
   font: inherit;
   font-size: 13px;
 }
-select.narrow { max-width: 160px; }
+/* 全局的 select { min-width: 0 } 会让下拉被同行输入框挤成一条缝，
+   这里给参数条里的下拉兜个下限：至少露得下两三个字 */
+.field select { min-width: 84px; }
+select.narrow { max-width: 160px; min-width: 104px; flex: 0 0 auto; }
 
 /* ---- 通用表格与卡片（模型下载 / 渠道 / 状态 / 设置共用） ---- */
 .pane-grid { display: grid; gap: 14px; padding: 16px; }

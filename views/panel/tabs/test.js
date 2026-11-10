@@ -245,15 +245,19 @@ export default {
 
   /** 渠道下拉：有封面预览能力的渠道优先排前面。 */
   function renderCoverChannels(channels) {
-    const usable = (channels || []).filter((item) => item.enabled);
-    el("coverChannel").innerHTML = usable
-      .map(
-        (item) =>
-          `<option value="${item.command}"${item.supports_cover ? "" : " disabled"}>${
-            item.display_command || item.command
-          }${item.supports_cover ? "" : "（不支持封面预览）"}</option>`,
-      )
-      .join("");
+    const usable = (channels || [])
+      .filter((item) => item.enabled)
+      .sort((a, b) => Number(Boolean(b.supports_cover)) - Number(Boolean(a.supports_cover)));
+    el("coverChannel").innerHTML = usable.length
+      ? usable
+          .map(
+            (item) =>
+              `<option value="${item.command}"${item.supports_cover ? "" : " disabled"}>${
+                item.display_command || item.command
+              }${item.supports_cover ? "" : "（不支持封面预览）"}</option>`,
+          )
+          .join("")
+      : '<option value="">没有启用中的渠道</option>';
     const first = usable.find((item) => item.supports_cover);
     if (first) el("coverChannel").value = first.command;
     el("btnCover").disabled = !first;
@@ -264,8 +268,12 @@ export default {
   async function pullCover() {
     const channel = el("coverChannel").value;
     const text = el("coverText").value.trim();
-    if (!channel || !text) {
-      toast("先选渠道并填作品 ID 或链接", true);
+    if (!channel) {
+      toast("先在左边选一个渠道；一个可用的都没有就先去设置里启用渠道", true);
+      return;
+    }
+    if (!text) {
+      toast("再填一下作品 ID 或作品链接", true);
       return;
     }
     const button = el("btnCover");
@@ -274,7 +282,10 @@ export default {
     try {
       const data = await api.post(EP.channelsFetch, { channel, text });
       if (!data || !data.image) {
-        toast(data && data.cover_error ? data.cover_error : "这个渠道没取到封面", true);
+        toast(
+          (data && data.cover_error) || `${channel} 没取到封面：可能被站点风控或网络不通，详情看插件日志`,
+          true,
+        );
         return;
       }
       pushExternalImage({
