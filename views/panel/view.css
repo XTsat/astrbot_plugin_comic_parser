@@ -28,25 +28,25 @@
     --bg: #14161a;
     --panel: #1c1f26;
     --panel-2: #23262f;
-    --panel-3: var(--panel-3);
+    --panel-3: #2b2f3a;
     --line: #2e323d;
-    --line-strong: var(--line-strong);
+    --line-strong: #3d434f;
     --text: #e6e8ee;
     --muted: #9aa3b2;
     --accent: #6ea8fe;
-    --accent-soft: var(--accent-soft);
-    --accent-soft-line: var(--accent-soft-line);
+    --accent-soft: #24344d;
+    --accent-soft-line: #3d5b86;
     --ok: #4ade80;
-    --ok-line: var(--ok-line);
+    --ok-line: #2f6b47;
     --warn: #fbbf24;
-    --warn-line: var(--warn-line);
+    --warn-line: #6b5424;
     --bad: #f87171;
-    --bad-line: var(--bad-line);
-    --bad-text: var(--bad-text);
-    --canvas: var(--canvas);
-    --canvas-line: var(--canvas-line);
-    --toast-bg: var(--toast-bg);
-    --shadow: var(--shadow);
+    --bad-line: #6f3434;
+    --bad-text: #ffb4b4;
+    --canvas: #171a20;
+    --canvas-line: #262b34;
+    --toast-bg: #2a2f39;
+    --shadow: rgba(0, 0, 0, .5);
   }
   * { box-sizing: border-box; }
   /* 作者样式里的 display 会盖掉浏览器默认的 [hidden]{display:none}，这里补一道 */
@@ -110,7 +110,9 @@
   /* ---- 参数条 ---- */
   .params {
     display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
-    padding: 8px 16px; border-top: 1px solid var(--line); background: #171a20;
+    padding: 8px 16px; border-top: 1px solid var(--line);
+    /* 跟着主题走：写死深色会在浅色模式里变成一条黑带，里面的下拉和文字全看不清 */
+    background: var(--panel);
   }
   .field { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
   .field label { color: var(--muted); white-space: nowrap; }
@@ -217,22 +219,28 @@
   .empty b { color: var(--text); font-weight: 600; }
   .empty:hover { color: var(--text); border-color: var(--accent); }
 
-  /* ---- 工具条 ---- */
+  /* ---- 工具条（三段：样式 / 参数 / 操作） ---- */
   .tools {
     grid-column: 1 / -1;
-    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px;
     padding: 10px 16px; border-top: 1px solid var(--line); background: var(--panel);
   }
+  .tools-group { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-width: 0; }
+  /* 参数段吃掉中间空档，滑块跟着变宽，而不是挤在左边、右边空一片 */
+  .tools-group.params-group { flex: 1 1 420px; }
+  .tools-group.actions-group { margin-left: auto; flex: none; }
+  .tools-label { font-size: 12px; color: var(--muted); }
   .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
   .seg button { border: none; border-radius: 0; padding: 5px 10px; background: transparent; }
-  .seg button.on { background: var(--accent-soft); color: #fff; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  [data-theme="dark"] .seg button.on { color: #10151d; }
   .slider-field {
     display: flex; align-items: center; gap: 6px;
     font-size: 12px; color: var(--muted); white-space: nowrap;
   }
-  .slider-field input[type="range"] { width: 90px; }
+  .slider-field input[type="range"] { width: clamp(80px, 10vw, 170px); flex: 0 1 auto; }
   .slider-field b { color: var(--text); font-weight: 600; min-width: 26px; text-align: right; }
-  .tools .spacer { flex: 1; }
+  .slider-field input[type="checkbox"] { accent-color: var(--accent); }
 
   /* ---- 右侧结果 ---- */
   .card { background: var(--panel-2); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 10px; }
