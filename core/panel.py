@@ -150,6 +150,8 @@ class PanelService:
         self._detectors: dict[str, Detector] = {}
         self._images: OrderedDict[str, PanelImage] = OrderedDict()
         self._images_lock = threading.Lock()
+        # 拖滑块会连发多次打码请求：同一张图必须串行，否则两个请求抢同一个产物文件
+        self._censor_locks: dict[str, asyncio.Lock] = {}
 
     # ---- 元信息 ----
 
@@ -564,6 +566,7 @@ class PanelService:
             self._images[image_id] = item
             while len(self._images) > PANEL_MAX_IMAGES:
                 _, dropped = self._images.popitem(last=False)
+                self._censor_locks.pop(dropped.id, None)
                 self._remove_files(dropped)
         return item
 
@@ -581,6 +584,7 @@ class PanelService:
             return False
         with self._images_lock:
             item = self._images.pop(key, None)
+            self._censor_locks.pop(key, None)
         if item is None:
             return False
         self._remove_files(item)
@@ -600,6 +604,7 @@ class PanelService:
             self._images.clear()
         for item in dropped:
             self._remove_files(item)
+            self._censor_locks.pop(item.id, None)
         return len(dropped)
 
     # ---- 权重下载 ----
@@ -906,14 +911,33 @@ class PanelService:
         ][:COVER_MAX_BOXES]
 
         target = self._ensure_temp_dir() / f"{item.id}_censored{item.path.suffix.lower()}"
-        changed, coverage = await asyncio.to_thread(
-            self._apply_censor, item.path, target, clean_boxes, style, block, padding, full_area
-        )
+        lock = self._censor_locks.setdefault(item.id, asyncio.Lock())
+        try:
+            async with lock:
+                changed, coverage = await asyncio.to_thread(
+                    self._apply_censor, item.path, target, clean_boxes, style, block, padding, full_area
+                )
+                item.censored_path = target if changed else None
+                item.censored_full = bool(changed and full_area > 0 and coverage >= full_area)
+                self._drop_other_censored(item, keep=item.censored_path)
+                payload = self._censor_payload(image_id, item, changed, coverage, target, full_area)
+        except PanelError:
+            raise
+        except Exception as exc:  # 读图/写图失败：给用户一句能看懂的话，别抛 500
+            logger.warning(f"[{PLUGIN_NAME}] 面板打码失败：{exc!r}")
+            raise PanelError(f"打码失败：{exc}") from exc
+        return payload
 
-        item.censored_path = target if changed else None
-        item.censored_full = bool(changed and full_area > 0 and coverage >= full_area)
-        self._drop_other_censored(item, keep=item.censored_path)
-
+    def _censor_payload(
+        self,
+        image_id: str,
+        item: PanelImage,
+        changed: bool,
+        coverage: float,
+        target: Path,
+        full_area: float,
+    ) -> dict[str, Any]:
+        """把一次打码的结论拼成面板要的 JSON（读成品文件这一步也在打码锁里做）。"""
         payload: dict[str, Any] = {
             "image_id": image_id,
             "changed": changed,
