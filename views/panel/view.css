@@ -346,3 +346,8 @@ select.narrow { max-width: 160px; }
 .muted-line { color: var(--muted); font-size: 12px; }
 
 button.danger { color: var(--bad); border-color: var(--bad-line); }
+
+/* ---- 模型下载页：按家族分块，表格跟着区块走 ---- */
+.model-table { margin-top: 8px; }
+.card h2 .tag { margin-left: 6px; vertical-align: middle; }
+.card h2 .muted-line { font-weight: 400; margin-left: 8px; }

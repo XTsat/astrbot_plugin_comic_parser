@@ -41,21 +41,42 @@ export default {
         </div>
 
         <div class="card">
-          <h2>全部模型</h2>
-          <div class="hint">「打码测试」页的模型下拉只列已安装的；要换掉插件当前使用的档位，去「设置」页改「模型档位」。</div>
-          <table class="data-table" id="modelTable">
-            <thead>
-              <tr>
-                <th>模型</th><th>类型</th><th>类别</th><th>大小</th>
-                <th>来源 / 许可</th><th>状态</th><th>操作</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+          <h2>怎么选</h2>
+          <div class="hint">
+            同一批漫画封面上实测：<b>二次元检测</b> 与 <b>二次元分割</b> 都检出 10/11 张，
+            写实档只有 6/11；分割档的框最贴边（覆盖常 6-34%，写实档常是覆盖 65-78% 的粗框，容易整张糊）。
+            所以顺序按「更适合漫画」排：二次元检测 → 二次元分割 → 写实。
+          </div>
         </div>
+        <div id="modelSections"></div>
       </div>`;
 
-    const tableBody = root.querySelector("#modelTable tbody");
+    const sectionsRoot = root.querySelector("#modelSections");
+
+    // 家族顺序 = 推荐顺序：越靠前越适合漫画封面
+    const FAMILIES = [
+      {
+        key: "anime",
+        title: "二次元检测（推荐）",
+        intro:
+          "纯二次元 / 同人图训练，漫画封面上召回最高、体积最小、速度最快；短板是没有 make_love 这类场景类别，性交构图会漏。",
+        badge: "漫画封面首选",
+      },
+      {
+        key: "anime_seg",
+        title: "二次元分割",
+        intro:
+          "按部位分割，框最贴边（局部打码时周围画面保得住），带 anus / vagina 类别；female face / male face 类别不会被打码。原生 640 / 1280 输入，medium 更准但慢。",
+        badge: "框最贴边",
+      },
+      {
+        key: "erax",
+        title: "写实（EraX）",
+        intro:
+          "真人照片向：覆盖 anus / make_love 等场景，漫画封面上召回偏低；已经把阈值降到 0.02 仍漏检时，优先换上面的二次元档。",
+        badge: "真人 / 写实图",
+      },
+    ];
 
     function renderRuntime(describe) {
       const runtime = (describe && describe.runtime) || {};
@@ -84,60 +105,71 @@ export default {
       el("downloadHint").className = state.download.error ? "hint warn" : "hint";
     }
 
-    function renderRows() {
+    function rowFor(item) {
+      const size = item.installed ? fmtBytes(item.bytes) : `约 ${fmtBytes(item.approx_bytes)}`;
+      const kind = item.task === "segment" ? "分割" : "检测";
+      const labels = item.labels.map((label) => `<span class="tag">${escapeHtml(label)}</span>`).join("");
+      const status = item.installed
+        ? `<span class="tag ok">已安装</span>${item.current ? '<span class="tag">当前档位</span>' : ""}`
+        : item.downloading
+          ? '<span class="tag warn">下载中</span>'
+          : '<span class="tag warn">未安装</span>';
+      const actions = item.installed
+        ? `<button data-act="delete" data-preset="${item.value}"${
+            pendingDelete === item.value ? ' class="danger"' : ""
+          }>${pendingDelete === item.value ? "确认删除" : "删除"}</button>
+           <button data-act="test" data-preset="${item.value}">去测试</button>`
+        : `<button class="primary" data-act="download" data-preset="${item.value}"${
+            state.download.state === "downloading" ? " disabled" : ""
+          }>下载</button>`;
+      return `<tr>
+        <td><b>${escapeHtml(item.label)}</b><div class="muted-line mono">${escapeHtml(item.file)}</div></td>
+        <td>${kind}</td>
+        <td>${labels}</td>
+        <td class="mono" style="white-space:nowrap">${size}</td>
+        <td>
+          <button data-act="copy" data-url="${escapeHtml(item.upstream)}">复制上游地址</button>
+          <div class="muted-line">${escapeHtml(item.license)}</div>
+        </td>
+        <td>${status}<div class="muted-line">${escapeHtml(item.note || "")}</div></td>
+        <td><div class="row-actions">${actions}</div></td>
+      </tr>`;
+    }
+
+    function renderSections() {
       if (!state.models.length) {
-        tableBody.innerHTML = `<tr><td colspan="7" class="muted">没有读到模型清单</td></tr>`;
+        sectionsRoot.innerHTML = `<div class="card"><div class="hint">没有读到模型清单</div></div>`;
         return;
       }
-      const families = [
-        ["erax", "写实（EraX）"],
-        ["anime", "二次元检测（deepghs）"],
-        ["anime_seg", "二次元分割（01miku）"],
-      ];
-      const rows = [];
-      for (const [family, title] of families) {
-        const group = state.models.filter((item) => (item.family || "") === family);
-        if (!group.length) continue;
-        rows.push(
-          `<tr><td colspan="7" style="background:var(--panel-2);font-weight:600">${escapeHtml(title)}</td></tr>`,
-        );
-        for (const item of group) {
-          const size = item.installed ? fmtBytes(item.bytes) : `约 ${fmtBytes(item.approx_bytes)}`;
-          const kind = item.task === "segment" ? "分割" : "检测";
-          const labels = item.labels.map((label) => `<span class="tag">${escapeHtml(label)}</span>`).join("");
-          const status = item.installed
-            ? `<span class="tag ok">已安装</span>${item.current ? '<span class="tag">当前档位</span>' : ""}`
-            : item.downloading
-              ? '<span class="tag warn">下载中</span>'
-              : '<span class="tag warn">未安装</span>';
-          const actions = item.installed
-            ? `<button data-act="delete" data-preset="${item.value}"${
-                pendingDelete === item.value ? ' class="danger"' : ""
-              }>${pendingDelete === item.value ? "确认删除" : "删除"}</button>
-               <button data-act="test" data-preset="${item.value}">去测试</button>`
-            : `<button class="primary" data-act="download" data-preset="${item.value}"${
-                state.download.state === "downloading" ? " disabled" : ""
-              }>下载</button>`;
-          rows.push(`<tr>
-            <td><b>${escapeHtml(item.label)}</b><div class="muted-line mono">${escapeHtml(item.file)}</div></td>
-            <td>${kind}</td>
-            <td>${labels}</td>
-            <td class="mono" style="white-space:nowrap">${size}</td>
-            <td>
-              <button data-act="copy" data-url="${escapeHtml(item.upstream)}">复制上游地址</button>
-              <div class="muted-line">${escapeHtml(item.license)}</div>
-            </td>
-            <td>${status}<div class="muted-line">${escapeHtml(item.note || "")}</div></td>
-            <td><div class="row-actions">${actions}</div></td>
-          </tr>`);
-        }
+      const known = new Set(FAMILIES.map((family) => family.key));
+      const sections = FAMILIES.map((family) => {
+        const items = state.models.filter((item) => (item.family || "") === family.key);
+        if (!items.length) return "";
+        const installedCount = items.filter((item) => item.installed).length;
+        return `<div class="card">
+          <h2>${escapeHtml(family.title)} <span class="tag ok">${escapeHtml(family.badge)}</span>
+            <span class="muted-line">${installedCount}/${items.length} 已安装</span></h2>
+          <div class="hint">${escapeHtml(family.intro)}</div>
+          <table class="data-table model-table">
+            <thead>
+              <tr><th>模型</th><th>类型</th><th>类别</th><th>大小</th><th>来源 / 许可</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>${items.map(rowFor).join("")}</tbody>
+          </table>
+        </div>`;
+      });
+      // 兜底：万一后端来了个前端还不认识的家族，也照原样列出来，别静默吞掉
+      const unknown = state.models.filter((item) => !known.has(item.family || ""));
+      if (unknown.length) {
+        sections.push(`<div class="card"><h2>其它</h2>
+          <table class="data-table model-table"><tbody>${unknown.map(rowFor).join("")}</tbody></table></div>`);
       }
-      tableBody.innerHTML = rows.join("");
+      sectionsRoot.innerHTML = sections.join("");
     }
 
     function renderAll() {
       el("modelsDir").textContent = state.modelsDir ? `${state.modelsDir}` : "models/";
-      renderRows();
+      renderSections();
       renderDownloadCard();
     }
 
@@ -208,7 +240,7 @@ export default {
     async function removeModel(preset) {
       if (pendingDelete !== preset) {
         pendingDelete = preset;
-        renderRows();
+        renderSections();
         toast("再点一次「确认删除」就删掉这份权重");
         return;
       }
@@ -226,7 +258,7 @@ export default {
       load().catch((err) => toast(`刷新失败：${err.message}`, true));
     });
 
-    tableBody.addEventListener("click", (event) => {
+    sectionsRoot.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-act]");
       if (!button) return;
       const preset = button.dataset.preset;
@@ -243,7 +275,7 @@ export default {
         /* 顶栏已经报过错了，这里不重复打扰 */
       });
     load().catch((err) => {
-      tableBody.innerHTML = `<tr><td colspan="7" class="muted">读不到模型清单：${escapeHtml(err.message)}</td></tr>`;
+      sectionsRoot.innerHTML = `<div class="card"><div class="hint warn">读不到模型清单：${escapeHtml(err.message)}</div></div>`;
     });
   },
 };
