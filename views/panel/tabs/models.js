@@ -22,17 +22,34 @@ export default {
     };
 
     root.innerHTML = `
-      <div class="pane-grid">
-        <div class="card">
-          <h2>模型下载</h2>
-          <div class="hint">
-            权重不随插件分发，按需下载到插件的 <code class="mono" id="modelsDir">models/</code> 目录。
-            下载源按档位走各自上游（写实档走插件 Release，二次元档走 HuggingFace 镜像），失败会自动换源；
-            插件配置里的「自定义下载地址」「代理」在这里同样生效。
+      <div class="page">
+        <div class="page-head">
+          <div>
+            <h2>模型下载</h2>
+            <p class="hint">
+              权重不随插件分发，按需下载到 <code class="mono" id="modelsDir">models/</code>。下载源按档位走各自上游，
+              失败自动换源；配置里的「自定义下载地址」「代理」在这里同样生效。
+              实测同一批漫画封面：二次元检测与二次元分割都检出 10/11 张，写实档 6/11，所以下面的顺序就是推荐顺序。
+            </p>
           </div>
+          <div class="row-actions">
+            <span id="mRuntime" class="badge">—</span>
+            <button id="mRefresh" class="ghost">刷新</button>
+          </div>
+        </div>
+
+        <div class="card" id="downloadCard" hidden>
+          <h2>正在下载</h2>
+          <div class="kv"><span id="downloadName">—</span><span class="mono" id="downloadPercent">0%</span></div>
+          <div class="progress"><i id="downloadBar"></i></div>
+          <div class="hint" id="downloadHint"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>下载线路</h2></div>
           <div class="bar">
             <div class="field">
-              <label for="mMode">下载线路</label>
+              <label for="mMode">线路</label>
               <select id="mMode">
                 <option value="auto">自动（按档位默认源）</option>
                 <option value="mirror">只走镜像（国内直连不通时）</option>
@@ -41,22 +58,18 @@ export default {
               </select>
               <span id="mModeHint" class="hint-inline"></span>
             </div>
-            <div class="field wide" id="mCustomField" hidden>
+          </div>
+          <div class="bar" id="mCustomField" hidden>
+            <div class="field grow">
               <label for="mCustomUrl">自定义地址</label>
               <input type="text" id="mCustomUrl" placeholder="https://镜像地址/{filename}，可多行" />
             </div>
-            <span class="spacer"></span>
-            <span id="mRuntime" class="badge">—</span>
-            <button id="mRefresh">刷新</button>
           </div>
         </div>
 
         <div class="card">
-          <h2>手动上传权重</h2>
-          <div class="hint">
-            服务器连镜像都通不了、或者你有自己导出的 ONNX 时走这里：先选文件上传（最大 256MB），
-            再挑它对应的档位安装——档位决定类别顺序，装错档位会把部位打错码。
-          </div>
+          <div class="card-head"><h2>手动上传权重</h2></div>
+          <p class="legend">连镜像都通不了、或手里已有自己导出的 ONNX 时走这里。档位决定类别顺序，装错档位会把部位打错码。</p>
           <div class="bar">
             <div class="field">
               <label for="mUploadPreset">安装为</label>
@@ -69,21 +82,6 @@ export default {
           </div>
         </div>
 
-        <div class="card" id="downloadCard" hidden>
-          <h2>正在下载</h2>
-          <div class="kv"><span id="downloadName">—</span><span class="mono" id="downloadPercent">0%</span></div>
-          <div class="progress"><i id="downloadBar"></i></div>
-          <div class="hint" id="downloadHint"></div>
-        </div>
-
-        <div class="card">
-          <h2>怎么选</h2>
-          <div class="hint">
-            同一批漫画封面上实测：<b>二次元检测</b> 与 <b>二次元分割</b> 都检出 10/11 张，
-            写实档只有 6/11；分割档的框最贴边（覆盖常 6-34%，写实档常是覆盖 65-78% 的粗框，容易整张糊）。
-            所以顺序按「更适合漫画」排：二次元检测 → 二次元分割 → 写实。
-          </div>
-        </div>
         <div id="modelSections"></div>
       </div>`;
 
@@ -143,6 +141,8 @@ export default {
       el("downloadHint").className = state.download.error ? "hint warn" : "hint";
     }
 
+    // 一个权重一条「条目」而不是表格行：文件名、类别、许可、说明全是长短不一的自由文本，
+    // 塞进七列表格里每一列都会被挤到换行，条目式排布才能让长文本自然折行、按钮不被挤压。
     function rowFor(item) {
       const size = item.installed ? fmtBytes(item.bytes) : `约 ${fmtBytes(item.approx_bytes)}`;
       const kind = item.task === "segment" ? "分割" : "检测";
@@ -153,25 +153,29 @@ export default {
           ? '<span class="tag warn">下载中</span>'
           : '<span class="tag warn">未安装</span>';
       const actions = item.installed
-        ? `<button data-act="delete" data-preset="${item.value}"${
-            pendingDelete === item.value ? ' class="danger"' : ""
-          }>${pendingDelete === item.value ? "确认删除" : "删除"}</button>
-           <button data-act="test" data-preset="${item.value}">去测试</button>`
+        ? `<button data-act="test" data-preset="${item.value}">去测试</button>
+           <button class="ghost" data-act="copy" data-url="${escapeHtml(item.upstream)}">复制源地址</button>
+           <button class="${pendingDelete === item.value ? "danger" : "ghost"}" data-act="delete" data-preset="${item.value}">${
+             pendingDelete === item.value ? "确认删除" : "删除"
+           }</button>`
         : `<button class="primary" data-act="download" data-preset="${item.value}"${
             state.download.state === "downloading" ? " disabled" : ""
-          }>下载</button>`;
-      return `<tr>
-        <td><b class="mono">${escapeHtml(item.file)}</b><div class="muted-line">${escapeHtml(item.label)}</div></td>
-        <td>${kind}</td>
-        <td>${labels}</td>
-        <td class="mono" style="white-space:nowrap">${size}</td>
-        <td>
-          <button data-act="copy" data-url="${escapeHtml(item.upstream)}">复制上游地址</button>
+          }>下载</button>
+           <button class="ghost" data-act="copy" data-url="${escapeHtml(item.upstream)}">复制源地址</button>`;
+      return `<div class="model-item">
+        <div class="model-main">
+          <div class="model-title">
+            <b class="mono">${escapeHtml(item.file)}</b>
+            ${status}
+            <span class="tag">${kind} · <span class="mono">${size}</span></span>
+          </div>
+          <div class="muted-line">${escapeHtml(item.label)}</div>
+          <div class="tag-row"><span class="tag-row-label">类别</span>${labels}</div>
+          <div class="muted-line">${escapeHtml(item.note || "")}</div>
           <div class="muted-line">${escapeHtml(item.license)}</div>
-        </td>
-        <td>${status}<div class="muted-line">${escapeHtml(item.note || "")}</div></td>
-        <td><div class="row-actions">${actions}</div></td>
-      </tr>`;
+        </div>
+        <div class="model-side"><div class="row-actions">${actions}</div></div>
+      </div>`;
     }
 
     function renderSections() {
@@ -185,22 +189,20 @@ export default {
         if (!items.length) return "";
         const installedCount = items.filter((item) => item.installed).length;
         return `<div class="card">
-          <h2>${escapeHtml(family.title)} <span class="tag ok">${escapeHtml(family.badge)}</span>
-            <span class="muted-line">${installedCount}/${items.length} 已安装</span></h2>
-          <div class="hint">${escapeHtml(family.intro)}</div>
-          <table class="data-table model-table">
-            <thead>
-              <tr><th>模型</th><th>类型</th><th>类别</th><th>大小</th><th>来源 / 许可</th><th>状态</th><th>操作</th></tr>
-            </thead>
-            <tbody>${items.map(rowFor).join("")}</tbody>
-          </table>
+          <div class="card-head">
+            <h2>${escapeHtml(family.title)}</h2>
+            <span class="tag ok">${escapeHtml(family.badge)}</span>
+            <span class="muted-line" style="margin-left:auto">${installedCount}/${items.length} 已安装</span>
+          </div>
+          <p class="legend">${escapeHtml(family.intro)}</p>
+          <div class="model-list">${items.map(rowFor).join("")}</div>
         </div>`;
       });
       // 兜底：万一后端来了个前端还不认识的家族，也照原样列出来，别静默吞掉
       const unknown = state.models.filter((item) => !known.has(item.family || ""));
       if (unknown.length) {
-        sections.push(`<div class="card"><h2>其它</h2>
-          <table class="data-table model-table"><tbody>${unknown.map(rowFor).join("")}</tbody></table></div>`);
+        sections.push(`<div class="card"><div class="card-head"><h2>其它</h2></div>
+          <div class="model-list">${unknown.map(rowFor).join("")}</div></div>`);
       }
       sectionsRoot.innerHTML = sections.join("");
     }

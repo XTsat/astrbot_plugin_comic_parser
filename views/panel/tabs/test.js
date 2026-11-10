@@ -565,6 +565,11 @@ export default {
   }
 
   function renderList() {
+    if (!state.items.size) {
+      el("thumbs").innerHTML = '<li class="list-empty">还没有图片<br />拖一张进来，或用上面的渠道拉一张封面</li>';
+      el("thumbCount").textContent = "还没有图片";
+      return;
+    }
     el("thumbs").innerHTML = [...state.items.values()]
       .map((item) => {
         let chip = '<span class="chip">待评分</span>';
@@ -584,6 +589,11 @@ export default {
         </li>`;
       })
       .join("");
+
+    // 列头计数跟列表一起刷：图多了以后「现在有几张、已评几张」比列表本身更常被看
+    const total = state.items.size;
+    const scored = [...state.items.values()].filter((item) => item.score != null && !item.failed).length;
+    el("thumbCount").textContent = total ? `${total} 张 · 已评 ${scored} 张` : "还没有图片";
 
     [...el("thumbs").children].forEach((node) => {
       node.addEventListener("click", () => select(node.dataset.id));
@@ -615,6 +625,7 @@ export default {
       el("viewer").hidden = true;
       el("placeholder").hidden = false;
       el("resultHint").hidden = false;
+      el("btnPeek").hidden = true;
       el("fileName").textContent = "未选择图片";
       el("fileDims").textContent = "";
       return;
@@ -622,6 +633,7 @@ export default {
 
     el("viewer").hidden = false;
     el("placeholder").hidden = true;
+    el("btnPeek").hidden = false;
     el("resultHint").hidden = item.score != null || item.failed;
     el("fileName").textContent = item.name;
     el("fileDims").textContent = `${item.width}×${item.height} · ${(item.bytes / 1024).toFixed(0)}KB`;

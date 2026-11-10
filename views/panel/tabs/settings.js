@@ -11,21 +11,23 @@ export default {
     const state = { groups: [], baseline: null, writable: true, skipped: [] };
 
     root.innerHTML = `
-      <div class="pane-grid">
-        <div class="card">
-          <h2>设置</h2>
-          <div class="hint">
-            这里是插件配置的表单版：改完点「保存」。渠道模板条目（每个站点的账号、域名、代理等）
-            结构较深，仍在 AstrBot 的设置页里改；其余项都能在这里改。
+      <div class="page">
+        <div class="page-head">
+          <div>
+            <h2>设置</h2>
+            <p class="hint">
+              插件配置的表单版：改完点「保存」。渠道模板条目（每个站点的账号、域名、代理等）
+              结构较深，仍在 AstrBot 的设置页里改；其余项都能在这里改。
+            </p>
+            <p class="hint" id="cfgNote"></p>
           </div>
-          <div class="row-actions" style="margin-top:10px">
-            <button id="cfgSave" class="primary">保存</button>
+          <div class="row-actions">
+            <span id="cfgState" class="badge"></span>
             <button id="cfgReload">放弃改动并重读</button>
-            <span id="cfgState" class="badge">—</span>
+            <button id="cfgSave" class="primary">保存</button>
           </div>
-          <div class="hint" id="cfgNote"></div>
         </div>
-        <div id="cfgGroups"></div>
+        <div id="cfgGroups" class="page"></div>
       </div>`;
 
     const container = root.querySelector("#cfgGroups");
@@ -34,9 +36,9 @@ export default {
       const id = `f_${item.key.replace(/\./g, "_")}`;
       const common = `id="${id}" data-key="${item.key}"`;
       if (item.type === "bool") {
-        return `<label class="slider-field"><input type="checkbox" ${common}${
+        return `<label class="check-inline"><input type="checkbox" ${common}${
           item.value ? " checked" : ""
-        } /> ${escapeHtml(item.label)}</label>`;
+        } /> <span>${item.value ? "已开启" : "已关闭"}</span></label>`;
       }
       if (item.type === "string" && Array.isArray(item.options) && item.options.length) {
         const options = item.options
@@ -54,14 +56,14 @@ export default {
         const step = slider.step || (item.type === "float" ? 0.01 : 1);
         const min = slider.min !== undefined ? ` min="${slider.min}"` : "";
         const max = slider.max !== undefined ? ` max="${slider.max}"` : "";
-        return `<input type="number" ${common} value="${item.value ?? ""}" step="${step}"${min}${max} style="width:110px" />`;
+        return `<input type="number" ${common} value="${item.value ?? ""}" step="${step}"${min}${max} />`;
       }
       if (item.type === "list") {
         const text = Array.isArray(item.value) ? item.value.join("\n") : item.value || "";
-        return `<textarea ${common} rows="3" style="width:100%">${escapeHtml(text)}</textarea>`;
+        return `<textarea ${common} rows="2">${escapeHtml(text)}</textarea>`;
       }
       const type = item.secret ? "password" : "text";
-      return `<input type="${type}" ${common} value="${escapeHtml(item.value ?? "")}" style="width:100%" />`;
+      return `<input type="${type}" ${common} value="${escapeHtml(item.value ?? "")}" />`;
     }
 
     function render() {
@@ -77,26 +79,25 @@ export default {
               const parent = item.parent || "";
               const heading =
                 parent && parent !== lastParent
-                  ? `<tr><td colspan="2" style="background:var(--panel-2);font-weight:600">${escapeHtml(
-                      parent,
-                    )}</td></tr>`
+                  ? `<div class="form-sub">${escapeHtml(parent)}</div>`
                   : "";
               lastParent = parent;
-              const hint = item.hint
-                ? `<div class="muted-line">${escapeHtml(item.hint)}</div>`
-                : "";
-              return `${heading}<tr>
-                <th style="width:260px">${escapeHtml(item.label)}<div class="muted-line mono">${escapeHtml(
-                  item.key,
-                )}</div></th>
-                <td>${control(item)}${hint}</td>
-              </tr>`;
+              // 配置项 key 留成标签下方的小字：用户查 README 或 schema 时对得上，
+              // 但不该跟中文名抢视线
+              return `${heading}<div class="form-row">
+                <div class="label">
+                  <b>${escapeHtml(item.label)}</b>
+                  <span class="key">${escapeHtml(item.key)}</span>
+                </div>
+                <div class="control${item.type === "list" ? " span" : ""}">${control(item)}</div>
+                <div class="help">${item.hint ? escapeHtml(item.hint) : ""}</div>
+              </div>`;
             })
             .join("");
           return `<div class="card">
-            <h2>${escapeHtml(group.label)}</h2>
-            ${group.hint ? `<div class="hint">${escapeHtml(group.hint)}</div>` : ""}
-            <table class="data-table">${rows}</table>
+            <div class="card-head"><h2>${escapeHtml(group.label)}</h2></div>
+            ${group.hint ? `<p class="legend">${escapeHtml(group.hint)}</p>` : ""}
+            <div class="form-rows">${rows}</div>
           </div>`;
         })
         .join("");
@@ -104,7 +105,7 @@ export default {
       if (state.skipped.length) {
         container.insertAdjacentHTML(
           "beforeend",
-          `<div class="card"><h2>没放进本页的配置</h2>${state.skipped
+          `<div class="card"><div class="card-head"><h2>没放进本页的配置</h2></div>${state.skipped
             .map(
               (item) =>
                 `<div class="muted-line">${escapeHtml(item.key)}：${escapeHtml(item.reason)}</div>`,

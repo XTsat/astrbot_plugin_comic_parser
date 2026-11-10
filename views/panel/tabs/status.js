@@ -10,45 +10,56 @@ export default {
     let timer = 0;
 
     root.innerHTML = `
-      <div class="pane-grid">
-        <div class="card">
-          <h2>状态</h2>
-          <div class="hint">这一页每 5 秒自动刷新一次；查完可以停掉自动刷新省事。</div>
-          <div class="row-actions" style="margin-top:10px">
-            <button id="sRefresh" class="primary">立即刷新</button>
+      <div class="page">
+        <div class="page-head">
+          <div>
+            <h2>状态</h2>
+            <p class="hint">每 5 秒自动刷新一次；查完可以停掉自动刷新省事。</p>
+          </div>
+          <div class="row-actions">
+            <span id="sUpdated" class="badge"></span>
             <button id="sAuto">停止自动刷新</button>
-            <span id="sUpdated" class="badge">—</span>
+            <button id="sRefresh" class="primary">立即刷新</button>
           </div>
         </div>
 
+        <div class="stats" id="sStats"></div>
+
         <div class="card">
-          <h2>运行时</h2>
-          <table class="data-table" id="sRuntime"></table>
+          <div class="card-head"><h2>运行时</h2></div>
+          <div class="defs" id="sRuntime"></div>
         </div>
 
         <div class="card">
-          <h2>权重</h2>
-          <table class="data-table" id="sModels"></table>
+          <div class="card-head"><h2>权重</h2></div>
+          <div class="defs" id="sModels"></div>
         </div>
 
         <div class="card">
-          <h2>下载任务</h2>
-          <table class="data-table" id="sTasks"></table>
+          <div class="card-head"><h2>下载任务</h2></div>
+          <div class="defs" id="sTasks"></div>
         </div>
 
         <div class="card">
-          <h2>渠道</h2>
-          <table class="data-table" id="sChannels"></table>
+          <div class="card-head"><h2>渠道</h2></div>
+          <div class="table-scroll"><table class="data-table compact" id="sChannels"></table></div>
         </div>
 
         <div class="card">
-          <h2>磁盘与暂存</h2>
-          <table class="data-table" id="sDisk"></table>
+          <div class="card-head"><h2>磁盘与暂存</h2></div>
+          <div class="defs" id="sDisk"></div>
         </div>
       </div>`;
 
+    // 定义列表：左列固定 120px，值列吃满剩余宽度。表格那种 <th width:200px> 在宽屏下
+    // 会留出两百多像素的空档，标签与值各飘一头。
     const kv = (rows) =>
-      rows.map(([key, value]) => `<tr><th style="width:200px">${key}</th><td>${value}</td></tr>`).join("");
+      rows
+        .map(([key, value]) => `<div class="def"><span>${key}</span><div>${value}</div></div>`)
+        .join("");
+
+    const stat = (label, value, tone) =>
+      `<div class="stat"><span>${label}</span><b class="${tone || ""}">${value}</b></div>`;
 
     function render(data) {
       const plugin = data.plugin || {};
@@ -121,14 +132,14 @@ export default {
 
       const channels = data.channels || [];
       el("sChannels").innerHTML = channels.length
-        ? `<thead><tr><th>渠道</th><th>命令</th><th>启用</th><th>搜索</th><th>取封面</th></tr></thead><tbody>${channels
+        ? `<thead><tr><th>渠道</th><th>命令</th><th>状态</th><th>搜索</th><th>取封面</th></tr></thead><tbody>${channels
             .map(
               (item) => `<tr>
                 <td>${escapeHtml(item.command)}</td>
                 <td class="mono">/${escapeHtml(item.display_command)}</td>
-                <td>${item.enabled ? '<span class="tag ok">是</span>' : '<span class="tag warn">否</span>'}</td>
-                <td>${item.supports_search ? "是" : "—"}</td>
-                <td>${item.supports_cover ? '<span class="tag ok">可以</span>' : "—"}</td>
+                <td>${item.enabled ? '<span class="tag ok">已启用</span>' : '<span class="tag warn">未启用</span>'}</td>
+                <td>${item.supports_search ? '<span class="tag ok">支持</span>' : '<span class="tag">不支持</span>'}</td>
+                <td>${item.supports_cover ? '<span class="tag ok">可以</span>' : '<span class="tag">仅元信息</span>'}</td>
               </tr>`,
             )
             .join("")}</tbody>`
@@ -145,6 +156,22 @@ export default {
         ],
         ["面板暂存图片", `${images.cached || 0} / ${images.max || 0} 张（超出会挤掉最早的）`],
       ]);
+
+      const stats = data.tasks || {};
+      const modelInfo = data.models || {};
+      const diskInfo = data.disk || {};
+      const imageInfo = data.images || {};
+      el("sStats").innerHTML = [
+        stat("在跑 / 排队", `${stats.running_count || 0} / ${stats.queue_count || 0}`),
+        stat("已装权重", `${modelInfo.installed_count || 0} 档`),
+        stat("磁盘可用", diskInfo.total ? fmtBytes(diskInfo.free || 0) : "读不到"),
+        stat("面板暂存", `${imageInfo.cached || 0} / ${imageInfo.max || 0} 张`),
+        stat(
+          "检测运行时",
+          runtime.ready ? "就绪" : "未就绪",
+          runtime.ready ? "ok" : "bad",
+        ),
+      ].join("");
 
       el("sUpdated").textContent = `更新于 ${new Date().toLocaleTimeString()}`;
       el("sUpdated").className = "badge ok";

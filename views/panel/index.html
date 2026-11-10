@@ -7,64 +7,82 @@
 <link rel="stylesheet" href="view.css" />
 </head>
 <body>
-  <div class="topbar">
-    <h1 id="panelTitle">漫画下载器面板</h1>
-    <span class="badge" id="rtBadge">检查中…</span>
-    <span class="spacer"></span>
-    <span class="badge" id="pluginBadge"></span>
-  </div>
-
-  <nav class="tabs" id="tabs"></nav>
+  <header class="header">
+    <div class="topbar">
+      <h1 id="panelTitle">漫画下载器面板</h1>
+      <span class="badge" id="rtBadge">检查中…</span>
+      <span class="spacer"></span>
+      <span class="badge" id="pluginBadge"></span>
+    </div>
+    <nav class="tabs" id="tabs"></nav>
+  </header>
 
   <main id="panes">
     <!-- 打码测试页：上传 / 粘贴 / 从渠道拉封面，看分数与糊法；逻辑在 tabs/test.js -->
     <section class="pane" data-tab="test">
-      <div class="params">
-        <div class="field">
-          <label for="preset">模型</label>
-          <select id="preset"></select>
-          <span id="modelHint" class="hint-inline"></span>
+      <div class="studio">
+        <!-- 全局参数：只放「跟单张图无关」的模型三项，导入与素材操作各自归栏 -->
+        <div class="studio-bar">
+          <div class="field grow">
+            <label for="preset">模型</label>
+            <select id="preset"></select>
+            <span id="modelHint" class="hint-inline"></span>
+          </div>
+          <div class="field">
+            <label for="threshold">置信度阈值</label>
+            <input type="range" id="threshold" min="0.005" max="0.5" step="0.005" />
+            <input type="number" id="thresholdNum" min="0.005" max="0.5" step="0.005" />
+          </div>
+          <div class="field" id="imgszField">
+            <label for="imgsz">输入尺寸</label>
+            <select id="imgsz"></select>
+          </div>
+          <span class="spacer"></span>
+          <span class="badge" id="summaryBadge"></span>
         </div>
-        <div class="field wide">
-          <label for="threshold">置信度阈值</label>
-          <input type="range" id="threshold" min="0.005" max="0.5" step="0.005" />
-          <input type="number" id="thresholdNum" min="0.005" max="0.5" step="0.005" style="width:74px" />
-        </div>
-        <div class="field" id="imgszField">
-          <label for="imgsz">输入尺寸</label>
-          <select id="imgsz"></select>
-        </div>
-        <div class="field wide">
-          <label for="coverText">从渠道拉封面</label>
-          <select id="coverChannel" class="narrow"></select>
-          <input type="text" id="coverText" placeholder="填作品 ID 或作品链接" />
-          <button id="btnCover">拉取</button>
-        </div>
-        <span class="spacer"></span>
-        <span class="badge" id="summaryBadge"></span>
-        <button id="btnBatch">批量评分全部</button>
-        <button id="btnClear">清空</button>
-      </div>
 
-      <div class="layout">
-        <aside class="list">
-          <div class="drop" id="drop">点击 / 拖入 / 粘贴图片<br /><span class="muted">支持多张</span></div>
+        <!-- 左栏：从哪来的一张图 + 已经进来的素材 -->
+        <aside class="rail-left">
+          <div class="import">
+            <div class="field">
+              <span class="field-label">从渠道拉封面</span>
+            </div>
+            <div class="import-row">
+              <select id="coverChannel" class="narrow"></select>
+              <input type="text" id="coverText" placeholder="作品 ID 或链接" />
+              <button id="btnCover">拉取</button>
+            </div>
+            <p class="legend">拉到的封面直接进下面的列表，等同上传一张图。</p>
+          </div>
+
+          <div class="rail-head">
+            <span class="count" id="thumbCount">还没有图片</span>
+            <span class="row-actions">
+              <button id="btnBatch">批量评分</button>
+              <button id="btnClear" class="ghost">清空</button>
+            </span>
+          </div>
+
+          <div class="drop" id="drop"><b>点击 / 拖入 / 粘贴图片</b>支持多张，选完自动评分</div>
           <input type="file" id="file" accept="image/*" multiple hidden />
-          <ul class="thumbs" id="thumbs"></ul>
+          <div class="list">
+            <ul class="thumbs" id="thumbs"></ul>
+          </div>
         </aside>
 
-        <section class="stage">
+        <!-- 中栏：画布。看图相关的东西都在这一列 -->
+        <section class="canvas">
           <div class="stage-head">
-            <span id="fileName" class="muted title">未选择图片</span>
-            <span class="spacer" style="flex:1"></span>
+            <span id="fileName" class="title">未选择图片</span>
             <span id="fileDims" class="muted mono"></span>
+            <span class="spacer"></span>
           </div>
 
           <div class="viewer-wrap" id="viewerWrap">
+            <button id="btnPeek" class="ghost peek" title="按住看原图">按住看原图</button>
             <div class="empty" id="placeholder">
-              <b>点这里选图片</b><br />
-              也可以拖进来、按 Ctrl+V 粘贴截图，或用上面的「从渠道拉封面」把某本漫画的封面拿过来<br />
-              <span class="muted">支持多张，选完自动开始评分</span>
+              <b>点这里选图片</b>
+              也可以拖进来、按 Ctrl+V 粘贴截图，或用左边「从渠道拉封面」把某本漫画的封面拿过来
             </div>
             <div class="viewer" id="viewer" hidden>
               <img id="preview" alt="预览" />
@@ -73,63 +91,58 @@
           </div>
         </section>
 
-        <aside class="result">
+        <!-- 右栏：分数、明细、打码。参数跟着它们的对象待在一起，不摊到页脚 -->
+        <aside class="rail-right">
           <div class="card" id="resultHint">
-            <h2>还没选图</h2>
+            <h2>这张图会给出什么</h2>
             <div class="hint">
-              拖入、粘贴或从渠道拉一张封面后，这里显示三件事：<br />
-              · <b>露骨指数</b> = 检出框并集面积 ÷ 整图面积 × 100<br />
-              · <b>检出明细</b>：每处部位的标签、置信度、框尺寸<br />
-              · <b>打码结果</b>：糊了几处、是否因为超过整张阈值而整图糊<br />
-              左边可以堆多张图，切换对比不同阈值/档位下的分数。
+              选一张图后这里依次显示：<br />
+              <b>露骨指数</b>（检出框并集面积 ÷ 整图面积 × 100）、
+              <b>检出明细</b>（部位 / 置信度 / 框尺寸）与<b>打码结果</b>。<br />
+              左边可以堆多张，来回切着比较不同阈值、不同档位下的分数。
             </div>
           </div>
 
           <div class="card">
             <h2>评分</h2>
             <div class="score-big" id="scoreValue">—<small>/100</small></div>
-            <div class="kv"><span>检出覆盖率</span><span class="mono" id="coverage">—</span></div>
-            <div class="kv"><span>检出部位数</span><span class="mono" id="detCount">—</span></div>
-            <div class="kv"><span>推理耗时</span><span class="mono" id="costMs">—</span></div>
-            <div class="kv"><span>所用阈值</span><span class="mono" id="usedThreshold">—</span></div>
-            <div class="legend">
-              露骨指数 = 检出框并集面积 ÷ 整图面积 × 100，与插件封面摘要口径一致。
+            <div class="kv-grid">
+              <div class="kv"><span>检出覆盖率</span><span class="mono" id="coverage">—</span></div>
+              <div class="kv"><span>检出部位数</span><span class="mono" id="detCount">—</span></div>
+              <div class="kv"><span>推理耗时</span><span class="mono" id="costMs">—</span></div>
+              <div class="kv"><span>所用阈值</span><span class="mono" id="usedThreshold">—</span></div>
             </div>
+            <p class="legend" style="margin: 8px 0 0">露骨指数 = 检出框并集面积 ÷ 整图面积 × 100，与插件封面摘要口径一致。</p>
           </div>
 
           <div class="card">
             <h2>检出明细</h2>
-            <table class="dets">
-              <thead><tr><th>部位</th><th>置信度</th><th>框(px)</th></tr></thead>
-              <tbody id="detBody"><tr><td colspan="3" class="muted">—</td></tr></tbody>
-            </table>
+            <div class="dets-wrap">
+              <table class="dets">
+                <thead><tr><th>部位</th><th>置信度</th><th class="num">框(px)</th></tr></thead>
+                <tbody id="detBody"><tr><td colspan="3" class="muted">选一张图后显示检出部位</td></tr></tbody>
+              </table>
+            </div>
           </div>
 
           <div class="card">
-            <h2>打码结果</h2>
+            <h2>打码</h2>
+            <div class="censor-controls">
+              <div class="seg" id="styleSeg"></div>
+              <label class="slider-field">块大小 <input type="range" id="block" min="2" max="64" step="2" /><span class="val" id="blockVal"></span></label>
+              <label class="slider-field">外扩 <input type="range" id="padding" min="0" max="64" step="2" /><span class="val" id="paddingVal"></span></label>
+              <label class="slider-field">整张阈值 <input type="range" id="fullArea" min="0" max="1" step="0.05" /><span class="val" id="fullAreaVal"></span></label>
+              <label class="slider-field check"><input type="checkbox" id="showBoxes" checked /> 显示检出框</label>
+            </div>
             <div class="kv"><span>状态</span><span id="censorState">—</span></div>
             <div class="kv"><span>打码后覆盖率</span><span class="mono" id="censorCoverage">—</span></div>
             <div class="hint" id="censorHint"></div>
+            <div class="row-actions" style="margin-top: 10px">
+              <button id="btnCensor" class="primary">重新打码</button>
+              <button id="btnDownload">下载打码图</button>
+            </div>
           </div>
         </aside>
-
-        <div class="tools">
-          <div class="tools-group">
-            <span class="tools-label">打码样式</span>
-            <div class="seg" id="styleSeg"></div>
-          </div>
-          <div class="tools-group params-group">
-            <label class="slider-field">块大小 <input type="range" id="block" min="2" max="64" step="2" /><b id="blockVal"></b></label>
-            <label class="slider-field">外扩 <input type="range" id="padding" min="0" max="64" step="2" /><b id="paddingVal"></b></label>
-            <label class="slider-field">整张阈值 <input type="range" id="fullArea" min="0" max="1" step="0.05" /><b id="fullAreaVal"></b></label>
-            <label class="slider-field"><input type="checkbox" id="showBoxes" checked /> 显示检出框</label>
-          </div>
-          <div class="tools-group actions-group">
-            <button id="btnPeek" title="按住看原图">按住看原图</button>
-            <button id="btnCensor" class="primary">重新打码</button>
-            <button id="btnDownload">下载打码图</button>
-          </div>
-        </div>
       </div>
     </section>
 

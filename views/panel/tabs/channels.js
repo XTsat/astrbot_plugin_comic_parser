@@ -14,37 +14,45 @@ export default {
     };
 
     root.innerHTML = `
-      <div class="pane-grid">
-        <div class="card">
-          <h2>渠道测试</h2>
-          <div class="hint">
-            用真实作品试一个渠道是否通：填作品 ID 或整条作品链接都可以，链接指向别的站点时按链接那家走。
-            这一步只取元信息与封面（不下载整本），所以很快；拿到的封面可以直接送进「打码测试」。
+      <div class="page">
+        <div class="page-head">
+          <div>
+            <h2>渠道测试</h2>
+            <p class="hint">
+              用真实作品试一个渠道通不通：填作品 ID 或整条作品链接都行，链接指向别家时按链接那家走。
+              这一步只取元信息与封面、不下载整本，所以很快；拿到的封面可以直接送去「打码测试」。
+            </p>
           </div>
+          <div class="row-actions"><span id="cState" class="badge"></span></div>
+        </div>
+
+        <div class="card">
           <div class="bar">
             <div class="field">
               <label for="cChannel">渠道</label>
               <select id="cChannel"></select>
             </div>
-            <div class="field wide">
+            <div class="field grow">
               <label for="cText">作品 ID / 链接</label>
               <input type="text" id="cText" placeholder="例如 1047667 或 https://…/g/1047667" />
             </div>
             <button id="cFetch" class="primary">测试</button>
-            <span class="spacer"></span>
-            <span id="cState" class="badge">—</span>
           </div>
         </div>
 
         <div class="card" id="cResult" hidden></div>
 
         <div class="card">
-          <h2>渠道能力</h2>
-          <div class="hint">「取封面」一列决定这个渠道能不能在面板里做封面预览（不下一整本）。</div>
-          <table class="data-table" id="cTable">
-            <thead><tr><th>渠道</th><th>命令</th><th>状态</th><th>搜索</th><th>取封面</th></tr></thead>
-            <tbody></tbody>
-          </table>
+          <div class="card-head">
+            <h2>渠道能力</h2>
+            <span class="muted-line" style="margin-left: auto">「取封面」决定能不能在面板里做封面预览</span>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table compact" id="cTable">
+              <thead><tr><th>渠道</th><th>命令</th><th>状态</th><th>搜索</th><th>取封面</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>`;
 
@@ -61,7 +69,7 @@ export default {
             <td>${escapeHtml(item.command)}</td>
             <td class="mono">/${escapeHtml(item.display_command)}</td>
             <td>${item.enabled ? '<span class="tag ok">已启用</span>' : '<span class="tag warn">未启用</span>'}</td>
-            <td>${item.supports_search ? "支持" : "—"}</td>
+            <td>${item.supports_search ? '<span class="tag ok">支持</span>' : '<span class="tag">不支持</span>'}</td>
             <td>${item.supports_cover ? '<span class="tag ok">可以</span>' : '<span class="tag warn">仅元信息</span>'}</td>
           </tr>`,
         )
@@ -89,20 +97,24 @@ export default {
         .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
         .join("");
       const cover = data.image
-        ? `<img src="${data.image.data_url}" alt="封面" style="max-width:320px;border-radius:8px;border:1px solid var(--line)" />`
+        ? `<img src="${data.image.data_url}" alt="封面" />`
         : `<div class="hint warn">${escapeHtml(data.cover_error || "没有封面")}</div>`;
       card.hidden = false;
       card.innerHTML = `
-        <h2>${escapeHtml(comic.title || comic.comic_id || "结果")}</h2>
-        <div class="kv"><span>渠道</span><span class="mono">${escapeHtml(comic.channel || "")}</span></div>
-        <div class="kv"><span>作品 ID</span><span class="mono">${escapeHtml(comic.comic_id || "")}</span></div>
-        <div class="kv"><span>作者</span><span>${escapeHtml(comic.author || "—")}</span></div>
-        <div class="kv"><span>页数 / 章节</span><span class="mono">${comic.page_count || "—"}</span></div>
-        <div class="kv"><span>标签</span><span>${tags || "—"}</span></div>
-        <div style="margin-top:12px">${cover}</div>
-        <div class="row-actions" style="margin-top:12px">
-          ${data.image ? '<button id="cToTest" class="primary">送去打码测试</button>' : ""}
-          <button id="cCopyId">复制作品 ID</button>
+        <div class="card-head"><h2>${escapeHtml(comic.title || comic.comic_id || "结果")}</h2></div>
+        <div class="result-split">
+          <div class="result-facts">
+            <div class="kv"><span>渠道</span><span class="mono">${escapeHtml(comic.channel || "")}</span></div>
+            <div class="kv"><span>作品 ID</span><span class="mono">${escapeHtml(comic.comic_id || "")}</span></div>
+            <div class="kv"><span>作者</span><span>${escapeHtml(comic.author || "—")}</span></div>
+            <div class="kv"><span>页数 / 章节</span><span class="mono">${comic.page_count || "—"}</span></div>
+            <div class="kv"><span>标签</span><span class="tag-row" style="justify-content:flex-end">${tags || "—"}</span></div>
+            <div class="row-actions" style="margin-top: 10px">
+              ${data.image ? '<button id="cToTest" class="primary">送去打码测试</button>' : ""}
+              <button id="cCopyId">复制作品 ID</button>
+            </div>
+          </div>
+          <div class="result-cover">${cover}</div>
         </div>`;
 
       const toTest = card.querySelector("#cToTest");
@@ -145,7 +157,7 @@ export default {
         el("cState").textContent = "失败";
         el("cState").className = "badge bad";
         el("cResult").hidden = false;
-        el("cResult").innerHTML = `<h2>这次没通</h2><div class="hint warn">${escapeHtml(err.message)}</div>`;
+        el("cResult").innerHTML = `<div class="card-head"><h2>这次没通</h2></div><div class="hint warn">${escapeHtml(err.message)}</div>`;
         toast(`测试失败：${err.message}`, true);
       } finally {
         button.disabled = false;
