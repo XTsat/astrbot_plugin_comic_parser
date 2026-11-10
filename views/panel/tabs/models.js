@@ -30,7 +30,7 @@ export default {
             下载源按档位走各自上游（写实档走插件 Release，二次元档走 HuggingFace 镜像），失败会自动换源；
             插件配置里的「自定义下载地址」「代理」在这里同样生效。
           </div>
-          <div class="params" style="border:0;padding:10px 0 0">
+          <div class="bar">
             <div class="field">
               <label for="mMode">下载线路</label>
               <select id="mMode">
@@ -57,7 +57,7 @@ export default {
             服务器连镜像都通不了、或者你有自己导出的 ONNX 时走这里：先选文件上传（最大 256MB），
             再挑它对应的档位安装——档位决定类别顺序，装错档位会把部位打错码。
           </div>
-          <div class="params" style="border:0;padding:10px 0 0">
+          <div class="bar">
             <div class="field">
               <label for="mUploadPreset">安装为</label>
               <select id="mUploadPreset"></select>

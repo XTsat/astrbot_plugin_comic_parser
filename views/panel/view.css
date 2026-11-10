@@ -120,6 +120,11 @@
   .field.wide { flex: 1 1 260px; min-width: 220px; }
   .field.wide input[type="range"] { flex: 1; min-width: 80px; }
   .params .spacer { flex: 1; }
+  /* 卡片里的工具行：排列跟参数条一样，但**不画底色**。参数条是页面级的一条（自带
+     var(--panel) 底色 + 分隔线），塞进 var(--panel-2) 的卡片里就会平白多出一条
+     更亮/更暗的横带——浅色主题下是白带，深色主题下是黑带 */
+  .bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; font-size: 13px; padding-top: 10px; }
+  .bar .spacer { flex: 1; }
 
   /* ---- 三栏（窄屏逐级收成一栏） ---- */
   .layout {

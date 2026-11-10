@@ -21,7 +21,7 @@ export default {
             用真实作品试一个渠道是否通：填作品 ID 或整条作品链接都可以，链接指向别的站点时按链接那家走。
             这一步只取元信息与封面（不下载整本），所以很快；拿到的封面可以直接送进「打码测试」。
           </div>
-          <div class="params" style="border:0;padding:12px 0 0">
+          <div class="bar">
             <div class="field">
               <label for="cChannel">渠道</label>
               <select id="cChannel"></select>
