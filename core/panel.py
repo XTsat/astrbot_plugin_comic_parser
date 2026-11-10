@@ -567,6 +567,18 @@ class PanelService:
             raise PanelError("这张图已经过期（插件重载或缓存被挤掉了），请重新上传")
         return item
 
+    def remove_image(self, image_id: str) -> bool:
+        """释放一张暂存图（页面里删掉那张时调）；没这张图就返回 False，不当错误。"""
+        key = str(image_id or "").strip()
+        if not key:
+            return False
+        with self._images_lock:
+            item = self._images.pop(key, None)
+        if item is None:
+            return False
+        self._remove_files(item)
+        return True
+
     def download_path(self, image_id: str) -> tuple[Path, str]:
         """要下载的那张图：有打码结果就给打码结果，否则给原图。"""
         item = self.get_image(image_id)

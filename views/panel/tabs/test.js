@@ -382,6 +382,22 @@ export default {
     state.items.forEach((item) => { if (item.score != null) item.stale = true; });
   }
 
+  /** 删掉一张：页面里移除，后端那份暂存也顺手释放（释放失败无所谓，超出上限会自己挤掉）。 */
+  function removeItem(id) {
+    const item = state.items.get(id);
+    if (!item) return;
+    if (item.url && item.url.startsWith("blob:")) URL.revokeObjectURL(item.url);
+    state.items.delete(id);
+    api.post(EP.imageDelete, { image_id: id }).catch(() => {});
+    if (state.currentId === id) {
+      const next = state.items.keys().next();
+      state.currentId = next.done ? null : next.value;
+    }
+    render();
+    const active = current();
+    if (active && active.score == null && !active.failed) requestScore(active.id);
+  }
+
   function clearAll() {
     state.items.forEach((item) => URL.revokeObjectURL(item.url));
     state.items.clear();
@@ -552,13 +568,22 @@ export default {
             <div class="sub">${item.width}×${item.height}</div>
           </div>
           ${chip}
+          <button class="del" type="button" title="从列表移除这张">×</button>
         </li>`;
       })
       .join("");
 
-    [...el("thumbs").children].forEach((node) =>
-      node.addEventListener("click", () => select(node.dataset.id))
-    );
+    [...el("thumbs").children].forEach((node) => {
+      node.addEventListener("click", () => select(node.dataset.id));
+      const del = node.querySelector(".del");
+      if (del) {
+        del.addEventListener("click", (event) => {
+          // 删除按钮在列表项里面，不拦住就会顺带把这张图选中
+          event.stopPropagation();
+          removeItem(node.dataset.id);
+        });
+      }
+    });
   }
 
   function renderSummary() {

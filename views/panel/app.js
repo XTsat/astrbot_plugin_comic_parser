@@ -78,6 +78,7 @@ const ctx = {
     modelsDelete: "panel/models/delete",
     modelsUpload: "panel/models/upload",
     modelsInstall: "panel/models/install",
+    imageDelete: "panel/images/delete",
     channels: "panel/channels",
     channelsFetch: "panel/channels/fetch",
     status: "panel/status",

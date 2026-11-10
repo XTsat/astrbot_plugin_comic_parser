@@ -129,8 +129,12 @@
     align-items: stretch;                      /* 左右两栏拉到底，别在下面留一片空 */
   }
   .list, .result { background: var(--panel); padding: 10px; min-width: 0; }
-  .list { display: flex; flex-direction: column; }
-  .thumbs { flex: 1 1 auto; align-content: start; }
+  /* 左栏自己滚：图多了只让缩略图列表滚，不要撑长整页的滚动条 */
+  .list { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .thumbs {
+    flex: 1 1 auto; min-height: 0; align-content: start;
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  }
   .list { border-right: 1px solid var(--line); }
   .result { border-left: 1px solid var(--line); }
   .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -148,7 +152,7 @@
     .tools { order: 2; }
     .list { order: 3; border-right: none; border-top: 1px solid var(--line); }
     .result { order: 4; }
-    .thumbs { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    .thumbs { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); max-height: 42vh; }
     .topbar, .params { padding-left: 12px; padding-right: 12px; }
     .viewer img { max-height: 46vh; }
     .score-big { font-size: 28px; }
@@ -178,6 +182,14 @@
     font-size: 11px; padding: 1px 6px; border-radius: 999px; flex: none;
     border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
   }
+  /* 单张删除：常驻显示，别做成 hover 才出现（触屏点不到） */
+  .thumb .del {
+    flex: none; width: 22px; height: 22px; padding: 0; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 14px; border-radius: 6px;
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+  }
+  .thumb .del:hover { color: var(--bad); border-color: var(--bad-line); }
   .chip.ok { color: var(--ok); border-color: var(--ok-line); }
   .chip.warn { color: var(--warn); border-color: var(--warn-line); }
   .chip.bad { color: var(--bad); border-color: var(--bad-line); }

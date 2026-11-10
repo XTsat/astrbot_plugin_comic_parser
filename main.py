@@ -438,6 +438,12 @@ class ComicParserPlugin(Star):
                 "插件面板：运行时、权重、渠道、任务与磁盘状态",
             ),
             (
+                f"/{PLUGIN_NAME}/panel/images/delete",
+                self.api_panel_image_delete,
+                ["POST"],
+                "插件面板：释放一张暂存图片",
+            ),
+            (
                 f"/{PLUGIN_NAME}/panel/channels",
                 self.api_panel_channels,
                 ["GET"],
@@ -622,6 +628,14 @@ class ComicParserPlugin(Star):
     async def api_panel_channels(self) -> Any:
         """渠道清单：页面据此决定「渠道测试」能不能用、支持哪些能力。"""
         return plugin_web.json_response({"status": "ok", "data": {"channels": self.panel.channels()}})
+
+    async def api_panel_image_delete(self) -> Any:
+        """页面删掉一张图时，把后端暂存的那份也释放掉（本来就不在也不算错）。"""
+        payload = await plugin_web.request.json(default={})
+        if not isinstance(payload, dict):
+            return plugin_web.error_response("请求体必须是 JSON 对象", status_code=400)
+        removed = self.panel.remove_image(payload.get("image_id"))
+        return plugin_web.json_response({"status": "ok", "data": {"removed": removed}})
 
     async def api_panel_channels_fetch(self) -> Any:
         """按渠道取一本作品的元信息与封面（封面进面板的图片暂存表）。"""
