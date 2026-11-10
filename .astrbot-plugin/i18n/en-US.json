@@ -4,15 +4,9 @@
     "description": "Multi-site comic downloader and searcher: paste a work link, an ID, or search in chat to download whole volumes, packed and optionally encrypted"
   },
   "views": {
-    "nsfw_lab": {
-      "title": "Cover censoring / scoring lab",
-      "description": "Try cover censoring with the plugin's own detector: tune threshold and input size, switch masking styles, read the score and see how it looks"
-    }
-  },
-  "pages": {
-    "nsfw_lab": {
-      "title": "Cover censoring / scoring lab",
-      "description": "Try cover censoring with the plugin's own detector: tune threshold and input size, switch masking styles, read the score and see how it looks"
+    "panel": {
+      "title": "Comic Downloader Panel",
+      "description": "Censoring tests, model downloads, channel checks, runtime status and settings in one place"
     }
   }
 }

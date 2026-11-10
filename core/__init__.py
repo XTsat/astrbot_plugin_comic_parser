@@ -16,7 +16,7 @@ from .nsfw import (
     create_detector,
     ensure_onnxruntime,
 )
-from .nsfw_lab import LabImage, NsfwLabService
+from .panel import PanelImage, PanelService
 from .registry import (
     build_channels,
     command_map,
@@ -38,9 +38,9 @@ __all__ = [
     "DownloadTask",
     "GroupFileResult",
     "GroupFileUploader",
-    "LabImage",
+    "PanelImage",
     "ModelWeights",
-    "NsfwLabService",
+    "PanelService",
     "NsfwScore",
     "create_detector",
     "ensure_onnxruntime",

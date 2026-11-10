@@ -145,7 +145,7 @@ class ModelWeights:
         self.auto_download = auto_download
         self.download_url = (download_url or "").strip()
         self.proxy = proxy or ""
-        # 下载进度回调（0-1 的比例）：只有需要显示进度的调用方（插件里的打码实验台）才传
+        # 下载进度回调（0-1 的比例）：只有需要显示进度的调用方（插件面板的模型下载页）才传
         self.on_progress = on_progress
         self._lock = asyncio.Lock()
 

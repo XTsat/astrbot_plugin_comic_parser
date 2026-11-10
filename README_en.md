@@ -20,7 +20,7 @@
 - **Session control**: whitelist / blacklist decide who may download, and debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin picks the fastest one before downloading
 - **Cover image after each download** (off by default): every finished download sends one cover image; turn on "Censor the cover" if you want the explicit parts blurred. With censoring on, a cover rejected by the platform (invisible in the group, a send failure in the log) is re-censored across the whole image and sent once more
-- **Censoring lab** (plugin details page → "Cover censoring / scoring lab"): drop a few images in to see the explicitness score and the detected boxes, then try masking styles, block size, padding and the whole-image threshold on the spot — no need to download a whole comic just to tune cover censoring. All model presets (nano / small / medium × fp32 / int8) are listed there too: pick a missing one, hit "download", and it is fetched with the plugin's own sources and proxy
+- **Comic downloader panel** (plugin details page → "Comic Downloader Panel"): five tabs in one page — "Censoring test" to drop an image (or pull a cover from a channel) and see the explicitness score and boxes, then try masking styles, block size, padding and the whole-image threshold on the spot; "Model downloads" listing every weight with its classes, size, source, licence and whether it is installed; "Channel check" to look up metadata and a cover by ID or work link; "Status" for the runtime, installed weights and enabled channels; "Settings" to edit the plugin config in place
 - **Automatic cleanup**: temporary files are deleted right after sending
 
 ## Commands
@@ -332,7 +332,7 @@ Cover censoring and the explicitness figure rely on a local YOLO detection model
 
 **The plugin uses an ONNX build of those weights**: we export them from the upstream `.pt` (fixed 960 input, opset 17) and quantize the int8 variants separately, so they are not the same files as upstream. Upstream only ships `.pt`, and **the plugin does not accept `.pt`, so do not download from upstream and drop it in**.
 
-You can tune it straight from the plugin details page: the "Cover censoring / scoring lab" view scores any image you drop in, shows where the boxes land and how each style looks, with the threshold and masking parameters adjustable on the spot. Missing model presets can be downloaded from that page too, using the same sources and proxy configured here.
+You can tune it straight from the plugin details page: in the "Comic Downloader Panel", the "Censoring test" tab scores any image you drop in (or a cover pulled from a channel), shows where the boxes land and how each style looks, with the threshold and masking parameters adjustable on the spot. Install missing weights from the "Model downloads" tab, using the same sources and proxy configured here.
 
 Note that the weights live in the **plugin directory** under `models/`: uninstalling the plugin, or updating it from the marketplace, wipes them along with the plugin folder, so you would have to download them again.
 

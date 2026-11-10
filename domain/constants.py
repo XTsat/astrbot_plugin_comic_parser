@@ -416,11 +416,11 @@ NSFW_IMGSZ_RANGE: Final = (320, 1600)
 # 打码默认关闭，此时不需要权重，没必要为它占几十 MB
 DEFAULT_NSFW_AUTO_DOWNLOAD: Final = True
 
-# ---- 打码实验台（插件视图 views/nsfw_lab）----
+# ---- 插件面板（插件视图 views/panel）----
 
-# 单张上传上限：实验台只用来试封面尺度，卡一道免得误传整本压缩包把内存吃满
-NSFW_LAB_MAX_UPLOAD_BYTES: Final = 16 * 1024 * 1024
+# 单张上传上限：面板的测试页只用来试封面尺度，卡一道免得误传整本压缩包把内存吃满
+PANEL_MAX_UPLOAD_BYTES: Final = 16 * 1024 * 1024
 # 内存里最多留几张图：够来回调参数，又不至于把整本漫画攒着
-NSFW_LAB_MAX_IMAGES: Final = 24
+PANEL_MAX_IMAGES: Final = 24
 # 页面能选的推理输入尺寸：640 容易吐「覆盖整幅」的粗框，1280 掉召回，960 是默认档
-NSFW_LAB_IMGSZ_CHOICES: Final = (640, 960, 1280)
+PANEL_IMGSZ_CHOICES: Final = (640, 960, 1280)

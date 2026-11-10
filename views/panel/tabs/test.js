@@ -1,33 +1,20 @@
-// 封面打码 / 评分实验台的页面逻辑。通信只走 bridge，禁止裸 fetch。
-(() => {
+// 打码测试页：把一张图（上传、粘贴或从渠道拉来的封面）丢进插件自己的检测器，
+// 看露骨指数、检出框和糊出来的样子。通信只走 bridge（ctx 里带），禁止裸 fetch。
+export default {
+  id: "test",
+  title: "打码测试",
+  mount(root, ctx) {
   "use strict";
 
-  const el = (id) => document.getElementById(id);
-  // 视图跑在沙箱 iframe 里，拿不到 Dashboard 的会话与 token：只能用 bridge，禁止裸 fetch
-  const bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
+  const el = (id) => root.querySelector("#" + id);
+  const bridge = ctx.bridge;
+  const api = ctx.api;
+  const EP = ctx.EP;
+  const toast = ctx.toast;
+  const escapeHtml = ctx.escapeHtml;
 
-  // bridge 把 endpoint 拼成 /api/v1/plugins/extensions/<插件名>/<endpoint>，而后端注册的路由是
-  // /<插件名>/nsfw_lab/<action>——所以这里必须带上 nsfw_lab 这一段，少一层就是「未找到该路由」
-  const EP = {
-    config: "nsfw_lab/config",
-    upload: "nsfw_lab/upload",
-    score: "nsfw_lab/score",
-    censor: "nsfw_lab/censor",
-    download: "nsfw_lab/download",
-    prepare: "nsfw_lab/model/prepare",
-    status: "nsfw_lab/model/status",
-  };
-
-  const api = {
-    get: (endpoint, params) => bridge.apiGet(endpoint, params),
-    post: (endpoint, body) => bridge.apiPost(endpoint, body),
-  };
-
-  /** 页面没在对的入口打开、或后端不可用：直接说清楚，别让用户对着一堆空控件猜。 */
+  /** 这一页自己的兜底提示：顶栏状态由 app.js 管，这里只弹提示。 */
   function fatal(message) {
-    el("rtBadge").textContent = message;
-    el("rtBadge").className = "badge bad";
-    el("modelsBadge").textContent = "";
     toast(message, true);
   }
 
@@ -46,14 +33,6 @@
 
   // ---- 小工具 ----
 
-  function toast(message, isError) {
-    const node = document.createElement("div");
-    node.textContent = message;
-    if (isError) node.className = "err";
-    el("toast").appendChild(node);
-    setTimeout(() => node.remove(), isError ? 5200 : 2600);
-  }
-
   function debounce(fn, wait) {
     let timer = 0;
     return (...args) => {
@@ -69,12 +48,6 @@
     return "bad";
   }
 
-  function escapeHtml(text) {
-    return String(text).replace(/[&<>"']/g, (ch) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    })[ch]);
-  }
-
   function suffixOf(name, type) {
     const dot = name.lastIndexOf(".");
     if (dot > 0 && name.length - dot <= 6) return name.slice(dot).toLowerCase();
@@ -88,36 +61,16 @@
   // ---- 初始化 ----
 
   async function boot() {
-    if (!bridge) {
-      fatal("请从 AstrBot 插件详情页打开本视图（直接打开文件拿不到 bridge）");
-      return;
-    }
-
-    // ready 只等首帧 context：等不到也继续（上下文没有 isDark 时按系统偏好切主题）
     try {
-      await bridge.ready();
-    } catch {
-      /* 忽略：主题与语言都有兜底 */
-    }
-    applyContext(bridge.getContext());
-    const unsubscribe = bridge.onContext(applyContext);
-    window.addEventListener("beforeunload", () => {
-      if (typeof unsubscribe === "function") unsubscribe();
-    });
-
-    try {
-      state.config = await api.get(EP.config);
+      state.config = await ctx.describe();
     } catch (err) {
       fatal(`读不到配置：${err.message}`);
       return;
     }
 
     const cfg = state.config;
-    el("rtBadge").textContent = cfg.runtime_ready ? "onnxruntime 就绪" : "onnxruntime 缺失";
-    el("rtBadge").className = "badge " + (cfg.runtime_ready ? "ok" : "bad");
-    el("modelsBadge").textContent = `${cfg.presets.length} 个权重可用`;
-
-    renderPresets(cfg.presets, cfg.defaults.preset);
+    renderPresets(cfg.installed || [], cfg.defaults.preset);
+    renderCoverChannels(cfg.channels || []);
 
     el("threshold").value = cfg.defaults.threshold;
     el("thresholdNum").value = cfg.defaults.threshold;
@@ -141,15 +94,6 @@
     syncSliderLabels();
     bindEvents();
     render();
-  }
-
-  /** 主题与文案跟着 Dashboard 走：切暗色/换语言都会再走一遍。 */
-  function applyContext(context) {
-    const dark = context && typeof context.isDark === "boolean"
-      ? context.isDark
-      : window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-    el("title").textContent = bridge.t("views.nsfw_lab.title", "封面打码 / 评分实验台");
   }
 
   function bindEvents() {
@@ -187,7 +131,10 @@
       invalidateScores();
       requestScore(state.currentId, true);
     });
-    el("btnModel").addEventListener("click", downloadModel);
+    el("btnCover").addEventListener("click", pullCover);
+    el("coverText").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") pullCover();
+    });
     if (el("imgsz")) {
       el("imgsz").addEventListener("change", () => {
         state.imgsz = Number(el("imgsz").value);
@@ -239,110 +186,113 @@
     el("btnClear").addEventListener("click", clearAll);
   }
 
-  /** 档位下拉：把「有 nano / small / int8 可换」摆出来，未下载的标一下并给下载入口。 */
+  /** 档位下拉只列**已安装**的权重：没装的在「模型下载」页里下，免得选了跑不起来。 */
   function renderPresets(presets, preferred) {
-    state.presets = presets || [];
+    state.presets = (presets || []).filter((item) => item.installed);
     el("preset").innerHTML = state.presets
-      .map((item) => {
-        const suffix = item.available ? "" : " · 未下载";
-        return `<option value="${item.value}">${item.label}${suffix}</option>`;
-      })
+      .map((item) => `<option value="${item.value}">${item.label}</option>`)
       .join("");
 
-    const fallback = (state.presets.find((item) => item.available) || state.presets[0] || {}).value;
-    const wanted = state.presets.some((item) => item.value === preferred && item.available)
+    if (!state.presets.length) {
+      state.preset = "";
+      syncModelUi();
+      return;
+    }
+    const wanted = state.presets.some((item) => item.value === preferred)
       ? preferred
-      : state.presets.some((item) => item.value === state.preset && item.available)
+      : state.presets.some((item) => item.value === state.preset)
         ? state.preset
-        : fallback;
-    if (wanted) el("preset").value = wanted;
+        : state.presets[0].value;
+    el("preset").value = wanted;
     state.preset = el("preset").value;
     syncModelUi();
+  }
+
+  /** 渠道下拉：有封面预览能力的渠道优先排前面。 */
+  function renderCoverChannels(channels) {
+    const usable = (channels || []).filter((item) => item.enabled);
+    el("coverChannel").innerHTML = usable
+      .map(
+        (item) =>
+          `<option value="${item.command}"${item.supports_cover ? "" : " disabled"}>${
+            item.display_command || item.command
+          }${item.supports_cover ? "" : "（不支持封面预览）"}</option>`,
+      )
+      .join("");
+    const first = usable.find((item) => item.supports_cover);
+    if (first) el("coverChannel").value = first.command;
+    el("btnCover").disabled = !first;
+    if (!first) el("coverText").placeholder = "当前没有支持封面预览的渠道，可以直接上传图片";
+  }
+
+  /** 从漫画渠道按 ID / 链接把封面拉进来，省得先去下一本。 */
+  async function pullCover() {
+    const channel = el("coverChannel").value;
+    const text = el("coverText").value.trim();
+    if (!channel || !text) {
+      toast("先选渠道并填作品 ID 或链接", true);
+      return;
+    }
+    const button = el("btnCover");
+    button.disabled = true;
+    button.textContent = "拉取中…";
+    try {
+      const data = await api.post(EP.channelsFetch, { channel, text });
+      if (!data || !data.image) {
+        toast(data && data.cover_error ? data.cover_error : "这个渠道没取到封面", true);
+        return;
+      }
+      state.items.set(data.image.image_id, {
+        id: data.image.image_id,
+        name: `${data.comic.title || data.comic.comic_id} · 封面`,
+        bytes: data.image.bytes || 0,
+        width: data.image.width,
+        height: data.image.height,
+        url: data.image.data_url,
+        score: null,
+        coverage: null,
+        detections: [],
+        failed: false,
+        stale: false,
+        ms: null,
+        threshold: null,
+        censored: null,
+        censoredChanged: false,
+        censoredCoverage: 0,
+        censoredFull: false,
+        scoring: null,
+        needsRescore: false,
+        scoreToken: 0,
+        censorToken: 0,
+      });
+      state.currentId = data.image.image_id;
+      renderList();
+      render();
+      requestScore(state.currentId, true);
+      toast(`已拉取「${data.comic.title || data.comic.comic_id}」的封面`);
+    } catch (err) {
+      toast(`拉取失败：${err.message}`, true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "拉取";
+    }
   }
 
   function selectedPreset() {
     return state.presets.find((item) => item.value === el("preset").value) || null;
   }
 
-  /** 未下载的档位显示「下载」按钮；已就位的清掉提示。 */
+  /** 一个权重都没装时明确指向「模型下载」页，而不是让下拉空着。 */
   function syncModelUi() {
     const item = selectedPreset();
-    const btn = el("btnModel");
-    if (!item) {
-      btn.hidden = true;
-      el("modelHint").textContent = "";
+    const hint = el("modelHint");
+    if (item) {
+      hint.className = "hint-inline";
+      hint.textContent = `${item.task === "segment" ? "分割" : "检测"}模型 · ${item.labels.length} 类`;
       return;
     }
-    if (item.available) {
-      btn.hidden = true;
-      el("modelHint").textContent = "";
-      return;
-    }
-    btn.hidden = false;
-    btn.disabled = false;
-    btn.textContent = "下载";
-    el("modelHint").className = "hint-inline warn";
-    el("modelHint").textContent = "这个档位还没下载";
-  }
-
-  /** 下载选中的档位：起后台任务后按秒轮询进度。 */
-  async function downloadModel() {
-    const item = selectedPreset();
-    if (!item) return;
-    try {
-      await api.post(EP.prepare, { preset: item.value });
-    } catch (err) {
-      toast(`下载失败：${err.message}`, true);
-      el("modelHint").className = "hint-inline warn";
-      el("modelHint").textContent = err.message;
-      return;
-    }
-
-    el("btnModel").disabled = true;
-    const preset = item.value;
-    const tick = async () => {
-      let status = null;
-      try {
-        status = await api.get(EP.status);
-      } catch (err) {
-        el("modelHint").textContent = `读进度失败：${err.message}`;
-        return;
-      }
-      if (status.state === "downloading") {
-        const percent = Math.round((status.percent || 0) * 100);
-        el("btnModel").textContent = `下载中 ${percent}%`;
-        el("modelHint").className = "hint-inline";
-        el("modelHint").textContent = status.preset === preset ? "" : `正在下载 ${status.preset}`;
-        state.modelPoll = setTimeout(tick, 1200);
-        return;
-      }
-
-      el("btnModel").disabled = false;
-      if (status.state === "ready") {
-        toast(`档位 ${preset} 已就绪`);
-        await reloadConfig(preset);
-        return;
-      }
-      el("modelHint").className = "hint-inline warn";
-      el("modelHint").textContent = status.error || "下载失败";
-      el("btnModel").textContent = "重试";
-    };
-    state.modelPoll = setTimeout(tick, 600);
-  }
-
-  /** 下载完成后重读配置并把新档位选上、直接开跑。 */
-  async function reloadConfig(preset) {
-    try {
-      state.config = await api.get(EP.config);
-    } catch (err) {
-      toast(`重读配置失败：${err.message}`, true);
-      return;
-    }
-    renderPresets(state.config.presets, preset);
-    if (state.currentId) {
-      invalidateScores();
-      requestScore(state.currentId, true);
-    }
+    hint.className = "hint-inline warn";
+    hint.textContent = "还没有已安装的模型，先去「模型下载」页装一个";
   }
 
   function syncSliderLabels() {
@@ -694,4 +644,5 @@
   }
 
   boot();
-})();
+  },
+};

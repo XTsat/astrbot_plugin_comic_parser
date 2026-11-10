@@ -1,11 +1,11 @@
-"""打码实验台的业务逻辑：暂存上传的图，按页面传来的参数跑评分与打码。
+"""插件面板（漫画下载器面板）的业务逻辑：暂存上传的图，按页面传来的参数跑评分与打码。
 
 页面只关心两件事——「这张图现在几分」和「按这组参数糊完长什么样」，所以这里把链路做薄：
 图片进一个有上限的内存暂存表，评分与打码**复用 :mod:`core.nsfw` 的真实实现**（与封面交付
 完全同一套检测器与打码函数），推理丢线程里跑，不阻塞事件循环。
 
 页面侧的参数（模型档位、阈值、输入尺寸、样式、块大小、外扩、整张阈值）一律由请求携带：
-实验台存在的意义就是拿不同参数去试，所以不读也不写插件配置。
+「打码测试」页存在的意义就是拿不同参数去试，所以不读也不写插件配置。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,19 +38,19 @@ from ..domain.constants import (
     DEFAULT_NSFW_THRESHOLD,
     IMAGE_SUFFIXES,
     NSFW_IMGSZ_RANGE,
-    NSFW_LAB_IMGSZ_CHOICES,
-    NSFW_LAB_MAX_IMAGES,
-    NSFW_LAB_MAX_UPLOAD_BYTES,
+    PANEL_IMGSZ_CHOICES,
+    PANEL_MAX_IMAGES,
+    PANEL_MAX_UPLOAD_BYTES,
     NSFW_MODEL_PRESETS,
     PLUGIN_NAME,
 )
-from ..domain.errors import LabError
+from ..domain.errors import PanelError
 from .nsfw import Detector, ModelWeights, create_detector, censor_cover
 
 
 @dataclass(slots=True)
-class LabImage:
-    """一张上传到实验台的图：落成的临时文件 + 原始尺寸。"""
+class PanelImage:
+    """一张上传到面板的图：落成的临时文件 + 原始尺寸。"""
 
     id: str
     path: Path
@@ -61,12 +62,12 @@ class LabImage:
     censored_full: bool = False
 
 
-class NsfwLabService:
+class PanelService:
     """把插件的检测器与打码函数包成页面能用的四个动作。
 
     Args:
         models_dir: 权重目录（与封面打码共用，插件目录下的 ``models/``）。
-        temp_root: 插件的临时目录根，实验台自己在里面开一个子目录。
+        temp_root: 插件的临时目录根，面板自己在里面开一个子目录。
         preset: 默认档位，页面首次打开时的初始值。
         threshold: 默认置信度阈值，同上。
         imgsz: 默认推理输入尺寸，同上。
@@ -88,9 +89,11 @@ class NsfwLabService:
         auto_download: bool = True,
         download_url: str = "",
         proxy: str = "",
+        plugin_info: Mapping[str, str] | None = None,
+        channels_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._models_dir = Path(models_dir)
-        self._temp_dir = Path(temp_root) / "nsfw_lab"
+        self._temp_dir = Path(temp_root) / "panel"
         self._ensure_temp_dir()
         self._defaults = {
             "preset": preset,
@@ -105,6 +108,10 @@ class NsfwLabService:
         self._download_url = download_url or ""
         self._proxy = proxy or ""
         self._auto_download = auto_download
+        # 面板顶栏与「状态」页要显示的插件信息（名称、版本、数据目录）
+        self._plugin_info = dict(plugin_info or {})
+        # 渠道对象由上层注入：面板只管展示与「拉一张封面」，不自己搭渠道
+        self._channels_provider = channels_provider
         # 一次只允许一个下载：几十 MB 的文件并行下只会互相抢带宽
         self._prepare_task: asyncio.Task[None] | None = None
         self._prepare_state: dict[str, Any] = {
@@ -116,36 +123,70 @@ class NsfwLabService:
         # 同一个检测器会话不能并发跑：整段「改输入尺寸 + 推理」都在这把锁里
         self._infer_lock = threading.Lock()
         self._detectors: dict[str, Detector] = {}
-        self._images: OrderedDict[str, LabImage] = OrderedDict()
+        self._images: OrderedDict[str, PanelImage] = OrderedDict()
         self._images_lock = threading.Lock()
 
     # ---- 元信息 ----
 
     def presets(self) -> list[dict[str, Any]]:
-        """全部档位 + 是否已下载。
+        """全部档位 + 是否已安装。
 
-        页面要把「有 nano/small/int8 可以换」这件事摆出来，所以未下载的档位也要列，
-        只是标成 ``available: False``，由页面给一个下载入口。
+        「模型下载」页要把没装的档位也列出来（否则用户不知道有哪些可选），
+        而「打码测试」页的模型下拉只用其中的 ``installed == True`` 那些。
         """
         items: list[dict[str, Any]] = []
         for preset, spec in NSFW_MODEL_PRESETS.items():
             path = self._models_dir / spec.filename
+            installed = path.is_file()
             items.append(
                 {
                     "value": preset,
                     "label": spec.summary,
                     "file": spec.filename,
-                    "available": path.is_file(),
-                    "bytes": path.stat().st_size if path.is_file() else 0,
+                    "task": spec.task,
+                    "labels": list(spec.labels),
+                    "installed": installed,
+                    "available": installed,
+                    "bytes": path.stat().st_size if installed else 0,
                 }
             )
         return items
 
+    def channels(self) -> list[dict[str, Any]]:
+        """可用渠道清单：面板的「渠道测试」与测试页的「拉封面」都靠它。"""
+        if self._channels_provider is None:
+            return []
+        try:
+            channels = self._channels_provider()
+        except Exception as exc:  # 渠道构建失败不该把整个面板拖垮
+            logger.warning(f"[{PLUGIN_NAME}] 面板读渠道清单失败: {exc}")
+            return []
+
+        items: list[dict[str, Any]] = []
+        for name, channel in channels.items():
+            items.append(
+                {
+                    "name": name,
+                    "command": getattr(channel, "command", name),
+                    "display_command": getattr(channel, "display_command", name),
+                    "enabled": bool(getattr(channel, "enabled", False)),
+                    "supports_search": bool(getattr(channel, "supports_search", False)),
+                    "supports_cover": bool(getattr(channel, "supports_cover", False)),
+                }
+            )
+        items.sort(key=lambda item: (not item["enabled"], item["command"]))
+        return items
+
     def describe(self) -> dict[str, Any]:
-        """页面首屏需要的全部元信息：可用档位、默认值、样式清单、输入尺寸是否可调。"""
+        """页面首屏需要的全部元信息：档位、默认值、样式、运行时与渠道清单。"""
+        presets = self.presets()
         return {
+            "plugin": self._plugin_info,
+            "runtime": _runtime_info(),
+            "channels": self.channels(),
+            "installed": [item for item in presets if item["installed"]],
             "models_dir": str(self._models_dir),
-            "presets": self.presets(),
+            "presets": presets,
             "runtime_ready": _onnxruntime_ready(),
             "imgsz_fixed": self._fixed_input_size(),
             "auto_download": self._auto_download,
@@ -155,21 +196,21 @@ class NsfwLabService:
                 {"value": style, "label": COVER_CENSOR_STYLE_LABELS.get(style, style)}
                 for style in COVER_CENSOR_STYLES
             ],
-            "imgsz_choices": list(NSFW_LAB_IMGSZ_CHOICES),
+            "imgsz_choices": list(PANEL_IMGSZ_CHOICES),
             "imgsz_range": list(NSFW_IMGSZ_RANGE),
-            "max_upload_bytes": NSFW_LAB_MAX_UPLOAD_BYTES,
+            "max_upload_bytes": PANEL_MAX_UPLOAD_BYTES,
             "max_boxes": COVER_MAX_BOXES,
         }
 
     # ---- 图片暂存 ----
 
-    def add_image(self, raw: bytes, suffix: str) -> LabImage:
+    def add_image(self, raw: bytes, suffix: str) -> PanelImage:
         """把上传的字节落成临时文件并登记；超出上限时挤掉最早的一张。"""
         if not raw:
-            raise LabError("没有收到图片内容")
-        if len(raw) > NSFW_LAB_MAX_UPLOAD_BYTES:
-            raise LabError(
-                f"图片超过 {NSFW_LAB_MAX_UPLOAD_BYTES // 1024 // 1024}MB 上限，换个小的试"
+            raise PanelError("没有收到图片内容")
+        if len(raw) > PANEL_MAX_UPLOAD_BYTES:
+            raise PanelError(
+                f"图片超过 {PANEL_MAX_UPLOAD_BYTES // 1024 // 1024}MB 上限，换个小的试"
             )
 
         try:
@@ -177,28 +218,28 @@ class NsfwLabService:
                 width, height = probe.size
                 probe.verify()
         except Exception as exc:  # PIL 对损坏文件抛的异常类型很杂
-            raise LabError(f"不是能识别的图片：{exc}") from exc
+            raise PanelError(f"不是能识别的图片：{exc}") from exc
 
         suffix = suffix if suffix in IMAGE_SUFFIXES else ".jpg"
         image_id = uuid.uuid4().hex
         path = self._ensure_temp_dir() / f"{image_id}{suffix}"
         path.write_bytes(raw)
 
-        item = LabImage(
+        item = PanelImage(
             id=image_id, path=path, width=width, height=height, size=len(raw)
         )
         with self._images_lock:
             self._images[image_id] = item
-            while len(self._images) > NSFW_LAB_MAX_IMAGES:
+            while len(self._images) > PANEL_MAX_IMAGES:
                 _, dropped = self._images.popitem(last=False)
                 self._remove_files(dropped)
         return item
 
-    def get_image(self, image_id: str) -> LabImage:
+    def get_image(self, image_id: str) -> PanelImage:
         with self._images_lock:
             item = self._images.get(image_id)
         if item is None:
-            raise LabError("这张图已经过期（插件重载或缓存被挤掉了），请重新上传")
+            raise PanelError("这张图已经过期（插件重载或缓存被挤掉了），请重新上传")
         return item
 
     def download_path(self, image_id: str) -> tuple[Path, str]:
@@ -237,14 +278,14 @@ class NsfwLabService:
             return dict(self._prepare_state)
 
         if not self._auto_download:
-            raise LabError(
+            raise PanelError(
                 "插件设置里关掉了「缺失时自动下载权重」；去「封面与模型 → 模型与检测」打开它，"
                 "或手动把 .onnx 放进插件目录的 models/"
             )
 
         if self._prepare_task is not None and not self._prepare_task.done():
             busy = self._prepare_state.get("preset") or "其它档位"
-            raise LabError(f"正在下载 {busy}，等它下完再换档位")
+            raise PanelError(f"正在下载 {busy}，等它下完再换档位")
 
         self._prepare_state = _prepare_snapshot("downloading", preset, 0.0, "")
         self._prepare_task = asyncio.create_task(self._download_model(preset))
@@ -318,7 +359,7 @@ class NsfwLabService:
         elapsed_ms = (time.perf_counter() - started) * 1000
 
         if score.failed:
-            raise LabError(
+            raise PanelError(
                 "检测没跑起来：缺 onnxruntime 或权重读不出来，看插件日志；"
                 "页面仍可以先试打码样式"
             )
@@ -359,7 +400,7 @@ class NsfwLabService:
         """权重写死的输入边长；取不到（没权重/没依赖）时返回 None，页面就退回可调下拉。"""
         try:
             detector = self._detector(preset or self._defaults["preset"])
-        except LabError:
+        except PanelError:
             return None
         with self._infer_lock:
             return detector.input_size
@@ -373,7 +414,7 @@ class NsfwLabService:
         # 必须严格按档位取：local_model() 会拿别的档位顶替，页面上的「档位」就成了摆设
         model_path = weights.model_for_preset()
         if model_path is None:
-            raise LabError(
+            raise PanelError(
                 f"模型目录里没有 {preset} 的权重；在插件设置里打开「给封面打码」让它自动下载，"
                 "或把 .onnx 放进插件的 models/ 目录后重载插件"
             )
@@ -382,7 +423,7 @@ class NsfwLabService:
             weights, threshold=DEFAULT_NSFW_THRESHOLD, imgsz=DEFAULT_NSFW_IMGSZ
         )
         self._detectors[preset] = detector
-        logger.info(f"[{PLUGIN_NAME}] 打码实验台加载权重：{model_path.name}")
+        logger.info(f"[{PLUGIN_NAME}] 面板测试页加载权重：{model_path.name}")
         return detector
 
     # ---- 打码 ----
@@ -487,7 +528,7 @@ class NsfwLabService:
         self._temp_dir.mkdir(parents=True, exist_ok=True)
         return self._temp_dir
 
-    def _drop_other_censored(self, item: LabImage, *, keep: Path | None) -> None:
+    def _drop_other_censored(self, item: PanelImage, *, keep: Path | None) -> None:
         """同一张图只留最新一份打码结果，旧的删掉。"""
         for stale in self._temp_dir.glob(f"{item.id}_censored.*"):
             if keep is not None and stale == keep:
@@ -495,7 +536,7 @@ class NsfwLabService:
             stale.unlink(missing_ok=True)
 
     @staticmethod
-    def _remove_files(item: LabImage) -> None:
+    def _remove_files(item: PanelImage) -> None:
         for path in (item.path, item.censored_path):
             if path is not None:
                 path.unlink(missing_ok=True)
@@ -528,6 +569,24 @@ def _data_url(path: Path) -> str:
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
 
 
+def _runtime_info() -> dict[str, Any]:
+    """检测运行时的可用性与版本：顶栏徽章与「状态」页共用。"""
+    ok = _onnxruntime_ready()
+    version = ""
+    error = ""
+    if ok:
+        try:
+            import onnxruntime
+
+            version = str(getattr(onnxruntime, "__version__", ""))
+        except Exception as exc:  # 装上了但导入失败（缺系统库等）
+            ok = False
+            error = f"onnxruntime 导入失败：{exc}"
+    else:
+        error = "未安装 onnxruntime（开启打码后插件会自动补装）"
+    return {"ready": ok, "version": version, "error": error}
+
+
 def _onnxruntime_ready() -> bool:
     try:
         import importlib.util
@@ -537,4 +596,4 @@ def _onnxruntime_ready() -> bool:
         return False
 
 
-__all__ = ["LabImage", "NsfwLabService"]
+__all__ = ["PanelImage", "PanelService"]

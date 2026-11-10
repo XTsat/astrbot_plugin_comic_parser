@@ -259,3 +259,80 @@
     overflow-wrap: anywhere;
   }
   #toast div.err { border-color: var(--bad-line); color: var(--bad-text); }
+
+/* ---- 面板外壳：标签页与页容器 ---- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tabs button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 10px 14px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.pane { padding: 0; }
+.pane .params { border-bottom: 1px solid var(--line); }
+.field input[type="text"] {
+  min-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+select.narrow { max-width: 160px; }
+
+/* ---- 通用表格与卡片（模型下载 / 渠道 / 状态 / 设置共用） ---- */
+.pane-grid { display: grid; gap: 14px; padding: 16px; }
+.wrap { max-width: 1180px; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th, .data-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.data-table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.data-table tr:last-child td { border-bottom: 0; }
+.data-table td.mono, .data-table .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  margin-right: 4px;
+}
+.tag.ok { color: var(--ok); border-color: var(--ok-line); }
+.tag.warn { color: var(--warn); border-color: var(--warn-line); }
+.tag.bad { color: var(--bad); border-color: var(--bad-line); }
+.progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.progress > i { display: block; height: 100%; background: var(--accent); width: 0; }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.muted-line { color: var(--muted); font-size: 12px; }

@@ -322,6 +322,19 @@ class BaseChannel(ABC):
 
     # ---- 搜索：可选能力，默认不支持 ----
     @property
+    def supports_cover(self) -> bool:
+        """能不能只取一张封面（不下载整本）。面板的「从渠道拉封面」按它决定是否可选。"""
+        return type(self).fetch_cover is not BaseChannel.fetch_cover
+
+    async def fetch_cover(self, comic_id: str) -> bytes | None:
+        """只取封面图；默认不支持，渠道各自覆盖。
+
+        返回原始图片字节（jpg/png/webp 都行），取不到返回 ``None``。面板会把它存进临时表
+        直接拿去评分/打码，因此这里**不做任何落盘**。
+        """
+        return None
+
+    @property
     def supports_search(self) -> bool:
         """是否实现了搜索。
 

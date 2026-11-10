@@ -65,5 +65,5 @@ class CoverCensorError(PluginError):
     """
 
 
-class LabError(PluginError):
-    """打码实验台没法继续：message 是直接显示在页面上的中文文案。"""
+class PanelError(PluginError):
+    """插件面板没法继续：message 是直接显示在页面上的中文文案。"""
