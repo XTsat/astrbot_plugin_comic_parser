@@ -33,6 +33,16 @@ else:
 # 图床返回这几种状态说明请求被风控挡下，而不是「这张图不存在」
 _CHALLENGE_STATUS = frozenset({403, 429, 503})
 
+# 已知图片文件头：图床偶尔以 200 回挑战页/HTML，原样交给面板只会显示一张裂图
+_IMAGE_SIGNATURES: tuple[bytes, ...] = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF8")
+
+
+def _looks_like_image(payload: bytes) -> bool:
+    return payload.startswith(_IMAGE_SIGNATURES) or (
+        payload[:4] == b"RIFF" and payload[8:12] == b"WEBP"
+    )
+
+
 ImageProgressCallback = ProgressCallback
 
 
@@ -43,6 +53,50 @@ class DownloadStats:
     total: int = 0
     success: int = 0
     failed: int = 0
+
+
+async def fetch_image_bytes(
+    url: str,
+    *,
+    scraper: PageScraper,
+    headers: dict[str, str],
+    proxy: str = "",
+    timeout: int = 30,
+) -> bytes | None:
+    """只取一张图的原始字节（不落盘、不建目录、不重试）。
+
+    面板的「从渠道拉封面」只要一张图：走 `ImageDownloader` 会建目录、按页序命名、查断点、
+    再摊一张失败重试预算到整本上，代价远大于一次 GET；这里连会话都只开一次用完即关。
+    图床回风控状态时按下载器的同一套兜底改走抓页器（浏览器指纹）再取一次。
+    """
+    if aiohttp is None:
+        return None
+
+    status = 0
+    try:
+        async with aiohttp.ClientSession(headers=headers, trust_env=False) as client:
+            async with client.get(
+                url, timeout=max(1, timeout), proxy=proxy or None
+            ) as response:
+                status = response.status
+                if status == 200:
+                    return _verified(await response.read())
+    except (asyncio.TimeoutError, OSError, aiohttp.ClientError):
+        return None
+
+    if status not in _CHALLENGE_STATUS:
+        return None
+    try:
+        return _verified(await asyncio.to_thread(scraper.fetch_bytes, url))
+    except ChannelError:
+        return None
+
+
+def _verified(payload: bytes | None) -> bytes | None:
+    """只把真正的图片交出去：取不到或不是图片都当失败，由调用方记一条 warning。"""
+    if not payload or not _looks_like_image(payload):
+        return None
+    return payload
 
 
 class ImageDownloader:

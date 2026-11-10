@@ -54,6 +54,16 @@ from .speed import build_probe
 _ALBUM_IN_TEXT = re.compile(r"/(?:album|photo)/(\d+)")
 _FIRST_DIGITS = re.compile(r"\d+")
 
+# 已知图片文件头：图床偶尔以 200 回错误页/HTML，原样交给面板只会显示一张裂图
+_IMAGE_SIGNATURES: tuple[bytes, ...] = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF8")
+
+
+def _looks_like_image(payload: bytes) -> bool:
+    return payload.startswith(_IMAGE_SIGNATURES) or (
+        payload[:4] == b"RIFF" and payload[8:12] == b"WEBP"
+    )
+
+
 # jmcomic 的 search_* 方法按 main_tag 区分搜索域：0 综合 / 1 作品 / 2 作者 / 3 标签 / 4 角色
 _NATIVE_SEARCH_METHODS = {
     "tag": "search_tag",
@@ -245,6 +255,64 @@ class JMComicChannel(BaseChannel):
                 )
         finally:
             unregister_session(session)
+
+    # ---- 封面 ----
+    async def fetch_cover(self, comic_id: str) -> bytes | None:
+        """只取相册封面图，供面板的「从渠道拉封面」用。
+
+        JM 的封面是独立的一张图（`/media/albums/<aid>.jpg`，不加密、不参与页序），jmcomic
+        自带 `JmcomicText.get_album_cover_url` 按它自己的图床域名拼地址。所以这条路径既不用
+        取相册详情、也不碰下载器：单发一次 GET 就够，不落盘、不重试整本。
+        """
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：jmcomic 未安装"
+            )
+            return None
+
+        try:
+            url = jmcomic.JmcomicText.get_album_cover_url(
+                jmcomic.JmcomicText.parse_to_jm_id(comic_id)
+            )
+            payload = await self._fetch_image_bytes(jmcomic, url)
+        except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，封面失败不能打挂面板
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：{exc}"
+            )
+            return None
+        if not payload:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}："
+                "图片节点没有返回可用图片（可能风控、本子已下架或图床域名失效）"
+            )
+            return None
+        return payload
+
+    async def _fetch_image_bytes(self, jmcomic: Any, url: str) -> bytes | None:
+        """GET 一张图的原始字节：请求头直接用 jmcomic 的图片模板，与它下载时保持一致。"""
+        try:
+            import aiohttp
+        except ImportError:  # 缺 aiohttp 时交给依赖检查报错，封面直接算取不到
+            return None
+        headers: dict[str, str] = dict(jmcomic.JmModuleConfig.APP_HEADERS_TEMPLATE)
+        headers.update(jmcomic.JmModuleConfig.APP_HEADERS_IMAGE)
+        proxy = self.resolve_proxy(default_enabled=False)[0]
+        try:
+            async with aiohttp.ClientSession(headers=headers, trust_env=False) as client:
+                async with client.get(
+                    url,
+                    proxy=proxy or None,
+                    timeout=self.opt_int(
+                        "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
+                    ),
+                ) as response:
+                    if response.status != 200:
+                        return None
+                    payload = await response.read()
+        except (asyncio.TimeoutError, OSError, aiohttp.ClientError):
+            return None
+        return payload if _looks_like_image(payload) else None
 
     # ---- 搜索 ----
     async def search(

@@ -63,6 +63,7 @@ from .site import (
     parse_gallery_images,
     parse_search_results,
     search_path,
+    sniff_image_suffix,
 )
 
 
@@ -203,6 +204,44 @@ class WnacgChannel(BaseChannel):
             image_count=totals.success,
             failed_images=totals.failed,
         )
+
+    # ---- 封面 ----
+    async def fetch_cover(self, comic_id: str) -> bytes | None:
+        """只取第 1 个相册的第 1 张图，供面板的「从渠道拉封面」用。
+
+        详情页本身没有图址，图址在 `-gallery-` 页里，所以这里多抓一次图址页：合辑取第 1 章
+        （整本的第 1 张就落在那章里）。图片走 `WnacgSite.fetch_bytes`，与下载器的风控兜底同路。
+        """
+        try:
+            async with self._site() as site:
+                album = await self._load_album(site, comic_id)
+                gallery_id = album.chapter_ids[0][0] if album.chapter_ids else comic_id
+                document = await site.fetch_page(gallery_path(gallery_id))
+                urls = parse_gallery_images(document)
+                if not urls:
+                    raise ChannelError(
+                        "图址页里没有解析到图片地址，可能是内容需要登录或站点结构已变化"
+                    )
+                payload = await site.fetch_bytes(urls[0])
+        except ChannelError as exc:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：{exc}"
+            )
+            return None
+        if not payload:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}："
+                "图床没有返回图片（可能风控或图址签名已过期）"
+            )
+            return None
+        if sniff_image_suffix(payload) is None:
+            # 200 但不是图片：多半是风控页/错误页，面板拿去当封面只会显示一个裂图
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}："
+                f"图床返回的不是图片（{len(payload)} 字节）"
+            )
+            return None
+        return payload
 
     # ---- 搜索 ----
     async def search(

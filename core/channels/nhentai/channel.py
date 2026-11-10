@@ -40,7 +40,7 @@ from .constants import (
     DEFAULT_SITE_DOMAINS,
     USER_AGENT,
 )
-from .downloader import ImageDownloader
+from .downloader import ImageDownloader, fetch_image_bytes
 from .progress import (
     DownloadSession,
     cancel_active_downloads,
@@ -188,6 +188,43 @@ class NhentaiChannel(BaseChannel):
     def cancel_downloads(self) -> list[str]:
         """插件卸载时调用：让进行中的下载尽快收工并返回其状态（供上层写日志）。"""
         return cancel_active_downloads()
+
+    # ---- 封面 ----
+    async def fetch_cover(self, comic_id: str) -> bytes | None:
+        """只取第 1 张图（整本的第 1 张就是封面），供面板的「从渠道拉封面」用。
+
+        元信息照旧走 `_load_gallery`（API → 页面兜底），图床照旧走 `_image_base`（多镜像
+        测速），只是把「整本地址」截到第 1 张、由 `fetch_image_bytes` 单发一次 GET。
+        """
+        try:
+            parsed = await self._load_gallery(comic_id)
+            image_base = await self._image_base(parsed)
+            urls = build_image_urls(image_base, parsed.page_paths[:1])
+            if not urls:
+                raise ChannelError("没有解析到任何图片地址，站点结构可能已变化")
+            site = (await self._site_domains())[0]
+            headers = self._image_headers(site)
+            # 单发 GET 没有会话级 UA，这里补上：图床按 UA + Referer 判来源
+            headers["User-Agent"] = USER_AGENT
+            payload = await fetch_image_bytes(
+                urls[0],
+                scraper=self._scraper(),
+                headers=headers,
+                proxy=self._proxy(),
+                timeout=self.opt_int(
+                    "request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1
+                ),
+            )
+        except ChannelError as exc:
+            logger.warning(f"[{PLUGIN_NAME}] ⚠️ nhentai 取封面失败 {comic_id}：{exc}")
+            return None
+        if not payload:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ nhentai 取封面失败 {comic_id}：图床没有返回图片"
+                "（可能是风控或图片地址已失效）"
+            )
+            return None
+        return payload
 
     # ---- 搜索 ----
     async def search(
@@ -349,15 +386,18 @@ class NhentaiChannel(BaseChannel):
             )
         return self._scraper_instance
 
+    def _image_headers(self, site: str) -> dict[str, str]:
+        """图床请求头：部分节点缺 Referer 会直接回 403，所以下载与取封面共用一份。"""
+        return {
+            "Referer": f"https://{site}/",
+            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+
     def _build_downloader(self, site: str) -> ImageDownloader:
         return ImageDownloader(
             scraper=self._scraper(),
-            headers={
-                # 图床校验来源与 UA：缺了 Referer 部分节点会直接回 403
-                "Referer": f"https://{site}/",
-                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            },
+            headers=self._image_headers(site),
             proxy=self._proxy(),
             timeout=self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1),
             max_concurrent=self.opt_int(

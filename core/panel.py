@@ -42,6 +42,7 @@ from ..domain.constants import (
     NSFW_IMGSZ_RANGE,
     PANEL_IMGSZ_CHOICES,
     PANEL_MAX_IMAGES,
+    PANEL_CHANNEL_TIMEOUT,
     PANEL_MAX_UPLOAD_BYTES,
     PANEL_SETTINGS_SKIP_GROUPS,
     NSFW_MODEL_PRESETS,
@@ -391,9 +392,16 @@ class PanelService:
         work_dir = self._ensure_temp_dir() / "channel" / uuid.uuid4().hex
         try:
             work_dir.mkdir(parents=True, exist_ok=True)
-            meta = await channel.fetch_meta(comic_id, work_dir)
+            meta = await asyncio.wait_for(
+                channel.fetch_meta(comic_id, work_dir), timeout=PANEL_CHANNEL_TIMEOUT
+            )
         except PanelError:
             raise
+        except asyncio.TimeoutError as exc:
+            raise PanelError(
+                f"{channel.display_command} 取元信息超过 {PANEL_CHANNEL_TIMEOUT:.0f} 秒没响应，"
+                "可能站点被墙或需要代理；可以先去渠道配置里开代理再试"
+            ) from exc
         except Exception as exc:  # 各渠道抛的异常类型不统一，这里统一变成页面文案
             logger.warning(f"[{PLUGIN_NAME}] 面板取元信息失败 {channel.command}/{comic_id}: {exc}")
             raise PanelError(f"{channel.display_command} 取元信息失败：{exc}") from exc
@@ -420,15 +428,23 @@ class PanelService:
             return payload
 
         try:
-            raw_cover = await channel.fetch_cover(comic_id)
+            raw_cover = await asyncio.wait_for(
+                channel.fetch_cover(comic_id), timeout=PANEL_CHANNEL_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[{PLUGIN_NAME}] 面板取封面超时 {channel.command}/{comic_id}"
+                f"（{PANEL_CHANNEL_TIMEOUT:.0f}s）"
+            )
+            raw_cover = None
         except Exception as exc:
             logger.warning(f"[{PLUGIN_NAME}] 面板取封面失败 {channel.command}/{comic_id}: {exc}")
             raw_cover = None
 
         if not raw_cover:
             payload["cover_error"] = (
-                f"没取到 {channel.display_command} 的封面：可能被站点风控、站点结构有变或网络不通，"
-                "详情看插件日志；可以直接上传图片试"
+                f"没取到 {channel.display_command} 的封面：可能被站点风控、站点结构有变或网络不通"
+                f"（面板最多等 {PANEL_CHANNEL_TIMEOUT:.0f} 秒）；详情看插件日志，也可以直接上传图片试"
             )
             return payload
 

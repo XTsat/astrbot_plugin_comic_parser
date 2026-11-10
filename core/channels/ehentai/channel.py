@@ -221,6 +221,72 @@ class EHentaiChannel(BaseChannel):
                 client, comic_id, gid, token, meta, work_dir, on_progress, cancel
             )
 
+    # ---- 封面 ----
+    async def fetch_cover(self, comic_id: str) -> bytes | None:
+        """只取作品第 1 页的图，供面板的「从渠道拉封面」用。
+
+        只开作品页第 0 页就够（不走 `_load_pages`：那条路会翻完整本并写断点缓存），再按下载时
+        同一套「原图优先、失败回退 1280px」的规则取这一张的字节。
+        """
+        gid, token = _split_comic_id(comic_id)
+        proxy, source = self.resolve_proxy()
+        try:
+            async with self._client(proxy, source) as client:
+                downloader = EHentaiDownloader(
+                    client,
+                    interval=self._request_interval(),
+                    retry_times=self.opt_int(
+                        "retry_times", DEFAULT_IMAGE_RETRY_TIMES, minimum=0
+                    ),
+                    concurrency=1,
+                    include_original=self.opt_bool("download_original", True)
+                    and client.logged_in,
+                )
+                host, page_url = await self._first_page_url(downloader, gid, token)
+                links = await downloader.image_links(page_url, host)
+                payload: bytes | None = None
+                if downloader.include_original and links.original:
+                    try:
+                        payload, _suffix = await downloader.image(links.original)
+                    except EHLoginRequired as exc:
+                        # Cookie 没生效时原图会撞登录墙，与下载链路一样降级到重采样图
+                        logger.info(
+                            f"[{PLUGIN_NAME}] E-Hentai {comic_id} 封面原图需要登录，"
+                            f"改取 1280px 重采样：{exc}"
+                        )
+                if payload is None:
+                    payload, _suffix = await downloader.image(links.resample)
+        except ChannelError as exc:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 E-Hentai {comic_id}：{exc}"
+            )
+            return None
+        return payload
+
+    async def _first_page_url(
+        self, downloader: EHentaiDownloader, gid: str, token: str
+    ) -> tuple[str, str]:
+        """按站点域名清单打开作品页第 0 页，返回（站点域名，第 1 张图的图片页地址）。"""
+        hosts = await self._site_domains()
+        last_error: ChannelError | None = None
+        for host in hosts:
+            try:
+                pages = await downloader.gallery_page(
+                    gallery_url(host, gid, token, 0), host
+                )
+            except (EHQuotaExceeded, EHBanned):
+                raise
+            except ChannelError as exc:
+                last_error = exc
+                logger.warning(
+                    f"[{PLUGIN_NAME}] E-Hentai 封面取作品页失败，换下一个域名：{exc}"
+                )
+                continue
+            if pages:
+                return host, pages[0]
+        detail = f"：{last_error}" if last_error is not None else ""
+        raise ChannelError(f"作品页里没有解析到缩略图（可能已删除或需要登录）{detail}")
+
     # ---- 搜索 ----
     async def search(
         self, query: SearchQuery, limit: int = 5, page: int = 1

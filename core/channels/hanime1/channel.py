@@ -46,6 +46,7 @@ from .constants import (
     DEFAULT_IMAGE_RETRY_TIMES,
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_SITE_DOMAINS,
+    MIN_IMAGE_BYTES,
     PATH_DETAIL,
     PATH_READER,
 )
@@ -405,6 +406,62 @@ class Hanime1Channel(BaseChannel):
                 self._scraper_instance = scraper
             return scraper
         return self._scraper_instance
+
+    # ---- 封面 ----
+    async def fetch_cover(self, comic_id: str) -> bytes | None:
+        """只取阅读页第 1 页的原图，供面板的「从渠道拉封面」用。
+
+        和下载走同一条取址链路（详情页 → 阅读页第 1 页 → 图床择优），但只 GET 这一张、不落盘：
+        阅读页是 media_id 与每页扩展名的权威来源，绕开它就等于猜图片地址。
+        """
+        try:
+            parsed = await self._load_detail(comic_id)
+            parsed = await self._load_reader(parsed)
+            suffix = parsed.extensions[0] if parsed.extensions else ".jpg"
+            image_base = await self._resolve_image_base(parsed)
+            url = build_image_urls(image_base, parsed.media_id, [suffix])[0]
+            payload = await self._fetch_cover_bytes(url)
+        except ChannelError as exc:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：{exc}"
+            )
+            return None
+        if not payload:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}："
+                "图床没有返回可用图片（可能风控、防盗链或图片地址已失效）"
+            )
+            return None
+        return payload
+
+    async def _fetch_cover_bytes(self, url: str) -> bytes | None:
+        """GET 一张图的原始字节；只给「只要一张」的封面路径用，不进下载器（不落盘、不重试）。"""
+        try:
+            import aiohttp
+        except ImportError:  # 缺 aiohttp 时交给依赖检查报错，封面直接算取不到
+            return None
+        timeout = self.opt_int("request_timeout", DEFAULT_REQUEST_TIMEOUT, minimum=1)
+        proxy = self._proxy()
+        try:
+            async with aiohttp.ClientSession(
+                headers={
+                    # 图床校验来源与 UA：缺了 Referer 部分节点会直接回 403
+                    "User-Agent": DEFAULT_USER_AGENT,
+                    "Referer": "https://hanime1.me/",
+                },
+                # 代理只从配置来：开关关掉时是真直连，不受容器环境变量影响
+                trust_env=False,
+            ) as client:
+                async with client.get(
+                    url, proxy=proxy or None, timeout=timeout
+                ) as response:
+                    if response.status != 200:
+                        return None
+                    payload = await response.read()
+        except (asyncio.TimeoutError, OSError, aiohttp.ClientError):
+            return None
+        # 小于这个体积的多半是防盗链的 HTML 错误页，当图片返回会让面板显示裂图
+        return payload if len(payload) >= MIN_IMAGE_BYTES else None
 
     # ---- 搜索 ----
     async def search(

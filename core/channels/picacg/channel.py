@@ -200,6 +200,51 @@ class PicacgChannel(BaseChannel):
             note=fallback_note(query),
         )
 
+    # ---- 封面 ----
+    async def fetch_cover(self, comic_id: str) -> bytes | None:
+        """只取封面图，供面板的「从渠道拉封面」用。
+
+        优先用详情里的 `thumb`（一页就够）；缺失时才退回「第 1 章第 1 张图」。哔咔没有匿名
+        访问，所以这条路径同样要登录，取图走 `PicaClient.fetch_image_bytes`（共用代理、证书
+        放行与防盗链头），不落盘。
+        """
+        try:
+            async with self._session() as client:
+                comic = await client.fetch_comic(comic_id)
+                url = _cover_url(comic.get("thumb"))
+                if not url:
+                    url = await self._first_page_image(client, comic_id)
+                if not url:
+                    raise ChannelError(
+                        "详情与章节里都没有图片地址，可能这本漫画需要付费解锁或已下架"
+                    )
+                payload = await client.fetch_image_bytes(url)
+        except ChannelError as exc:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：{exc}"
+            )
+            return None
+        if not payload:
+            logger.warning(
+                f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}："
+                "图片节点没有返回可用图片（可能风控、证书或地址已失效）"
+            )
+            return None
+        return payload
+
+    async def _first_page_image(self, client: PicaClient, comic_id: str) -> str:
+        """详情没有封面时退回第 1 章的第 1 张图：章节已按 order 排好，取第一个即可。"""
+        episodes = await client.fetch_episodes(comic_id)
+        if not episodes:
+            return ""
+        order = _as_int(episodes[0].get("order"), 1)
+        pages = await client.fetch_pages(comic_id, order)
+        for page in pages:
+            url = image_url(page.get("media") or {})
+            if url:
+                return url
+        return ""
+
     def _meta(self, comic_id: str, comic: Mapping[str, Any]) -> ComicMeta:
         creator = comic.get("_creator") or {}
         author = str(comic.get("author") or creator.get("name") or "")

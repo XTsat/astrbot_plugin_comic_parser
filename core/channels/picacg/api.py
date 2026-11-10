@@ -307,6 +307,24 @@ class PicaClient:
 
     async def download_image(self, url: str, dest: Path) -> int:
         """下载单张图片到 dest，返回落盘字节数；失败抛 ChannelError。"""
+        content = await self._image_content(url)
+        await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(dest.write_bytes, content)
+        return len(content)
+
+    async def fetch_image_bytes(self, url: str) -> bytes | None:
+        """取一张图的原始字节（不落盘）；失败返回 None。
+
+        面板的「从渠道拉封面」只要一张图：`download_image` 那条路会建目录、写文件，
+        封面不该在磁盘上留任何东西，所以把「取字节」这一段单独放出来共用。
+        """
+        try:
+            return await self._image_content(url)
+        except ChannelError:
+            return None
+
+    async def _image_content(self, url: str) -> bytes:
+        """GET 图片字节：沿用哔咔图片节点的「降级 HTTP + 防盗链头 + 重试」规则。"""
         httpx = http_module()
         # 部分文件节点没有可用的 HTTPS 证书，降级到 HTTP 反而更稳
         target = url.replace("https://", "http://", 1) if url.startswith("https://") else url
@@ -326,9 +344,7 @@ class PicaClient:
                 continue
             content = response.content
             if response.status_code == 200 and len(content) >= MIN_IMAGE_BYTES:
-                await asyncio.to_thread(dest.parent.mkdir, parents=True, exist_ok=True)
-                await asyncio.to_thread(dest.write_bytes, content)
-                return len(content)
+                return content
             last_error = f"HTTP {response.status_code} / {len(content)} 字节"
         raise ChannelError(f"图片下载失败：{last_error} · {url}")
 
