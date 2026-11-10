@@ -8,6 +8,7 @@
 </head>
 <body>
   <header class="header">
+    <div class="header-inner">
     <div class="topbar">
       <h1 id="panelTitle">漫画下载器面板</h1>
       <span class="badge" id="rtBadge">检查中…</span>
@@ -15,6 +16,7 @@
       <span class="badge" id="pluginBadge"></span>
     </div>
     <nav class="tabs" id="tabs"></nav>
+    </div>
   </header>
 
   <main id="panes">
@@ -48,7 +50,7 @@
               <span class="field-label">从渠道拉封面</span>
             </div>
             <div class="import-row">
-              <select id="coverChannel" class="narrow"></select>
+              <select id="coverChannel"></select>
               <input type="text" id="coverText" placeholder="作品 ID 或链接" />
               <button id="btnCover">拉取</button>
             </div>

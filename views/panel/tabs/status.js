@@ -43,25 +43,21 @@ export default {
         <div class="card">
           <div class="card-head"><h2>渠道</h2></div>
           <p class="legend">「取封面」决定这个渠道能不能在面板里做封面预览（只取元信息、不下一整本）。</p>
-          <div class="channel-split">
-            <div class="channel-test">
-              <div class="field">
-                <label for="cChannel">渠道</label>
-                <select id="cChannel"></select>
-              </div>
-              <div class="field">
-                <label for="cText">作品 ID / 链接</label>
-                <input type="text" id="cText" placeholder="例如 1047667 或 https://…/g/1047667" />
-              </div>
-              <div class="row-actions">
-                <button id="cFetch" class="primary">测试</button>
-                <span id="cState" class="badge"></span>
-              </div>
-              <div id="cResult" hidden></div>
+          <div class="bar">
+            <div class="field">
+              <label for="cChannel">渠道</label>
+              <select id="cChannel"></select>
             </div>
-            <div class="table-scroll">
-              <table class="data-table" id="sChannels"></table>
+            <div class="field grow">
+              <label for="cText">作品 ID / 链接</label>
+              <input type="text" id="cText" placeholder="ID 或作品链接" />
             </div>
+            <button id="cFetch" class="primary">测试</button>
+            <span id="cState" class="badge"></span>
+          </div>
+          <div id="cResult" hidden></div>
+          <div class="table-scroll" style="margin-top: var(--sp-3)">
+            <table class="data-table" id="sChannels"></table>
           </div>
         </div>
 

@@ -24,10 +24,36 @@ export default {
             <button id="cfgSave" class="primary">保存</button>
           </div>
         </div>
-        <div id="cfgGroups" class="stack"></div>
+        <div class="settings-split">
+          <nav class="side-nav" id="cfgNav"></nav>
+          <div id="cfgGroups" class="stack"></div>
+        </div>
       </div>`;
 
     const container = root.querySelector("#cfgGroups");
+    const nav = root.querySelector("#cfgNav");
+
+    /** 左栏分组导航：每组一个按钮，右侧带条目数。切组只切显示，不动已填的值。 */
+    function renderNav(groups) {
+      nav.innerHTML = groups
+        .map(
+          (group) =>
+            `<button type="button" data-group="${escapeHtml(group.key)}">
+               <span>${escapeHtml(group.label)}</span>
+               <span class="count">${group.items.length} 项</span>
+             </button>`,
+        )
+        .join("");
+    }
+
+    function selectGroup(key) {
+      for (const button of nav.querySelectorAll("button")) {
+        button.classList.toggle("on", button.dataset.group === key);
+      }
+      for (const card of container.querySelectorAll("[data-group]")) {
+        card.hidden = card.dataset.group !== key;
+      }
+    }
 
     function control(item) {
       const id = `f_${item.key.replace(/\./g, "_")}`;
@@ -68,6 +94,7 @@ export default {
         container.innerHTML = `<div class="card"><div class="hint">没有读到配置项</div></div>`;
         return;
       }
+      renderNav(state.groups);
       container.innerHTML = state.groups
         .map((group) => {
           let lastParent = "";
@@ -86,12 +113,12 @@ export default {
                   <b>${escapeHtml(item.label)}</b>
                   <span class="key">${escapeHtml(item.key)}</span>
                 </div>
-                <div class="control${item.type === "list" ? " span" : ""}">${control(item)}</div>
+                <div class="control">${control(item)}</div>
                 <div class="help">${item.hint ? escapeHtml(item.hint) : ""}</div>
               </div>`;
             })
             .join("");
-          return `<div class="card">
+          return `<div class="card" data-group="${escapeHtml(group.key)}" hidden>
             <div class="card-head"><h2>${escapeHtml(group.label)}</h2></div>
             ${group.hint ? `<p class="legend">${escapeHtml(group.hint)}</p>` : ""}
             <div class="form-rows">${rows}</div>
@@ -102,7 +129,7 @@ export default {
       if (state.skipped.length) {
         container.insertAdjacentHTML(
           "beforeend",
-          `<div class="card"><div class="card-head"><h2>没放进本页的配置</h2></div>${state.skipped
+          `<div class="card" data-group="__skipped" hidden><div class="card-head"><h2>没放进本页的配置</h2></div>${state.skipped
             .map(
               (item) =>
                 `<div class="muted-line">${escapeHtml(item.key)}：${escapeHtml(item.reason)}</div>`,
@@ -110,6 +137,9 @@ export default {
             .join("")}</div>`,
         );
       }
+
+      const first = state.groups[0];
+      selectGroup(first ? first.key : "__skipped");
     }
 
     function collect() {
@@ -186,6 +216,11 @@ export default {
         el("cfgSave").disabled = !state.writable;
       }
     }
+
+    nav.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-group]");
+      if (button) selectGroup(button.dataset.group);
+    });
 
     container.addEventListener("input", syncDirty);
     container.addEventListener("change", syncDirty);

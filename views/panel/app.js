@@ -109,6 +109,8 @@ ctx.describe = async () => {
 const mounted = new Set();
 
 function selectTab(tabId) {
+  // 顶栏要不要跟着内容一起封顶，取决于当前是不是全宽的工作台页
+  document.body.dataset.tab = tabId;
   for (const button of el("tabs").querySelectorAll("button")) {
     button.classList.toggle("on", button.dataset.tab === tabId);
   }

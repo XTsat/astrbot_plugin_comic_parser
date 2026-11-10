@@ -5,7 +5,7 @@ export default {
   title: "模型下载",
 
   mount(root, ctx) {
-    const { el, api, toast, escapeHtml, fmtBytes, EP, go } = ctx;
+    const { el, api, toast, escapeHtml, fmtBytes, EP } = ctx;
 
     // 沙箱里没有 allow-modals（confirm 会静默返回 false），删除用「再点一次确认」
     let pendingDelete = "";
@@ -34,8 +34,8 @@ export default {
           </div>
         </div>
 
-        <div class="cards">
-        <div class="card span-all" id="downloadCard" hidden>
+        <div class="stack">
+        <div class="card" id="downloadCard" hidden>
           <h2>正在下载</h2>
           <div class="kv"><span id="downloadName">—</span><span class="mono" id="downloadPercent">0%</span></div>
           <div class="progress"><i id="downloadBar"></i></div>
@@ -81,7 +81,7 @@ export default {
 
         </div>
 
-        <div id="modelSections" class="cards"></div>
+        <div id="modelSections" class="stack"></div>
       </div>`;
 
     const sectionsRoot = root.querySelector("#modelSections");
@@ -151,16 +151,15 @@ export default {
         : item.downloading
           ? '<span class="tag warn">下载中</span>'
           : '<span class="tag warn">未安装</span>';
+      // 右边只有一个按钮位：没装是蓝色的「下载」，装了是红色的「删除」。
+      // 位置固定，两种状态不会让整行布局跳动。
       const actions = item.installed
-        ? `<button data-act="test" data-preset="${item.value}">去测试</button>
-           <button class="ghost" data-act="copy" data-url="${escapeHtml(item.upstream)}">复制源地址</button>
-           <button class="${pendingDelete === item.value ? "danger" : "ghost"}" data-act="delete" data-preset="${item.value}">${
-             pendingDelete === item.value ? "确认删除" : "删除"
-           }</button>`
+        ? `<button class="danger-solid" data-act="delete" data-preset="${item.value}">${
+            pendingDelete === item.value ? "确认删除" : "删除"
+          }</button>`
         : `<button class="primary" data-act="download" data-preset="${item.value}"${
             state.download.state === "downloading" ? " disabled" : ""
-          }>下载</button>
-           <button class="ghost" data-act="copy" data-url="${escapeHtml(item.upstream)}">复制源地址</button>`;
+          }>下载</button>`;
       return `<div class="model-item">
         <div class="model-main">
           <div class="model-title">
@@ -171,7 +170,11 @@ export default {
           <div class="muted-line">${escapeHtml(item.label)}</div>
           <div class="tag-row"><span class="tag-row-label">类别</span>${labels}</div>
           <div class="muted-line">${escapeHtml(item.note || "")}</div>
-          <div class="muted-line">${escapeHtml(item.license)}</div>
+          <div class="muted-line">许可：${escapeHtml(item.license || "未标注")}${
+            item.upstream
+              ? ` · 上游 <span class="url">${escapeHtml(item.upstream)}</span>`
+              : ""
+          }</div>
         </div>
         <div class="model-side"><div class="row-actions">${actions}</div></div>
       </div>`;
@@ -379,8 +382,6 @@ export default {
       const act = button.dataset.act;
       if (act === "download") startDownload(preset);
       else if (act === "delete") removeModel(preset);
-      else if (act === "test") go("test");
-      else if (act === "copy") ctx.copyText(button.dataset.url);
     });
 
     ctx.describe()

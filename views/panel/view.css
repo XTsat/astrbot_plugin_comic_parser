@@ -34,6 +34,7 @@
   --bad-soft: #fdeaea;
   --bad-line: #f0b6b6;
   --bad-text: #8f1f1f;
+  --on-bad: #ffffff;
   /* 画布与浮层 */
   --canvas: #f7f9fc;
   --canvas-line: #e9edf3;
@@ -45,6 +46,8 @@
   --r: 8px;
   --r-lg: 12px;
   --ctl-h: 30px;
+  /* 面板外壳（顶栏 + 工作台 + 文档页）的统一宽度：全站只有这一个上限 */
+  --shell: 1320px;
   --sp-1: 4px;
   --sp-2: 6px;
   --sp-3: 8px;
@@ -84,6 +87,7 @@
   --bad-soft: #331f1f;
   --bad-line: #6f3434;
   --bad-text: #ffb4b4;
+  --on-bad: #2a1010;
   --canvas: #171a20;
   --canvas-line: #262b34;
   --toast-bg: #2a2f39;
@@ -138,12 +142,22 @@ textarea { padding: var(--sp-2) var(--sp-3); line-height: 1.55; resize: vertical
 /* ============================ 3. 外壳 ============================ */
 .header {
   flex: none;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
+  background: transparent;
 }
 /* 够宽时吸顶：文档型页整页滚动时，标签页跟着走，不用滚回去切页 */
 @media (min-width: 1000px) {
   .header { position: sticky; top: 0; z-index: 20; }
+}
+/* 顶栏内层与页内容同一个封顶宽度，并且自己带上底色与左右描边：
+   居中之后如果还让底色横贯整屏，就会出现「全宽色带压着缩进内容」的割裂感。
+   这条竖列自顶到底是一整块面板，宽度 1600、左右各一道细线收边。 */
+.header-inner {
+  width: 100%;
+  max-width: var(--shell);
+  margin-inline: auto;
+  background: var(--panel);
+  border-inline: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 .topbar {
   display: flex;
@@ -189,7 +203,16 @@ textarea { padding: var(--sp-2) var(--sp-3); line-height: 1.55; resize: vertical
 }
 /* 打码测试页自己分栏、各栏自己滚，整页不许滚；其余几页是卡片流，交给页容器滚 */
 .pane[data-tab="test"] { overflow: hidden; }
-.pane:not([data-tab="test"]) { overflow-y: auto; }
+/* 文档型页在自身里滚。滚动条要占十几像素，居中的 1600 竖列就会被挤得比顶栏偏半个滚动条宽——
+   这是「顶栏在滚动容器外面」必然出现的问题。这里把滚动条隐藏（滚动本身照旧，滚轮/触控板/键盘都能滚），
+   让内容列与顶栏始终对齐；页内各卡片与分区已经足够指示"还有内容"。 */
+.pane:not([data-tab="test"]) {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.pane:not([data-tab="test"])::-webkit-scrollbar { width: 0; height: 0; }
 
 /* ============================ 4. 通用件 ============================ */
 
@@ -222,6 +245,9 @@ button.primary {
 button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 /* 危险操作：描边红，不铺满，避免误点 */
 button.danger { color: var(--bad); border-color: var(--bad-line); background: var(--panel); }
+/* 危险操作实心态：删除是这一行唯一的动作，实心红比描边红更明确「点下去就是删」 */
+button.danger-solid { background: var(--bad); border-color: var(--bad); color: var(--on-bad); font-weight: 600; }
+button.danger-solid:hover { background: var(--bad); border-color: var(--bad); filter: brightness(1.08); }
 button.danger:hover { background: var(--bad-soft); border-color: var(--bad); }
 /* 幽灵按钮：图标型、行内次要操作 */
 button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
@@ -290,8 +316,6 @@ button.ghost:hover { background: var(--panel-2); color: var(--text); border-colo
 
 /* ---- 数据表 ---- */
 .data-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-/* 列少的表（渠道能力、渠道状态）按内容排版：撑满整页会把状态胶囊推到屏幕尽头 */
-.data-table.compact { width: auto; min-width: min(100%, 520px); }
 .data-table th, .data-table td {
   text-align: left;
   padding: var(--sp-3) var(--sp-3);
@@ -351,6 +375,12 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 .studio {
   flex: 1 1 auto;
   min-height: 0;
+  /* 与文档型页同一条竖列（--shell）：三栏工作台在超宽屏上也居中，不再被拉成两米长的一条 */
+  width: 100%;
+  max-width: var(--shell);
+  margin-inline: auto;
+  background: var(--panel);
+  border-inline: 1px solid var(--line);
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr) 340px;
   grid-template-rows: auto minmax(0, 1fr);
@@ -402,11 +432,10 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
   flex-direction: column;
   min-height: 0;
   border-right: 1px solid var(--line);
-  background: var(--bg);
 }
 .import { display: grid; gap: var(--sp-2); padding: var(--sp-3) var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line); }
 .import-row { display: flex; gap: var(--sp-2); min-width: 0; }
-.import-row select { flex: 0 0 auto; }
+.import-row select { flex: 0 0 auto; min-width: 96px; }
 .import-row input { flex: 1 1 auto; min-width: 0; }
 .import .legend { margin: 0; }
 
@@ -575,7 +604,6 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
   align-content: start;
   padding: var(--sp-3);
   border-left: 1px solid var(--line);
-  background: var(--bg);
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -611,23 +639,25 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
   gap: var(--sp-4);
   align-content: start;
   padding: var(--sp-5);
+  /* 与顶栏、工作台同一条竖列：同一个 --shell 宽度、同样的面板底色与收边线。
+     外壳只收这一道，里面不再套第二层宽度限制。 */
+  width: 100%;
+  max-width: var(--shell);
+  margin-inline: auto;
+  /* 内容比一屏短时也要把白底撑满（min-height:100% 在 flex 父级里不算数，得靠 flex 拉伸） */
+  flex: 1 0 auto;
+  background: var(--panel);
+  border-inline: 1px solid var(--line);
 }
-/* 卡片区：宽屏自动分两列，把横向空间用起来；窄了自然回到一列。
-   page-head 与需要通栏的卡片自己声明 grid-column: 1 / -1。 */
-/* min(420px, 100%)：窄屏时 420px 的下限会把页面顶宽，套一层 min() 才能老实退成一列 */
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: var(--sp-4); align-content: start; }
-.cards > .span-all { grid-column: 1 / -1; }
-/* 超宽屏最多两列：auto-fit 在 1920 上会拆成三列，中间的卡片被挤成窄条 */
-@media (min-width: 1500px) {
-  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+/* 白底上的卡片靠一道极轻的投影分层，只描边在浅色屏上容易糊成一片 */
+.page .card { box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-content: start; }
-/* 正文类的长句别跟着卡片一起拉到一屏宽，读起来会跳行 */
-.page-head .hint, .legend, .card > .hint { max-width: 92ch; }
+/* 说明文字不吃宽度上限：早先按 92ch 卡着，宽屏上文字在左侧折成三行、右边空一片，
+   看着像被人为按了换行。让它们跟着卡片走满宽度。 */
 .page > *, .page-head > * { min-width: 0; }
 .page-head { display: flex; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
 .page-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
-.page-head .hint { margin: var(--sp-1) 0 0; max-width: min(72ch, 100%); }
+.page-head .hint { margin: var(--sp-1) 0 0; }
 .page-head .row-actions { margin-left: auto; }
 
 /* 工具行：一行控件配一两个按钮，不铺底色，避免在卡片里糊出一条白带 */
@@ -636,12 +666,39 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 .bar + .bar { margin-top: var(--sp-3); }
 .muted-line { color: var(--muted); font-size: var(--fs-sm); }
 
+/* 设置页：左侧分组导航 + 右侧该组表单（只切显示，不同组的值都留在 DOM 里） */
+.settings-split { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); gap: var(--sp-5); align-items: start; }
+.side-nav { display: grid; gap: 2px; position: sticky; top: var(--sp-4); }
+.side-nav button {
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 var(--sp-3);
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  color: var(--muted);
+}
+.side-nav button:hover { background: var(--panel-2); color: var(--text); border-color: transparent; }
+.side-nav button.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft-line);
+  color: var(--text);
+  font-weight: 600;
+  /* 选中项左侧再立一道实色条：只靠浅蓝底在宽屏上不够扎眼 */
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+.side-nav .count { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) {
+  .settings-split { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); }
+  .side-nav { position: static; display: flex; flex-wrap: wrap; }
+}
+
 /* 设置页表单：左侧标签列固定，控件列一致宽，说明列右对齐 —— 三列都要落在栅格上 */
 .form-rows { display: grid; gap: 0; }
 .form-row {
   display: grid;
   /* 控件列给上限、说明列紧跟其后：否则说明会被推到卡片最右边，和控件之间隔出一大片空白 */
-  grid-template-columns: minmax(140px, 200px) minmax(160px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(140px, 200px) minmax(180px, 380px) minmax(0, 1fr);
   gap: var(--sp-2) var(--sp-4);
   align-items: center;
   padding: var(--sp-3) 0;
@@ -653,10 +710,8 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 .form-row > .label > .key { font-size: var(--fs-xs); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .form-row > .control { min-width: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .form-row > .control > input[type="text"], .form-row > .control > select { width: 100%; }
-/* 列表/多行值：控件横跨控件列与说明列，说明自动落到下一行 */
-.form-row > .control.span { grid-column: 2 / -1; }
+.form-row > .control > textarea { width: 100%; min-height: 64px; }
 .form-row > .control.span > textarea { width: 100%; }
-.form-row > .control .unit { font-size: var(--fs-sm); color: var(--muted); }
 .form-row > .control > input[type="number"] { width: 96px; text-align: right; }
 /* 分组小标题：配置项的 parent 分组 */
 .form-sub {
@@ -714,18 +769,11 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
   .def { grid-template-columns: 1fr; gap: 2px; }
 }
 
-/* ---- 状态页的「渠道」卡：左边试一个渠道，右边是能力表 ---- */
-/* 左表单 : 右表格 ≈ 0.85 : 1.5，两边都不至于空；
-   表格在这个位置占满自己的列，别用 compact 缩成一坨靠左 */
-.channel-split { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(0, 1.35fr); gap: var(--sp-5); align-items: start; }
-.channel-test { display: grid; gap: var(--sp-2); min-width: 0; }
-.channel-test .field { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: var(--sp-2); }
-.channel-test .field > select, .channel-test .field > input { width: 100%; min-width: 0; max-width: none; }
-@media (max-width: 900px) {
-  .channel-split { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
-  .channel-test .field { grid-template-columns: 1fr; gap: 2px; }
-}
-
+/* ---- 状态页的「渠道」卡：上面一行测试表单，下面通栏能力表 ---- */
+/* 渠道表：首列放站点名（最宽），命令列窄，三个能力列等宽 */
+#sChannels th:first-child, #sChannels td:first-child { width: 30%; }
+#sChannels th:nth-child(2), #sChannels td:nth-child(2) { width: 14%; }
+#sChannels th:nth-child(n + 3), #sChannels td:nth-child(n + 3) { width: 18%; }
 /* ---- 渠道测试结果：左边事实、右边封面，窄屏竖排 ---- */
 .result-split { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--sp-5); align-items: start; }
 .result-facts { display: grid; gap: 0; min-width: 0; }
@@ -748,8 +796,10 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 .model-main { display: grid; gap: 2px; min-width: 0; }
 .model-title { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
 .model-title > b { font-size: var(--fs); overflow-wrap: anywhere; }
-.model-side { display: flex; align-items: flex-start; }
+.model-side { display: flex; align-items: flex-start; justify-content: flex-end; min-width: 150px; }
 .model-side .row-actions { justify-content: flex-end; }
+/* 上游地址：沙箱里不能开新标签页，做成可整段选中的等宽文本，双击即可手动复制 */
+.url { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--fs-xs); user-select: all; overflow-wrap: anywhere; }
 .tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); margin: var(--sp-1) 0; }
 .tag-row-label { font-size: var(--fs-xs); color: var(--muted); margin-right: var(--sp-1); }
 @media (max-width: 760px) {
