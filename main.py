@@ -262,6 +262,7 @@ class ComicParserPlugin(Star):
                 "models_dir": str(self.models_dir),
             },
             channels_provider=lambda: self.channels,
+            tasks_provider=self._panel_tasks,
         )
         self._register_panel_apis()
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
@@ -421,6 +422,12 @@ class ComicParserPlugin(Star):
                 "插件面板：下载最近一次打码结果",
             ),
             (
+                f"/{PLUGIN_NAME}/panel/status",
+                self.api_panel_status,
+                ["GET"],
+                "插件面板：运行时、权重、渠道、任务与磁盘状态",
+            ),
+            (
                 f"/{PLUGIN_NAME}/panel/channels",
                 self.api_panel_channels,
                 ["GET"],
@@ -530,6 +537,31 @@ class ComicParserPlugin(Star):
         except PanelError as exc:
             return plugin_web.error_response(str(exc), status_code=400)
         return plugin_web.json_response({"status": "ok", "data": data})
+
+    def _panel_tasks(self) -> dict[str, Any]:
+        """面板「状态」页要的任务快照：真正在跑的几个、还在排队的几个。"""
+        items = []
+        for task in self._running.values():
+            state = task.state
+            items.append(
+                {
+                    "label": task.label,
+                    "session_id": task.session_id,
+                    "started": task.started,
+                    "done": getattr(state, "done", 0) if state is not None else 0,
+                    "total": getattr(state, "total", 0) if state is not None else 0,
+                }
+            )
+        running = [item for item in items if item["started"]]
+        return {
+            "running_count": len(running),
+            "queue_count": len(items) - len(running),
+            "running": running[:8],
+        }
+
+    async def api_panel_status(self) -> Any:
+        """面板「状态」页的全景快照。"""
+        return plugin_web.json_response({"status": "ok", "data": self.panel.status()})
 
     async def api_panel_channels(self) -> Any:
         """渠道清单：页面据此决定「渠道测试」能不能用、支持哪些能力。"""

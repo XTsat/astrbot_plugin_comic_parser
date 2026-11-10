@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import shutil
 import threading
 import time
 import uuid
@@ -92,6 +93,7 @@ class PanelService:
         proxy: str = "",
         plugin_info: Mapping[str, str] | None = None,
         channels_provider: Callable[[], dict[str, Any]] | None = None,
+        tasks_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._models_dir = Path(models_dir)
         self._temp_dir = Path(temp_root) / "panel"
@@ -113,6 +115,8 @@ class PanelService:
         self._plugin_info = dict(plugin_info or {})
         # 渠道对象由上层注入：面板只管展示与「拉一张封面」，不自己搭渠道
         self._channels_provider = channels_provider
+        # 正在跑 / 排队的下载任务：只有插件主类知道，面板只读它
+        self._tasks_provider = tasks_provider
         # 一次只允许一个下载：几十 MB 的文件并行下只会互相抢带宽
         self._prepare_task: asyncio.Task[None] | None = None
         self._prepare_state: dict[str, Any] = {
@@ -191,6 +195,42 @@ class PanelService:
                 }
             )
         return items
+
+    def status(self) -> dict[str, Any]:
+        """「状态」页要的一份全景：运行时、权重、渠道、任务、磁盘。"""
+        models = self.models()
+        installed = [item for item in models if item["installed"]]
+        total = sum(int(item.get("bytes") or 0) for item in installed)
+        disk_total = disk_free = 0
+        try:
+            usage = shutil.disk_usage(self._models_dir)
+            disk_total, disk_free = usage.total, usage.free
+        except OSError:
+            pass
+
+        tasks: dict[str, Any] = {}
+        if self._tasks_provider is not None:
+            try:
+                tasks = dict(self._tasks_provider())
+            except Exception as exc:
+                logger.warning(f"[{PLUGIN_NAME}] 面板读任务快照失败: {exc}")
+
+        return {
+            "plugin": self._plugin_info,
+            "runtime": _runtime_info(),
+            "models": {
+                "dir": str(self._models_dir),
+                "installed": installed,
+                "installed_count": len(installed),
+                "total_bytes": total,
+                "download": dict(self._prepare_state),
+                "auto_download": self._auto_download,
+            },
+            "disk": {"total": disk_total, "free": disk_free},
+            "channels": self.channels(),
+            "tasks": tasks,
+            "images": {"cached": len(self._images), "max": PANEL_MAX_IMAGES},
+        }
 
     async def fetch_from_channel(self, channel_name: Any, text: Any) -> dict[str, Any]:
         """按渠道取一本作品的元信息与封面，封面直接进面板的图片暂存表。
