@@ -1123,6 +1123,57 @@
           "max": 60,
           "step": 1
         }
+      },
+      "output": {
+        "type": "string",
+        "description": "输出形态",
+        "hint": "文字版可以回序号下载；图片版是一张卡片（每个渠道一张）；两个都要时先发文字再发图",
+        "default": "text",
+        "options": [
+          "text",
+          "image",
+          "both"
+        ],
+        "labels": [
+          "文字版",
+          "图片版",
+          "文字 + 图片"
+        ]
+      },
+      "image": {
+        "type": "object",
+        "description": "图片版",
+        "hint": "卡片渲染用项目已有的 Pillow；打码跟随「封面与模型 → 打码」那一组开关，不在这里重复设置",
+        "items": {
+          "page_size": {
+            "type": "int",
+            "description": "一页几张图",
+            "hint": "一张卡片放几个作品：3（3×1）/ 6（3×2）/ 9（3×3）。每张封面都要跑一次露骨检测（约 1 秒/张），9 张已经要 8 秒左右",
+            "default": 6,
+            "slider": {
+              "min": 3,
+              "max": 9,
+              "step": 3
+            }
+          },
+          "columns": {
+            "type": "int",
+            "description": "每行几列",
+            "hint": "3 列信息密度最好；2 列封面更大，适合手机屏一屏看完",
+            "default": 3,
+            "slider": {
+              "min": 2,
+              "max": 3,
+              "step": 1
+            }
+          },
+          "show_author": {
+            "type": "bool",
+            "description": "显示作者",
+            "hint": "关闭后每格只显示标题与页数，卡片更干净（有些站点的榜单里根本没有作者）",
+            "default": true
+          }
+        }
       }
     }
   }

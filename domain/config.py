@@ -41,6 +41,10 @@ from .constants import (
     DEFAULT_RANKING_CACHE_TTL,
     DEFAULT_RANKING_COOLDOWN,
     DEFAULT_RANKING_ENABLED,
+    DEFAULT_RANKING_IMAGE_COLUMNS,
+    DEFAULT_RANKING_IMAGE_PAGE_SIZE,
+    DEFAULT_RANKING_IMAGE_SHOW_AUTHOR,
+    DEFAULT_RANKING_OUTPUT,
     DEFAULT_RANKING_PAGE_SIZE,
     DEFAULT_RANKING_TIMEOUT,
     DEFAULT_RETRY_TIMES,
@@ -60,6 +64,9 @@ from .constants import (
     PACK_FORMATS,
     PROGRESS_STYLES,
     RANKING_BOARDS,
+    RANKING_IMAGE_COLUMNS_RANGE,
+    RANKING_IMAGE_PAGE_SIZES,
+    RANKING_OUTPUTS,
 )
 
 # template_list 里每条渠道配置都带这个 key，标记它属于哪个渠道模板
@@ -167,6 +174,10 @@ class PluginSettings:
     ranking_aggregate_limit: int = DEFAULT_RANKING_AGGREGATE_LIMIT
     ranking_cache_ttl: int = DEFAULT_RANKING_CACHE_TTL
     ranking_cooldown: int = DEFAULT_RANKING_COOLDOWN
+    ranking_output: str = DEFAULT_RANKING_OUTPUT
+    ranking_image_page_size: int = DEFAULT_RANKING_IMAGE_PAGE_SIZE
+    ranking_image_columns: int = DEFAULT_RANKING_IMAGE_COLUMNS
+    ranking_image_show_author: bool = DEFAULT_RANKING_IMAGE_SHOW_AUTHOR
     # 封面：下载完成后单独发一张图，打码复用 NSFW 检测框；
     # 封面说明跟随「发送下载完成摘要」，不另设开关
     cover_send: bool = DEFAULT_COVER_SEND
@@ -195,6 +206,8 @@ class PluginSettings:
         probe = _section(data, "probe")
         search = _section(data, "search")
         ranking = _section(data, "ranking")
+        ranking_image = ranking.get("image")
+        ranking_image = ranking_image if isinstance(ranking_image, Mapping) else {}
         cover = _section(data, "cover")
         # 打码与模型各嵌在「封面与模型」的一个子块里，与封面共用一张卡片；
         # 旧配置里 censor 是个 bool（打码还没分组），非 Mapping 一律按默认值兜底
@@ -218,6 +231,25 @@ class PluginSettings:
         )
         if ranking_board not in RANKING_BOARDS:
             ranking_board = DEFAULT_RANKING_BOARD
+        ranking_output = _as_str(ranking.get("output"), DEFAULT_RANKING_OUTPUT)
+        if ranking_output not in RANKING_OUTPUTS:
+            ranking_output = DEFAULT_RANKING_OUTPUT
+        # 一页几张只能取 3/6/9：排版按整行排，任意数字会排出半行残格
+        ranking_image_size = _as_int(
+            ranking_image.get("page_size"), DEFAULT_RANKING_IMAGE_PAGE_SIZE, minimum=1
+        )
+        if ranking_image_size not in RANKING_IMAGE_PAGE_SIZES:
+            ranking_image_size = min(
+                RANKING_IMAGE_PAGE_SIZES,
+                key=lambda value: abs(value - ranking_image_size),
+            )
+        ranking_image_columns = _as_int(
+            ranking_image.get("columns"), DEFAULT_RANKING_IMAGE_COLUMNS, minimum=1
+        )
+        ranking_image_columns = min(
+            max(ranking_image_columns, RANKING_IMAGE_COLUMNS_RANGE[0]),
+            RANKING_IMAGE_COLUMNS_RANGE[1],
+        )
         censor_style = _as_str(
             censor.get("style"), DEFAULT_COVER_CENSOR_STYLE
         )
@@ -372,6 +404,12 @@ class PluginSettings:
             ),
             ranking_cooldown=_as_int(
                 ranking.get("cooldown"), DEFAULT_RANKING_COOLDOWN, minimum=0
+            ),
+            ranking_output=ranking_output,
+            ranking_image_page_size=ranking_image_size,
+            ranking_image_columns=ranking_image_columns,
+            ranking_image_show_author=_as_bool(
+                ranking_image.get("show_author"), DEFAULT_RANKING_IMAGE_SHOW_AUTHOR
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
             cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),

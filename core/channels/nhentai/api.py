@@ -82,13 +82,16 @@ class NhentaiApi:
         return payload
 
     async def ranking(self, sort: str, page: int = 1) -> dict[str, Any]:
-        """按热度排序取一页作品（不带关键词）。
+        """按热度排序取一页作品。
 
         `sort` 与站内列表页同一套取值（`popular` / `popular-today` / `popular-week` /
-        `popular-month`）：同一排序里不带 `query` 就是「按该热度浏览整站」。
+        `popular-month`）。**`query` 不能省也不能为空**：接口对缺省与空串都回 400
+        （`String should have at least 1 character`），而 HTML 列表页在 Cloudflare 后面
+        取不到（实测 403）。所以用 `*` 当通配：实测能返回整站结果并正常翻页，
+        换个无意义的词则返回 0 条，说明它真的是通配而不是被忽略。
         """
         path = (
-            f"{SEARCH_API_PATH}?page={max(1, int(page))}"
+            f"{SEARCH_API_PATH}?query=*&page={max(1, int(page))}"
             f"&sort={quote(sort, safe='')}"
         )
         payload = await self._get_json(

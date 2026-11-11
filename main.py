@@ -30,6 +30,7 @@ except ImportError:  # pragma: no cover - 只在老版本 AstrBot 上走到
 
 from .core import (
     AccessGuard,
+    CardResult,
     CoverResult,
     CoverService,
     DownloadOutcome,
@@ -39,6 +40,7 @@ from .core import (
     ProgressState,
     ModelWeights,
     PanelService,
+    RankingCardRenderer,
     RankingService,
     SearchService,
     create_detector,
@@ -58,7 +60,7 @@ from .core.channel import (
 )
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
 from .core.packer import Packer
-from .core.ranking import board_label, parse_board
+from .core.ranking import RankingResult, board_label, parse_board
 from .domain import (
     CoverCensorError,
     DownloadCancelled,
@@ -100,7 +102,7 @@ from .domain.constants import (
     PANEL_MAX_UPLOAD_BYTES,
     PANEL_MODEL_UPLOAD_MAX_BYTES,
 )
-from .utils import describe_pack_format, format_size, split_pack_format
+from .utils import cjk_available, describe_pack_format, format_size, split_pack_format
 
 # 贴表情（set_msg_emoji_like）与群文件上传（upload_group_file）都只有 OneBot(CQHTTP) 协议端提供
 _ONEBOT_PLATFORMS = frozenset({"aiocqhttp"})
@@ -250,6 +252,19 @@ class ComicParserPlugin(Star):
             censor_padding=self.settings.cover_censor_padding,
             full_censor_area=self.settings.cover_full_censor_area,
         )
+        # 榜单图片版：与封面共用同一个检测器与打码参数（打码开关也是同一个）
+        self.ranking_card = RankingCardRenderer(
+            self.temp_root,
+            self.nsfw_detector,
+            columns=self.settings.ranking_image_columns,
+            page_size=self.settings.ranking_image_page_size,
+            show_author=self.settings.ranking_image_show_author,
+            censor=self.settings.cover_censor,
+            censor_style=self.settings.cover_censor_style,
+            censor_block=self.settings.cover_censor_block,
+            censor_padding=self.settings.cover_censor_padding,
+            full_censor_area=self.settings.cover_full_censor_area,
+        )
         # 插件视图 views/panel：拿同一套检测器与打码函数试封面打码，参数由页面自带
         self.panel = PanelService(
             self.models_dir,
@@ -306,12 +321,24 @@ class ComicParserPlugin(Star):
         self._model_task = asyncio.create_task(self._prepare_censor_runtime())
 
     def _needs_censor_runtime(self) -> bool:
-        """打码运行时是否用得上：发封面且开了打码。
+        """打码运行时是否用得上：开了打码，并且确实有要打码的图。
 
+        出图的有两条路——下载完成后发的那张封面、榜单图片版；任一在用就得备好检测器。
         权重是否自动下载由「缺失时自动下载权重」单独决定，但依赖（onnxruntime）只要
-        打算打码就得有，否则那张封面对不上检测、只能按未打码处理而不发。
+        打算打码就得有，否则图对不上检测，只能整张糊或者干脆不发。
         """
-        return bool(self.settings.cover_send and self.settings.cover_censor)
+        if not self.settings.cover_censor:
+            return False
+        if self.settings.cover_send:
+            return True
+        return self._ranking_image_enabled()
+
+    def _ranking_image_enabled(self) -> bool:
+        """榜单会不会出图：总开关打开且输出形态里包含图片。"""
+        return bool(
+            self.settings.ranking_enabled
+            and self.settings.ranking_output in ("image", "both")
+        )
 
     async def _prepare_censor_runtime(self) -> None:
         """按需补齐打码运行时：先确保 onnxruntime，再按配置取权重。
@@ -899,9 +926,11 @@ class ComicParserPlugin(Star):
         if not self.settings.ranking_enabled:
             ranking_desc = "未启用（在插件配置的「排行榜」里打开）"
         elif rankable:
+            output_labels = {"text": "文字版", "image": "图片版", "both": "文字 + 图片"}
             ranking_desc = (
                 f"/comic 排行 [时间窗] 一次聚合 {len(rankable)} 个渠道；"
-                "也可 /<渠道命令> 排行 只看一个"
+                f"也可 /<渠道命令> 排行 只看一个；输出："
+                f"{output_labels.get(self.settings.ranking_output, '文字版')}"
             )
         else:
             ranking_desc = "当前没有支持排行榜的渠道"
@@ -1581,7 +1610,8 @@ class ComicParserPlugin(Star):
             if result.count:
                 result_state = "ok"
                 self._mark_index_source(session_id, "ranking")
-            yield event.plain_result(result.text)
+            async for item in self._deliver_ranking(event, result):
+                yield item
         finally:
             if use_reaction:
                 await self._react(event, "done" if result_state == "ok" else "fail")
@@ -1605,10 +1635,75 @@ class ComicParserPlugin(Star):
                 return
             result_state = "ok"
             self._mark_index_source(session_id, "ranking")
-            yield event.plain_result(turn.result.text)
+            async for item in self._deliver_ranking(event, turn.result):
+                yield item
         finally:
             if use_reaction:
                 await self._react(event, "done" if result_state == "ok" else "fail")
+
+    async def _deliver_ranking(
+        self, event: AstrMessageEvent, result: RankingResult
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """按配置发文字版与图片版；图片被平台拦下时整张重糊再发一次。"""
+        output = self.settings.ranking_output
+        if output in ("text", "both"):
+            yield event.plain_result(result.text)
+
+        if output not in ("image", "both"):
+            return
+        if output == "image" and result.warnings:
+            # 只出图时，失败与降级说明不在任何一条消息里，单独补一句
+            yield event.plain_result(result.warnings)
+        if not result.pages:
+            return
+        if not cjk_available():
+            note = (
+                "⚠️ 没有可用的中文字体，榜单图片版画不出来"
+                "（把 Noto Sans SC 之类的中文字体放进插件目录的 fonts/ 即可）"
+            )
+            yield event.plain_result(
+                note if output == "both" else note + chr(10) * 2 + result.text
+            )
+            return
+
+        label = board_label(result.board)
+        for channel, page in result.pages:
+            card = await self.ranking_card.render(
+                channel, page, board_label=label, page_number=result.page
+            )
+            if card is None:
+                continue
+            if card.note:
+                yield event.plain_result(f"ℹ️ {channel.display_name}：{card.note}")
+            if await self._send_card(event, card):
+                continue
+            if not (self.settings.cover_censor and self.settings.cover_retry_strong):
+                yield event.plain_result(
+                    f"⚠️ {channel.display_name} 的榜单图被平台拦下，已跳过"
+                )
+                continue
+            strong = await self.ranking_card.reinforce(card)
+            if await self._send_card(event, strong):
+                yield event.plain_result(f"ℹ️ {channel.display_name}：{strong.note}")
+            else:
+                yield event.plain_result(
+                    f"⚠️ {channel.display_name} 的榜单图整张重糊后仍未被平台接受，已跳过"
+                )
+
+    async def _send_card(self, event: AstrMessageEvent, card: CardResult) -> bool:
+        """直接发一张榜单图，返回是否发送成功。
+
+        走 ``event.send`` 而不是 ``yield``：平台审核会「收下但不投递」，只有自己发才拿得到
+        异常，据此决定要不要整张重糊再试一次。
+        """
+        try:
+            await event.send(
+                MessageChain([Comp.Image.fromFileSystem(str(card.path))])
+            )
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 榜单图发送失败: {exc}")
+            return False
+        return True
 
     # ---- 序号路由：搜索与榜单共用「回序号下载」 ----
     def _index_order(self, session_id: str) -> list[str]:

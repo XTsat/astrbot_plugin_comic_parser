@@ -26,6 +26,7 @@ from .registry import (
     resolve_link,
 )
 from .ranking import RankingOutcome, RankingService, RankingTurn
+from .ranking_card import CardResult, RankingCardRenderer
 from .search import SearchOutcome, SearchService
 from .task import DownloadOutcome, DownloadTask
 
@@ -48,6 +49,8 @@ __all__ = [
     "Packer",
     "ProgressHeartbeat",
     "ProgressState",
+    "CardResult",
+    "RankingCardRenderer",
     "RankingOutcome",
     "RankingService",
     "RankingTurn",

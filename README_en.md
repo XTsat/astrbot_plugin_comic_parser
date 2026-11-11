@@ -12,6 +12,7 @@
 - **Download by ID**: use a channel command (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) when you already have the ID
 - **Search right in the chat**: `/comic sou <keyword>` searches every channel that supports search in one go, `/jm sou` searches a single channel; reply with the number of a hit to download it, and page through longer result sets
 - **Rankings**: `/comic 排行` collects the leaderboards of every channel at once, `/jm 排行` shows one channel only; pick daily / weekly / monthly / all-time, and each channel opens only the windows it actually has (missing ones are explained in the reply). Hits are downloadable by number and page through the same way as search
+- **Rankings as an image** (optional): render one page of a leaderboard as a card (cover grid, rank badges, title/author), one card per channel; the covers follow the "Censor the cover" switch and are censored one by one before the card is composed
 - **Multiple channels**: JM, nhentai, PicaACG, Hanime1, WNACG and E-Hentai; E-Hentai needs no cookie for the 1280px resampled images, and originals are used once a cookie is added (charged against your site quota)
 - **Unified packing**: every download becomes a ZIP archive, a PDF or a long vertical image, or can simply stay on disk; a format word at the end of the command overrides it for that one download
 - **Encryption**: set one pack password and it applies, ZIP with AES and PDF with AES-256
@@ -329,7 +330,7 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 ### Rankings
 
 <details>
-<summary>Rankings (7)</summary>
+<summary>Rankings (8 + 3)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -340,9 +341,21 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 | Ranks per channel, all channels (`aggregate_limit`) | int | 5 | How many top entries each channel contributes to an all-channel leaderboard; sites rank by different metrics, so they are listed side by side instead of merged |
 | Cache lifetime (`cache_ttl`) | int | 300 | Reuses the previous result for the same channel and window within this window; 0 disables caching |
 | Ranking cooldown (`cooldown`) | int | 3 | Minimum seconds between two leaderboard views in the same session; 0 disables the limit |
+| Output (`output`) | string | text | Text can be downloaded by number; `image` sends one card per channel; `both` sends the text first and the cards after |
+| Covers per card (`image.page_size`) | int | 6 | How many works one card holds: 3 (3×1) / 6 (3×2) / 9 (3×3). Every cover costs one explicitness check (~1s each), so 9 covers take roughly 8 seconds |
+| Columns (`image.columns`) | int | 3 | Three columns pack the most information; two columns make bigger covers for a single phone screen |
+| Show author (`image.show_author`) | bool | true | When off, each cell shows only the title and page count (some sites have no author in their leaderboard at all) |
+
 </details>
 
 ## Others
+
+### How leaderboard cards are produced
+
+Leaderboard cards are drawn with the Pillow dependency the plugin already uses, so no extra rendering dependency is needed, but two things must be in place:
+
+- **A CJK font**: container images often only ship Latin fonts and would draw Chinese as empty boxes. The plugin looks for a CJK font in the plugin's `fonts/` directory, then the AstrBot data directory, then the system fonts, and **falls back to the text version** with a notice when none has Chinese glyphs. Drop something like `Noto Sans SC` into the plugin's `fonts/` to ship your own.
+- **The detection model used for censoring**: covers on a card follow the "Censor the cover" switch and are censored one by one before the card is composed. With censoring on but no usable model, the whole card is censored afterwards and still sent (better a heavily blurred card than an uncensored one); a card rejected by the platform is censored again across the whole image and sent once more.
 
 ### How the cover features are powered
 

@@ -139,6 +139,16 @@ DEFAULT_RANKING_AGGREGATE_LIMIT: Final = 5
 DEFAULT_RANKING_CACHE_TTL: Final = 300
 # 同会话榜单冷却（秒）：与搜索同理，防一个人连续刷上游
 DEFAULT_RANKING_COOLDOWN: Final = 3
+# 输出形态：文字版可回序号下载，图片版是一张张榜单卡片，两个都要时先文字后图片
+RANKING_OUTPUTS: Final = ("text", "image", "both")
+DEFAULT_RANKING_OUTPUT: Final = "text"
+# 一张榜单图放几个作品：3（3×1）/6（3×2）/9（3×3）。上限 9 是因为每张封面都要跑一次
+# 露骨检测（单张约 0.9 秒且串行），9 张已经要 8 秒左右，再多等不起
+DEFAULT_RANKING_IMAGE_PAGE_SIZE: Final = 6
+RANKING_IMAGE_PAGE_SIZES: Final = (3, 6, 9)
+DEFAULT_RANKING_IMAGE_COLUMNS: Final = 3
+RANKING_IMAGE_COLUMNS_RANGE: Final = (2, 3)
+DEFAULT_RANKING_IMAGE_SHOW_AUTHOR: Final = True
 RANKING_MAX_TEXT_CHARS: Final = SEARCH_MAX_TEXT_CHARS
 # 序号下载的记忆时长与搜索一致：同一句话里的「序号」只属于最近那次列表
 RANKING_RESULT_TTL: Final = SEARCH_RESULT_TTL
@@ -146,6 +156,60 @@ RANKING_INDEX_HINT_MAX: Final = SEARCH_INDEX_HINT_MAX
 # 榜单缓存与会话记忆的条数上限：与搜索同理，会话/窗口组合不可控，超限先清最旧的
 RANKING_CACHE_MAX_ENTRIES: Final = 128
 RANKING_RESULT_MAX_SESSIONS: Final = SEARCH_RESULT_MAX_SESSIONS
+
+# ---- 榜单卡片（图片版）----
+
+# 与长图同宽：QQ/微信缩放到手机屏后，1200 宽的小字仍然清楚
+RANKING_CARD_WIDTH: Final = 1200
+RANKING_CARD_PADDING: Final = 40
+RANKING_CARD_GAP: Final = 26
+# 封面按 1:1.42 预留格位（同人志封面的常见比例），取到的图按短边裁齐，
+# 各条封面高低不齐时卡片也不会参差
+RANKING_COVER_ASPECT: Final = 1.42
+# 标题最多两行，超出截断：榜单里更长的标题只会挤掉作者与页数
+RANKING_CARD_TITLE_LINES: Final = 2
+RANKING_CARD_AUTHOR_CHARS: Final = 14
+# 单张卡片高度上限：9 张一页时约 2100 像素，留够余量但别让解码爆掉
+RANKING_MAX_CARD_HEIGHT: Final = 3200
+# 取封面的并发与超时：一张封面卡住不该让整张卡片生不出来
+RANKING_COVER_CONCURRENCY: Final = 4
+RANKING_COVER_TIMEOUT: Final = 20
+RANKING_COVER_MAX_BYTES: Final = 8 * 1024 * 1024
+
+# 中文字体：图片版唯一的硬依赖，容器里常只有 DejaVu（没有汉字），
+# 一律按「插件自带 → AstrBot 数据目录 → 系统 CJK 字体」的顺序找，全找不到就退化成文字版。
+# 自带字体文件名（放插件目录 fonts/ 下）：Noto Sans SC 是 OFL 协议，可以随插件分发
+RANKING_FONT_BUNDLED: Final = (
+    "NotoSansSC-Regular.otf",
+    "NotoSansSC-Regular.ttf",
+    "思源黑体.otf",
+    "msyh.ttc",
+    "simhei.ttf",
+)
+# 系统字体路径：覆盖 Debian/Ubuntu、Alpine、CentOS 与 macOS 的常见位置
+RANKING_FONT_PATHS: Final = (
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+)
+# 西文/数字字体：容器里的中文字体常常没有数字与字母（纯回退字体只有汉字），
+# 所以混排时这两类字符单独找字体，避免名次被画成方框
+RANKING_FONT_LATIN_PATHS: Final = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "C:/Windows/Fonts/arial.ttf",
+)
 
 # 渠道私有常量（域名清单、单请求超时与重试默认值等）不放这里，
 # 一律跟着渠道走：`core/channels/<渠道名>/constants.py`

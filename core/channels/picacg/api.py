@@ -265,16 +265,16 @@ class PicaClient:
         )
         return payload
 
-    async def leaderboard(self, window: str, page: int = 1) -> dict[str, Any]:
-        """取一页排行榜；``window`` 是官方的时间窗取值（H24 / D7 / D30）。"""
+    async def leaderboard(self, window: str) -> dict[str, Any]:
+        """取排行榜；``window`` 是官方的时间窗取值（H24 / D7 / D30）。
+
+        官方这个接口**不分页、也不认 ``page`` 参数**：多带一个 `page=1` 会回 400
+        `validation error`，所以一次就把整张榜取回来。
+        """
         return await self.request(
             "GET",
             PATH_LEADERBOARD,
-            params={
-                "tt": window,
-                "ct": LEADERBOARD_CATEGORY,
-                "page": max(1, int(page)),
-            },
+            params={"tt": window, "ct": LEADERBOARD_CATEGORY},
         )
 
     async def fetch_comic(self, comic_id: str) -> dict[str, Any]:

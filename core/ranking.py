@@ -77,6 +77,10 @@ class RankingResult:
     aggregate: bool
     count: int = 0  # 这一页实际拿到了多少条；0 表示这页是空的
     elapsed: float = 0.0
+    # 图片版用：每个渠道这一页的原始结果（文字版不需要，渲染卡片时才用得上）
+    pages: list[tuple[BaseChannel, RankingPage]] = field(default_factory=list)
+    # 失败与降级说明；文字版已写进 text，只出图时要靠它单独发一句
+    warnings: str = ""
 
 
 @dataclass(slots=True)
@@ -169,7 +173,11 @@ class RankingService:
         """每个渠道取多少条：聚合时只取头部，单渠道时按展示条数取。"""
         if aggregate:
             return max(1, int(self.settings.ranking_aggregate_limit))
-        return max(1, int(self.settings.ranking_page_size))
+        limit = max(1, int(self.settings.ranking_page_size))
+        if self.settings.ranking_output in ("image", "both"):
+            # 一页图要的封面数可能比文字版一页的条数多，取大的那个才够画
+            limit = max(limit, int(self.settings.ranking_image_page_size))
+        return limit
 
     async def ranking_one(
         self,
@@ -454,6 +462,8 @@ class RankingService:
             aggregate=aggregate,
             count=len(entries),
             elapsed=elapsed,
+            pages=pages,
+            warnings=extra,
         )
         if session_id and pages:
             self._store_session(session_id, board, page, aggregate, order, entries)

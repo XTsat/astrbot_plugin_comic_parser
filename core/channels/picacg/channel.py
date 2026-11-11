@@ -224,9 +224,10 @@ class PicacgChannel(BaseChannel):
             raise ChannelError("哔咔排行榜需要账号：请先在渠道配置里填写哔咔账号与密码")
 
         async with self._session() as client:
-            payload = await client.leaderboard(window, page=page)
-        comics = (payload.get("data") or {}).get("comics") or {}
-        docs = comics.get("docs") if isinstance(comics, dict) else None
+            payload = await client.leaderboard(window)
+        comics = (payload.get("data") or {}).get("comics")
+        # 排行榜把整张榜塞在 `data.comics` 数组里（不是搜索那种带 docs 的分页对象）
+        docs = comics.get("docs") if isinstance(comics, dict) else comics
         items: list[RankingItem] = []
         if isinstance(docs, list):
             for entry in docs[: max(1, limit)]:
@@ -241,20 +242,21 @@ class PicacgChannel(BaseChannel):
                         comic_id=comic_id,
                         title=str(entry.get("title") or ""),
                         author=_author_name(entry.get("author")),
+                        # 榜单每条都带 pagesCount；epsCount 是「几话」，直接当页数会全变成 1P
                         page_count=_as_int(
-                            entry.get("epsCount") or entry.get("pagesCount"), 0
+                            entry.get("pagesCount") or entry.get("epsCount"), 0
                         ),
                         cover_url=_cover_url(entry.get("thumb")),
                     )
                 )
         total = _as_int(comics.get("total"), 0) if isinstance(comics, dict) else 0
-        pages = _as_int(comics.get("pages"), 1) if isinstance(comics, dict) else 1
         return RankingPage(
             channel=self.name,
             board=board,
             items=items,
+            # 排行榜一次给整张榜，没有下一页；页数参数上游也不认
             total=total or None,
-            has_more=pages > max(1, int(page)),
+            has_more=False,
         )
 
     # ---- 封面 ----
