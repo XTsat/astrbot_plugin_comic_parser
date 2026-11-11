@@ -129,7 +129,7 @@ class BaseChannel(ABC):
     # 缩写别名：用户日常敲的是这些；第一个别名同时是提示文案里优先展示的命令
     command_aliases: ClassVar[tuple[str, ...]] = ()
     display_name: ClassVar[str]  # 帮助文案里的展示名
-    # 站点主页（无尾斜杠）：`/漫画网站` 指引用户去站内搜作品、找作品 ID
+    # 站点主页（无尾斜杠）：`/comic site` 指引用户去站内搜作品、找作品 ID
     website: ClassVar[str] = ""
     # 作品页链接示意：真实域名 + `<ID>` 占位（不放具体数字）。
     # `<ID>` 不是可点击的地址，也不会拼出点不开的假链接，只是告诉用户作品 ID 在链接里的位置。

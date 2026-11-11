@@ -331,7 +331,7 @@ class SearchService:
         channels = self.searchable()
         if not channels:
             raise SearchUnsupportedError(
-                "当前没有支持搜索的渠道；可以先用 /漫画网站 到站内搜作品、找 ID"
+                "当前没有支持搜索的渠道；可以先用 /comic site 到站内搜作品、找 ID"
             )
         total = len(channels)
         outcomes: list[SearchOutcome | None] = [None] * total
@@ -640,7 +640,7 @@ class SearchService:
             self._drop_session(session_id)
             lines = [
                 f"🔎 {channel.display_name} 没有找到「{query.raw}」的结果",
-                "换个关键词，或 /漫画网站 到站内搜作品、找 ID",
+                "换个关键词，或 /comic site 到站内搜作品、找 ID",
             ]
             if page is not None and page.note:
                 lines.append(f"ℹ️ {page.note}")
@@ -668,7 +668,7 @@ class SearchService:
         if not buckets:
             self._drop_session(session_id)
             lines = [f"🔎 全渠道搜索「{query.raw}」", ""]
-            lines.append("没有渠道返回结果；换个关键词，或 /漫画网站 到站内搜作品、找 ID")
+            lines.append("没有渠道返回结果；换个关键词，或 /comic site 到站内搜作品、找 ID")
             extra = "\n".join(
                 part
                 for part in (self._failure_lines(outcomes), self._note_lines(outcomes))
@@ -682,7 +682,7 @@ class SearchService:
         if session is None:
             self._drop_session(session_id)
             lines = [f"🔎 全渠道搜索「{query.raw}」", ""]
-            lines.append("没有渠道返回结果；换个关键词，或 /漫画网站 到站内搜作品、找 ID")
+            lines.append("没有渠道返回结果；换个关键词，或 /comic site 到站内搜作品、找 ID")
             return self._bounded("\n".join(lines))
         session.elapsed = max((outcome.elapsed for outcome in outcomes), default=0.0)
         self._store_session(session_id, session)

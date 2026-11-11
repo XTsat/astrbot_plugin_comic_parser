@@ -77,6 +77,12 @@ SEARCH_INDEX_HINT_MAX: Final = 99
 SEARCH_NEXT_WORDS: Final = frozenset({"next", "下一页", "下页"})
 SEARCH_PREV_WORDS: Final = frozenset({"prev", "previous", "上一页", "上页"})
 
+# 说明与站点速查：`/comic help`、`/comic site` 是标准写法，中文与旧命令名都保留，
+# 省得老用户改习惯；这几个词只当 `/comic` 的首词匹配，不会抢作品 ID 或搜索关键词
+HELP_WORDS: Final = frozenset({"help", "?", "？", "帮助", "用法", "说明"})
+# 站点速查用单数主词 site（与历史别名 comicsites、中文「漫画网址」同源），复数一并认
+SITE_WORDS: Final = frozenset({"site", "sites", "网站", "网址", "官网"})
+
 # ---- 排行榜 ----
 
 # 榜单窗口是跨渠道的统一词汇：各站原生档位并不一致（哔咔是 24 小时/7 天/30 天，

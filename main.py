@@ -85,6 +85,8 @@ from .domain.constants import (
     PROGRESS_STEP_PERCENT,
     RESUME_DIRNAME,
     RETRY_WORDS,
+    HELP_WORDS,
+    SITE_WORDS,
     STATUS_WORDS,
     SEARCH_MAX_KEYWORD_LENGTH,
     SEARCH_NEXT_WORDS,
@@ -812,11 +814,17 @@ class ComicParserPlugin(Star):
         ):
             yield result
 
+    # 说明与站点速查都有两个入口：`/comic help`、`/comic site` 是标准写法，
+    # 老命令名继续留着；两条统一走下面的渲染函数，文案只维护一处
     @filter.command("漫画帮助", alias={"comichelp"})
     async def cmd_help(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """查看可用渠道与用法。"""
+        """查看可用渠道与用法（与 `/comic help` 同一份文案）。"""
+        yield event.plain_result(self._render_help_text())
+
+    def _render_help_text(self) -> str:
+        """拼出完整说明正文。"""
         packs = "、".join(PACK_FORMATS)
         progress_labels = {"emoji": "贴表情", "text": "文本进度", "none": "关闭"}
         template_labels = {
@@ -921,7 +929,7 @@ class ComicParserPlugin(Star):
             f"{describe_channels(self.channels)}\n\n"
             f"🔗 支持的站点与作品页链接示意（<ID> 处替换成作品 ID）：\n"
             f"{describe_links(self.channels)}\n\n"
-            f"🌐 支持的网站与作品页链接示意（找 ID 用）：/漫画网站\n\n"
+            f"🌐 支持的网站与作品页链接示意（找 ID 用）：/comic site\n\n"
             f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
             f"单次改格式：命令末尾加格式词，如 /jm 123456 pdf、/comic <链接> long_img，"
             f"只对这一次生效（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
@@ -940,16 +948,21 @@ class ComicParserPlugin(Star):
             f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
             f"接着下上一次：/comic retry（暂停、下载中断或失败后发这一条）\n"
             f"查看排队：/comic status（管理员可用 /comic status 全部）\n"
-            f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
+            f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错\n"
+            f"本说明：/comic help（也认 /漫画帮助）；站点速查：/comic site（也认 /漫画网址）"
         )
-        yield event.plain_result(text)
+        return text
 
     @filter.command("漫画网站", alias={"comicsites", "comicsite"})
     async def cmd_sites(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """列出所有支持渠道的官网与作品页链接示意，方便到站内搜作品、找 ID。"""
-        text = (
+        """列出支持渠道的官网与作品页链接示意（与 `/comic site` 同一份文案）。"""
+        yield event.plain_result(self._render_sites_text())
+
+    def _render_sites_text(self) -> str:
+        """拼出站点速查正文。"""
+        return (
             f"🌐 支持的漫画网站（共 {len(self.channels)} 个渠道）\n\n"
             f"{describe_websites(self.channels)}\n\n"
             f"到站内搜到作品后打开作品页，把 <ID> 替换成链接里的 ID，\n"
@@ -957,7 +970,6 @@ class ComicParserPlugin(Star):
             f"不想离开聊天：/comic sou <关键词> 一次搜所有支持搜索的渠道\n"
             f"站点域名打不开时，可在渠道配置里换成其它可用域名"
         )
-        yield event.plain_result(text)
 
     # ==================== 下载流程 ====================
 
@@ -979,6 +991,7 @@ class ComicParserPlugin(Star):
                 "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
                 "接着下上一次：/comic retry（暂停、下载中断或失败后重发这一条即可）\n"
                 "查看排队：/comic status（管理员可加 全部 看所有会话）\n"
+                "完整说明：/comic help；站点速查：/comic site\n"
                 f"{describe_links(self.channels)}"
             )
             return
@@ -1034,6 +1047,14 @@ class ComicParserPlugin(Star):
                 yield result
             return
 
+        # 说明与站点速查放在下载解析之前：它们的词是固定命令词，不能被当成作品 ID 或链接
+        if head_lower in HELP_WORDS:
+            yield event.plain_result(self._render_help_text())
+            return
+        if head_lower in SITE_WORDS:
+            yield event.plain_result(self._render_sites_text())
+            return
+
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
         # 末尾的格式词只改这一次的产物形态（`/comic <链接> pdf`）；搜索与翻页已在上面分流，
         # 因此关键词里的格式词（如 long_img、长图）不会被当成格式
@@ -1068,7 +1089,7 @@ class ComicParserPlugin(Star):
             else:
                 yield event.plain_result(
                     "❌ 认不出这条链接属于哪个站点：请贴作品页的完整链接，"
-                    "或直接用对应渠道的命令（见 /漫画帮助）\n"
+                    "或直接用对应渠道的命令（见 /comic help）\n"
                     f"{describe_links(self.channels)}"
                 )
             return
@@ -1108,6 +1129,13 @@ class ComicParserPlugin(Star):
             return
         if head_lower in STATUS_WORDS:
             yield event.plain_result("ℹ️ 查看在跑与排队的下载请用 /comic status")
+            return
+        # 说明与站点速查是全局的（与渠道无关），渠道命令下指回 `/comic`
+        if head_lower in HELP_WORDS:
+            yield event.plain_result("ℹ️ 完整说明请用 /comic help")
+            return
+        if head_lower in SITE_WORDS:
+            yield event.plain_result("ℹ️ 站点与作品页链接速查请用 /comic site")
             return
 
         channel = self._commands.get(command)
@@ -1340,7 +1368,7 @@ class ComicParserPlugin(Star):
             searchable = self.search_service.searchable()
             if not searchable:
                 yield event.plain_result(
-                    "❌ 当前没有支持搜索的渠道；可以先用 /漫画网站 到站内搜作品、找 ID"
+                    "❌ 当前没有支持搜索的渠道；可以先用 /comic site 到站内搜作品、找 ID"
                 )
                 return
 
