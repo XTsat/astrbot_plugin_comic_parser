@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import Callable, Mapping
-from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any, ClassVar
+from urllib.parse import urlsplit
 
 from astrbot.api import logger
 
@@ -41,6 +42,11 @@ from ...progress import ProgressHeartbeat
 from ...search_query import fallback_note, plain_search_text
 from ...domain_race import ProbeFn, http_probe
 from .constants import (
+    RANKING_DETAIL_CACHE_TTL,
+    RANKING_DETAIL_CONCURRENCY,
+    RANKING_DETAIL_INTERVAL,
+    RANKING_DETAIL_TIMEOUT,
+    RANKING_ENRICH_BUDGET,
     DEFAULT_FETCH_PROXY,
     DEFAULT_USER_AGENT,
     IMAGE_HOST_FALLBACKS,
@@ -145,7 +151,7 @@ class Hanime1Channel(BaseChannel):
         if _VIDEO_IN_TEXT.search(text):
             raise ChannelError(
                 "这看起来是 Hanime1 的视频链接，本渠道只下载漫画；"
-                f"请换成漫画链接（…/comic/<ID>）或直接给数字 ID"
+                "请换成漫画链接（…/comic/<ID>）或直接给数字 ID"
             )
 
         matched = _COMIC_IN_TEXT.search(text)
@@ -574,6 +580,7 @@ class Hanime1Channel(BaseChannel):
                 )
                 for index, hit in enumerate(hits[: max(1, limit)])
             ]
+            await self._enrich_ranking(items, domain)
             return RankingPage(
                 channel=self.name,
                 board=board,
@@ -584,6 +591,80 @@ class Hanime1Channel(BaseChannel):
         if last_error is not None:
             raise ChannelError(f"Hanime1 排行榜获取失败：{last_error}") from last_error
         return RankingPage(channel=self.name, board=board)
+
+    def _detail_cache(self) -> dict[str, tuple[float, int, str]]:
+        """补详情结果的缓存：渠道实例随插件重载重建，所以挂实例上就够。"""
+        cache = getattr(self, "_ranking_detail_cache", None)
+        if cache is None:
+            cache = {}
+            self._ranking_detail_cache = cache
+        return cache
+
+    async def _enrich_ranking(self, items: list[RankingItem], domain: str) -> None:
+        """给缺页数/作者的条目补一次作品页。
+
+        列表页只给标题与封面；页数与作者要进作品页才拿得到（实测 1.5–2 秒一条）。
+        抓页走榜单页同一条通道（同一个域名 + 同一个读取代理）：走 `fetch_meta` 那条路
+        会先探速，站点对服务器 IP 常常直接 403，补数据反而全空。
+        并发补齐并盖一个总时限，到点没回来的条目留空——缺一段括号比整条命令转圈好。
+        """
+        targets = [
+            item for item in items if item.page_count <= 0 or not item.author.strip()
+        ]
+        if not targets:
+            return
+
+        semaphore = asyncio.Semaphore(RANKING_DETAIL_CONCURRENCY)
+        cache = self._detail_cache()
+
+        async def fill(item: RankingItem) -> None:
+            cached = cache.get(item.comic_id)
+            if cached is not None and time.monotonic() - cached[0] <= RANKING_DETAIL_CACHE_TTL:
+                _, page_count, author = cached
+                item.page_count = item.page_count or page_count
+                item.author = item.author or author
+                return
+            async with semaphore:
+                # 并发打太密会被 Cloudflare 连着回 403，隔一点再发
+                await asyncio.sleep(RANKING_DETAIL_INTERVAL)
+                try:
+                    detail = await asyncio.wait_for(
+                        self._fetch_detail_via_scraper(item.comic_id, domain),
+                        timeout=RANKING_DETAIL_TIMEOUT,
+                    )
+                except Exception as exc:  # noqa: BLE001 - 补数据失败只影响这一行
+                    logger.debug(
+                        f"[{PLUGIN_NAME}] 榜单补详情失败（{item.comic_id}）：{exc}"
+                    )
+                    return
+                page_count, author = detail
+                if item.page_count <= 0 and page_count > 0:
+                    item.page_count = page_count
+                if not item.author.strip() and author:
+                    item.author = author
+                cache[item.comic_id] = (time.monotonic(), page_count, author)
+
+        # 补详情不能把整次榜单顶到外层超时：给它留出外层「单渠道榜单超时」的余量
+        budget = max(3, min(RANKING_ENRICH_BUDGET, self.settings.ranking_timeout - 5))
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(fill(item) for item in targets)), timeout=budget
+            )
+        except asyncio.TimeoutError:
+            logger.info(
+                f"[{PLUGIN_NAME}] Hanime1 榜单补详情超过 {budget} 秒，"
+                "未补到的条目按「页数未知」展示"
+            )
+
+    async def _fetch_detail_via_scraper(
+        self, comic_id: str, domain: str
+    ) -> tuple[int, str]:
+        """抓一次作品页，取（页数, 作者）；抓不到就抛给调用方当「这一行补不上」。"""
+        scraper = self._scraper()
+        url = build_page_url(domain, PATH_DETAIL.format(comic_id=comic_id))
+        document = await asyncio.to_thread(scraper.fetch_text, url)
+        parsed = parse_detail(comic_id, document)
+        return parsed.resolved_page_count, parsed.author
 
     def _build_downloader(self) -> ImageDownloader:
         site = self._single_option("site_domains", DEFAULT_SITE_DOMAINS)

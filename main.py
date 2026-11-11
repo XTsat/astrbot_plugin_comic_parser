@@ -1576,14 +1576,7 @@ class ComicParserPlugin(Star):
             if not channel.supports_ranking:
                 yield event.plain_result(f"❌ {channel.display_name} 暂不支持排行榜")
                 return
-            if board not in channel.ranking_boards:
-                supported = "、".join(
-                    board_label(item) for item in channel.ranking_boards
-                )
-                yield event.plain_result(
-                    f"❌ {channel.display_name} 没有{board_label(board)}，只有：{supported}"
-                )
-                return
+            # 缺档不拦：由 ranking_service 自动改看最近的一档，并在结果里说明
             targets = [channel]
         else:
             targets = self.ranking_service.rankable()
@@ -1667,10 +1660,20 @@ class ComicParserPlugin(Star):
             return
 
         label = board_label(result.board)
+        # 聚合模式下各渠道接续编号，卡片上的名次与文字版、与「回序号」用的是同一套数字
+        offset = 0
         for channel, page in result.pages:
+            command = "/comic" if result.aggregate else f"/{channel.display_command}"
+            first = result.start_index + offset
             card = await self.ranking_card.render(
-                channel, page, board_label=label, page_number=result.page
+                channel,
+                page,
+                board_label=label,
+                page_number=result.page,
+                start_index=offset,
+                download_hint=f"下载：{command} {first}（把 {first} 换成上面的序号）",
             )
+            offset += len(page.items)
             if card is None:
                 continue
             if card.note:

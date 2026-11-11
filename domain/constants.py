@@ -133,8 +133,9 @@ DEFAULT_RANKING_ENABLED: Final = True
 DEFAULT_RANKING_TIMEOUT: Final = 15
 # 单渠道每页条数：榜单看前十就够，再多刷屏
 DEFAULT_RANKING_PAGE_SIZE: Final = 10
-# 聚合时每个渠道取前几条：全渠道一起发时每个渠道都只给头部，避免一条消息几百行
-DEFAULT_RANKING_AGGREGATE_LIMIT: Final = 5
+# 聚合时每个渠道取前几条：全渠道一起发时每个渠道都只给头部。默认 3 —— 六家 × 3 = 18 条，
+# 既不会把单条消息撑到被平台截断，榜单这件事本身看的也就是前几名
+DEFAULT_RANKING_AGGREGATE_LIMIT: Final = 3
 # 榜单缓存时长（秒）：榜单比搜索结果稳定得多，翻页与重复查看不必回回打上游
 DEFAULT_RANKING_CACHE_TTL: Final = 300
 # 同会话榜单冷却（秒）：与搜索同理，防一个人连续刷上游

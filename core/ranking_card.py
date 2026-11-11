@@ -7,7 +7,8 @@
 - **打码开关跟封面共用一套配置**（``cover.censor.*``）：榜单里的封面和「下载完成后发的那
   张封面」风险一样，用户开一次就该两处都生效。
 - **打不开检测也不裸发**：单封面流程是「检测跑不起来就不发这张图」，但一页多张图整页
-  放弃代价太大，这里退化成**整图打码**——仍然是「绝不把没糊的图发出去」，只是糊得更多。
+  放弃代价太大，这里退化成**把这张封面整张糊掉**再拼——仍然是「绝不把没糊的图发出去」，
+  而卡片上的名次、标题、脚注照常可读（整张卡片一起糊等于把一页榜单糊成一团色块）。
 - **渲染必须离开事件循环**：贴图、缩放、模糊都是纯 CPU 活，统一走 ``asyncio.to_thread``。
 """
 
@@ -24,6 +25,7 @@ from astrbot.api import logger
 
 from ..domain import RankingItem, RankingPage
 from ..domain.constants import (
+    IMAGE_SUFFIXES,
     PLUGIN_NAME,
     RANKING_CARD_AUTHOR_CHARS,
     RANKING_CARD_GAP,
@@ -61,6 +63,29 @@ _PLACEHOLDER = (236, 238, 243)
 CARD_FILE_TTL = 3600.0
 
 
+def _sniff_suffix(payload: bytes) -> str:
+    """按图片头猜后缀，认不出就按 PNG 存。
+
+    打码是就地写回原文件，而 Pillow 只按**文件名后缀**决定保存格式：中间封面若统一叫
+    ``.img``，每张都会在保存时抛 unknown file extension，打码一律失败。
+    """
+    if payload.startswith(b"\xff\xd8\xff"):
+        suffix = ".jpg"
+    elif payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        suffix = ".png"
+    elif payload[:6] in {b"GIF87a", b"GIF89a"}:
+        suffix = ".gif"
+    elif payload[:4] == b"RIFF" and payload[8:12] == b"WEBP":
+        suffix = ".webp"
+    elif payload[:2] == b"BM":
+        suffix = ".bmp"
+    elif payload[4:12] in {b"ftypavif", b"ftypavis"}:
+        suffix = ".avif"
+    else:
+        suffix = ".png"
+    return suffix if suffix in IMAGE_SUFFIXES else ".png"
+
+
 @dataclass(slots=True)
 class CardResult:
     """一张榜单卡片的成品与打码结论。"""
@@ -71,6 +96,7 @@ class CardResult:
     drawn: int  # 实际画进卡片的封面数
     missing: int  # 没取到的封面数
     note: str = ""
+    fallback_covers: int = 0  # 检测跑不起来、只能整张糊掉的封面数
 
 
 class RankingCardRenderer:
@@ -109,8 +135,14 @@ class RankingCardRenderer:
         *,
         board_label: str,
         page_number: int = 1,
+        start_index: int = 0,
+        download_hint: str = "",
     ) -> CardResult | None:
-        """渲染一页榜单；没有可画的条目时返回 None。"""
+        """渲染一页榜单；没有可画的条目时返回 None。
+
+        ``start_index`` 是这张卡片第一条在本次榜单里的全局序号（聚合模式下各渠道接续
+        编号），``download_hint`` 是脚注里那句「怎么下载」——两处都由命令层给，卡片只负责画。
+        """
         items = page.items[: self.page_size]
         if not items:
             return None
@@ -130,33 +162,29 @@ class RankingCardRenderer:
             channel.display_name,
             board_label,
             page_number,
+            start_index,
+            download_hint,
         )
 
         await asyncio.to_thread(self._drop_staged, staged, out_path)
 
-        full_censored = False
         note = ""
-        if self.censor and censor_state.needs_full:
-            # 检测跑不起来（没模型/推理失败）时整图糊：宁可难看，也不能把没糊的图发出去
-            await asyncio.to_thread(
-                censor_full_image,
-                out_path,
-                style=self.censor_style,
-                block=self.censor_block,
-            )
-            full_censored = True
-            note = "打码检测不可用，已整张打码"
+        if self.censor and censor_state.fallback:
+            # 检测跑不起来（没模型/推理失败）时在拼图前就把那几张封面整张糊掉了，
+            # 卡片本身不动：名次、标题、脚注都要留着给人看
+            note = f"打码检测不可用，卡片上的 {censor_state.fallback} 张封面已整张打码"
             logger.warning(
-                f"[{PLUGIN_NAME}] {channel.display_name} 榜单检测不可用，已整张打码："
-                f"{censor_state.reason}"
+                f"[{PLUGIN_NAME}] {channel.display_name} 榜单打码检测不可用，"
+                f"已整张糊掉 {censor_state.fallback} 张封面：{censor_state.reason}"
             )
         return CardResult(
             path=out_path,
-            censored=self.censor and (censor_state.hit or full_censored),
-            full_censored=full_censored,
+            censored=self.censor and (censor_state.hit or censor_state.fallback > 0),
+            full_censored=False,
             drawn=drawn,
             missing=missing,
             note=note,
+            fallback_covers=censor_state.fallback,
         )
 
     async def reinforce(self, result: CardResult) -> CardResult:
@@ -174,6 +202,7 @@ class RankingCardRenderer:
             drawn=result.drawn,
             missing=result.missing,
             note="平台拦下了这张图，已整张重糊后重发",
+            fallback_covers=result.fallback_covers,
         )
 
     @staticmethod
@@ -221,7 +250,9 @@ class RankingCardRenderer:
                     return None
                 if not payload or len(payload) > RANKING_COVER_MAX_BYTES:
                     return None
-                target = covers_dir / f"cover-{index:02d}.img"
+                # 临时文件必须带真实图片后缀：打码是就地写回，后缀不是 Pillow 认得的
+                # 扩展名时会直接报 unknown file extension，整批封面等于打不了码
+                target = covers_dir / f"cover-{index:02d}{_sniff_suffix(payload)}"
                 try:
                     await asyncio.to_thread(target.write_bytes, payload)
                 except OSError as exc:
@@ -235,29 +266,43 @@ class RankingCardRenderer:
         return list(results)
 
     def _censor_covers(self, staged: list[Path | None]) -> "_CensorState":
-        """逐张检测并打码（检测器自身串行，所以一并放在一次线程调用里）。"""
+        """逐张检测并打码（检测器自身串行，所以一并放在一次线程调用里）。
+
+        检测跑不起来的那张退化成**整张糊掉这张封面**；连整张糊都失败就把这张封面从
+        待贴列表里摘掉（画成占位块），绝不把没糊过的图拼进卡片。
+        """
         state = _CensorState()
         if not self.censor:
             return state
         detector = self.detector
         if detector is None or detector.model_path is None:
-            # 开关打开但模型没到位：整图兜底，别把没糊的图发出去
-            state.needs_full = True
+            # 开关打开但模型没到位：逐张整张糊，卡片照常出
             state.reason = "没有可用的检测模型"
+            for index, path in enumerate(staged):
+                if path is None:
+                    continue
+                if self._censor_whole_cover(path):
+                    state.fallback += 1
+                else:
+                    staged[index] = None
             return state
 
-        for path in staged:
+        for index, path in enumerate(staged):
             if path is None:
                 continue
             try:
                 analysis = detector.analyze(path)
             except Exception as exc:  # noqa: BLE001 - 检测后端异常统一降级
-                state.needs_full = True
-                state.reason = f"检测执行失败：{exc}"
-                continue
-            if analysis.failed:
-                state.needs_full = True
-                state.reason = "检测执行失败"
+                analysis = None
+                reason = f"检测执行失败：{exc}"
+            else:
+                reason = "检测执行失败" if analysis.failed else ""
+            if analysis is None or analysis.failed:
+                if self._censor_whole_cover(path):
+                    state.fallback += 1
+                    state.reason = state.reason or reason
+                else:
+                    staged[index] = None
                 continue
             if not analysis.detections:
                 continue
@@ -271,13 +316,25 @@ class RankingCardRenderer:
                     padding=self.censor_padding,
                     full_area=self.full_censor_area,
                 )
-            except Exception as exc:  # noqa: BLE001 - 糊图失败时整图兜底
-                state.needs_full = True
-                state.reason = f"打码失败：{exc}"
+            except Exception as exc:  # noqa: BLE001 - 糊图失败时退回整张糊这张封面
+                if self._censor_whole_cover(path):
+                    state.fallback += 1
+                    state.reason = state.reason or f"打码失败：{exc}"
+                else:
+                    staged[index] = None
                 continue
             if censored:
                 state.hit = True
         return state
+
+    def _censor_whole_cover(self, path: Path) -> bool:
+        """把一张封面整张糊掉，返回是否成功（失败的那张不能贴进卡片）。"""
+        try:
+            censor_full_image(path, style=self.censor_style, block=self.censor_block)
+        except Exception as exc:  # noqa: BLE001 - 单张糊失败只记日志，别拖垮整张卡片
+            logger.warning(f"[{PLUGIN_NAME}] 榜单封面整张打码失败：{exc}")
+            return False
+        return True
 
     # ---- 排版 ----
     def _compose(
@@ -288,6 +345,8 @@ class RankingCardRenderer:
         channel_name: str,
         board_label: str,
         page_number: int,
+        start_index: int,
+        download_hint: str,
     ) -> tuple[int, int]:
         """把封面与文字画成一张图，返回（画进去的张数, 缺图的张数）。"""
         width = RANKING_CARD_WIDTH
@@ -343,7 +402,7 @@ class RankingCardRenderer:
                 canvas,
                 draw,
                 item=item,
-                index=index + 1,
+                index=start_index + index + 1,
                 staged=staged_cover,
                 left=left,
                 top=cell_top,
@@ -360,11 +419,8 @@ class RankingCardRenderer:
                 missing += 1
 
         # 脚注
-        footer_y = height - pad - foot_font.size * 2 - 6
-        hints = (
-            "回序号下载（如 3），也可以直接贴作品 ID",
-            "看后面的名次：/comic 下一页",
-        )
+        hints = [hint for hint in (download_hint, "看后面的名次：/comic 下一页") if hint]
+        footer_y = height - pad - foot_font.size * len(hints) - 6
         for offset, text in enumerate(hints):
             foot_font.draw(
                 draw,
@@ -500,8 +556,8 @@ class RankingCardRenderer:
 
 @dataclass(slots=True)
 class _CensorState:
-    """一轮封面打码的结论：有没有真的糊到、要不要整图兜底。"""
+    """一轮封面打码的结论：有没有真的糊到、有多少张只能整张糊。"""
 
     hit: bool = False
-    needs_full: bool = False
+    fallback: int = 0
     reason: str = ""

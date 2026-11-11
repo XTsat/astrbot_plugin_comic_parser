@@ -41,6 +41,16 @@ DEFAULT_IMAGE_CONCURRENCY: Final = 5
 
 # 读取页数上限：站点返回的 data-pages 异常时，防止拼出天量图片地址
 MAX_PAGES: Final = 2000
+
+# 榜单补详情：列表页只有标题与封面，页数与作者要进作品页才拿得到（实测 1.5–2 秒一条）。
+# 并发补、并且盖一个总时限——超标的那几条留空，不能为了凑页数把整条榜单拖成超时
+RANKING_DETAIL_CONCURRENCY: Final = 3
+RANKING_DETAIL_TIMEOUT: Final = 12
+RANKING_ENRICH_BUDGET: Final = 10
+# 补详情之间留一点间隔：一口气并发打过去，Cloudflare 会连着回 403
+RANKING_DETAIL_INTERVAL: Final = 0.3
+# 补到的页数/作者缓存多久（秒）：同一本第二次上榜时不必再抓一次
+RANKING_DETAIL_CACHE_TTL: Final = 1800
 # 小于这个体积的响应几乎不可能是真图片（多为防盗链的 HTML 错误页）
 MIN_IMAGE_BYTES: Final = 512
 

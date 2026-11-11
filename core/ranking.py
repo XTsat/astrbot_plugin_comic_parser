@@ -40,8 +40,9 @@ from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
 
 _WHITESPACE = re.compile(r"\s+")
-# 标题/作者的展示上限：榜单里的标题常带整段宣传语，原样发出去会刷屏
-_TITLE_LIMIT = 40
+# 标题/作者的展示上限：榜单里的标题常带整段宣传语，原样发出去会刷屏。
+# 60 字是折中：Hanime1 这类「[社团] 日文原名 | 中文译名」的标题在 40 字时几乎只剩社团名
+_TITLE_LIMIT = 60
 _AUTHOR_LIMIT = 16
 
 
@@ -77,6 +78,7 @@ class RankingResult:
     text: str
     aggregate: bool
     count: int = 0  # 这一页实际拿到了多少条；0 表示这页是空的
+    start_index: int = 1  # 这一页第一条的序号（翻页后接续，与搜索一致）
     elapsed: float = 0.0
     # 图片版用：每个渠道这一页的原始结果（文字版不需要，渲染卡片时才用得上）
     pages: list[tuple[BaseChannel, RankingPage]] = field(default_factory=list)
@@ -102,8 +104,9 @@ class _CacheEntry:
 class _RankingSession:
     """本会话最近一次榜单：翻页参数与序号表。
 
-    ``entries`` 只存**当前这一页**的条目，编号从 1 开始：榜单名次是页内概念，
-    跨页累计编号反而会让用户按序号下载到与画面对不上的一本。
+    ``entries`` 只存**当前这一页**的条目，但编号与搜索一致、跨页连续：``counts``
+    记住每一页展示了几条，第 N 页的起始序号就是前面各页之和 + 1。这样「翻页后回序号」
+    与搜索是同一套心智，也不会出现「第 2 页又从 1 开始、回 3 下到第 1 页那本」。
     """
 
     stored_at: float
@@ -112,6 +115,8 @@ class _RankingSession:
     order: list[str]  # 渠道名，决定展示顺序
     page: int = 1
     entries: list[tuple[str, str]] = field(default_factory=list)  # (渠道名, 作品 ID)
+    start_index: int = 1  # 当前这一页第一条的序号
+    counts: dict[int, int] = field(default_factory=dict)  # 页码 → 该页展示了几条
 
 
 class RankingService:
@@ -196,23 +201,28 @@ class RankingService:
                 error=f"{channel.display_name} 暂不支持排行榜",
                 elapsed=time.monotonic() - started,
             )
+        # 缺档不再跳过：按最近的一档取，并在说明里写清「你要的是哪档、实际看的是哪档」。
+        # 榜单这件事「有内容」比「档位严格」重要，尤其 E-Hentai 只有一档「当前热门」。
+        requested = board
+        fallback_note = ""
         if not self.supports_board(channel, board):
-            return RankingOutcome(
-                channel=channel,
-                page=RankingPage(
-                    channel=channel.name,
-                    board=board,
-                    # 说明只写「缺哪一档」：渠道名由渲染层按渠道分组统一加，拼在这里会重复
-                    note=f"没有{board_label(board)}这一档，已跳过",
-                ),
-                elapsed=time.monotonic() - started,
-            )
+            fallback = self._fallback_board(channel, board)
+            if fallback is None:
+                return RankingOutcome(
+                    channel=channel,
+                    error=f"{channel.display_name} 暂不支持排行榜",
+                    elapsed=time.monotonic() - started,
+                )
+            board = fallback
+            fallback_note = f"没有{board_label(requested)}，已改看{board_label(fallback)}"
 
         cache_key = (channel.name, board, page, limit)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return RankingOutcome(
-                channel=channel, page=cached, elapsed=time.monotonic() - started
+                channel=channel,
+                page=self._relabel(cached, requested, fallback_note),
+                elapsed=time.monotonic() - started,
             )
 
         timeout = max(1, int(getattr(self.settings, "ranking_timeout", 15)))
@@ -273,8 +283,46 @@ class RankingService:
 
         if result is not None and not result.empty:
             self._cache_put(cache_key, result)
+            result = self._relabel(result, requested, fallback_note)
         return RankingOutcome(
             channel=channel, page=result, elapsed=time.monotonic() - started
+        )
+
+    # 档位从窄到宽：缺档时按这个顺序找最近的一档（同样远时优先更窄的那档）
+    _BOARD_ORDER = ("day", "week", "month", "all")
+
+    def _fallback_board(self, channel: BaseChannel, board: str) -> str | None:
+        """渠道没有这一档时用哪一档顶：取距离最近的一档，等距时用更窄的。"""
+        available = [item for item in self._BOARD_ORDER if item in channel.ranking_boards]
+        if not available:
+            return None
+        if board not in self._BOARD_ORDER:
+            return available[0]
+        index = self._BOARD_ORDER.index(board)
+        return min(
+            available,
+            key=lambda item: (
+                abs(self._BOARD_ORDER.index(item) - index),
+                self._BOARD_ORDER.index(item),
+            ),
+        )
+
+    @staticmethod
+    def _relabel(
+        page: RankingPage, requested: str, fallback_note: str
+    ) -> RankingPage:
+        """把「实际取到的档位」标成用户要的那一档，并附上改看说明。
+
+        返回新对象：``page`` 可能是缓存里的实例，就地改会污染后续请求。
+        """
+        note = "；".join(part for part in (fallback_note, page.note) if part)
+        return RankingPage(
+            channel=page.channel,
+            board=requested,
+            items=page.items,
+            total=page.total,
+            has_more=page.has_more,
+            note=note,
         )
 
     async def ranking_all(
@@ -382,9 +430,10 @@ class RankingService:
         if index < 1 or not self.session_active(session_id):
             return None
         session = self._sessions[session_id]
-        if index > len(session.entries):
+        local = index - session.start_index + 1
+        if local < 1 or local > len(session.entries):
             return None
-        channel_name, comic_id = session.entries[index - 1]
+        channel_name, comic_id = session.entries[local - 1]
         channel = self.channels.get(channel_name)
         if channel is None or not channel.enabled:
             return None
@@ -401,11 +450,12 @@ class RankingService:
             return None
         if self.session_active(session_id):
             session = self._sessions[session_id]
-            if index <= len(session.entries):
+            last = session.start_index + len(session.entries) - 1
+            if session.start_index <= index <= last:
                 return None
             return (
-                f"❌ 这次的榜单只到第 {len(session.entries)} 名："
-                f"发「/comic 下一页」看后面的名次"
+                f"❌ 这一页的序号是 {session.start_index}–{last}："
+                "翻页看后面的名次，或按作品 ID 直接下载"
             )
         if session_id in self._sessions:
             self._sessions.pop(session_id, None)
@@ -440,21 +490,46 @@ class RankingService:
             )
 
         elapsed = max((outcome.elapsed for outcome in outcomes), default=0.0)
+        shown = {channel.name for channel, _ in pages} if aggregate else set()
         extra = "\n".join(
             part
             for part in (
                 self._failure_lines(outcomes),
-                self._note_lines(outcomes),
+                self._note_lines(outcomes, skip=shown),
             )
             if part
         )
-        text = self._render_text(
+        # 超长时按「每个渠道都留几条」来缩，而不是把最后几个渠道整段砍掉：
+        # 砍尾会让用户以为后几家没上榜，缩成「每渠道前 2 名」至少每家都在
+        pages, per_channel = self._fit_pages(
+            pages,
             board=board,
             page=page,
             aggregate=aggregate,
-            pages=pages,
             elapsed=elapsed,
             extra=extra,
+            start_index=self._page_start(session_id, page),
+        )
+        if per_channel is not None:
+            entries = [
+                (channel.name, str(item.comic_id))
+                for channel, channel_page in pages
+                for item in channel_page.items
+            ]
+            order = [channel.name for channel, _ in pages]
+        # 先按原样渲染（不截断）→ 超长时缩条数 → 最后才用 _bounded 兜底
+        start_index = self._page_start(session_id, page)
+        text = self._bounded(
+            self._render_text(
+                board=board,
+                page=page,
+                aggregate=aggregate,
+                pages=pages,
+                elapsed=elapsed,
+                extra=extra,
+                per_channel=per_channel,
+                start_index=start_index,
+            )
         )
         result = RankingResult(
             board=board,
@@ -463,12 +538,71 @@ class RankingService:
             aggregate=aggregate,
             count=len(entries),
             elapsed=elapsed,
+            start_index=start_index,
             pages=pages,
             warnings=extra,
         )
         if session_id and pages:
-            self._store_session(session_id, board, page, aggregate, order, entries)
+            self._store_session(
+                session_id, board, page, aggregate, order, entries, start_index
+            )
         return result
+
+    def _fit_pages(
+        self,
+        pages: list[tuple[BaseChannel, RankingPage]],
+        *,
+        board: str,
+        page: int,
+        aggregate: bool,
+        elapsed: float,
+        extra: str,
+        start_index: int = 1,
+    ) -> tuple[list[tuple[BaseChannel, RankingPage]], int | None]:
+        """把一页结果缩到单条消息放得下；返回（缩过的页, 每渠道保留几条或 None）。
+
+        只缩聚合结果：单渠道一页就是配置的条数，本来就放得下。缩的时候整渠道一起缩，
+        避免「前几家全显示、后几家一条不剩」——那种截断看起来像平台漏消息。
+        """
+        if not aggregate or len(pages) <= 1:
+            return pages, None
+
+        widest = max(len(channel_page.items) for _, channel_page in pages)
+        for per in range(widest - 1, 0, -1):
+            trial = [
+                (
+                    channel,
+                    RankingPage(
+                        channel=channel_page.channel,
+                        board=channel_page.board,
+                        items=channel_page.items[:per],
+                        total=channel_page.total,
+                        has_more=channel_page.has_more,
+                        note=channel_page.note,
+                    ),
+                )
+                for channel, channel_page in pages
+            ]
+            trial_text = self._render_text(
+                board=board,
+                page=page,
+                aggregate=aggregate,
+                pages=trial,
+                elapsed=elapsed,
+                extra=extra,
+                per_channel=per,
+                start_index=start_index,
+            )
+            if len(trial_text) <= RANKING_MAX_TEXT_CHARS:
+                return trial, per
+        return pages, None
+
+    def _page_start(self, session_id: str, page: int) -> int:
+        """第 ``page`` 页第一条的序号：前面各页展示条数之和 + 1（与搜索一致）。"""
+        session = self._sessions.get(session_id) if session_id else None
+        if session is None:
+            return 1
+        return 1 + sum(count for no, count in session.counts.items() if no < page)
 
     def _store_session(
         self,
@@ -478,6 +612,7 @@ class RankingService:
         aggregate: bool,
         order: list[str],
         entries: list[tuple[str, str]],
+        start_index: int = 1,
     ) -> None:
         if len(self._sessions) > RANKING_RESULT_MAX_SESSIONS:
             now = time.monotonic()
@@ -491,6 +626,12 @@ class RankingService:
                 )[:overflow]
                 for key in oldest:
                     self._sessions.pop(key, None)
+        previous = self._sessions.get(session_id)
+        counts = dict(previous.counts) if previous is not None else {}
+        if previous is not None and previous.board == board:
+            counts[page] = len(entries)
+        else:
+            counts = {page: len(entries)}
         self._sessions[session_id] = _RankingSession(
             stored_at=time.monotonic(),
             board=board,
@@ -498,6 +639,8 @@ class RankingService:
             order=order,
             page=page,
             entries=entries,
+            start_index=start_index,
+            counts=counts,
         )
 
     def _render_text(
@@ -509,6 +652,8 @@ class RankingService:
         pages: list[tuple[BaseChannel, RankingPage]],
         elapsed: float,
         extra: str,
+        per_channel: int | None = None,
+        start_index: int = 1,
     ) -> str:
         title = (
             f"🏆 全渠道{board_label(board)}"
@@ -517,39 +662,70 @@ class RankingService:
         )
         if page > 1:
             title += f"（第 {page} 页）"
-        lines = [title, ""]
 
-        index = 0
+        # 条目行与「渠道小标题」分开收集：整条消息超长时要先丢条目、保住脚注与下载提示，
+        # 否则用户拿到的是一段被截断的榜单——连怎么下载、能不能翻页都被截掉了
+        body: list[str] = []
+        total = 0
         for channel, channel_page in pages:
             if aggregate:
-                lines.append(f"【{channel.display_name}】")
+                body.append(f"【{channel.display_name}】")
             for item in channel_page.items:
-                index += 1
-                lines.append(self._format_item(index, item))
+                total += 1
+                body.append(self._format_item(start_index + total - 1, item))
+            if aggregate and channel_page.note:
+                body.append(f"ℹ️ {channel_page.note}")
             if aggregate:
-                lines.append("")
+                body.append("")
 
-        if extra:
-            lines.append(extra)
-
-        lines.append("")
         footer = f"第 {page} 页"
         if elapsed and page == 1:
             footer += f" · 用时 {elapsed:.1f}s"
-        lines.append(footer)
-        if index:
-            lines.append("下载：直接回序号（如 3），或用对应渠道命令贴 ID")
+        tail: list[str] = []
+        if extra:
+            tail.extend([extra, ""])
+        tail.append(footer)
+        if total:
+            # 与搜索同一句式：序号要带命令发，插件不监听裸数字
+            command = self._nav_command(aggregate, pages)
+            tail.append(
+                f"下载：{command} {start_index}（把 {start_index} 换成上面的序号）"
+            )
         else:
-            lines.append("这次没有拿到榜单内容，换个时间窗或稍后再试")
-        nav = self._nav_hint(page)
+            tail.append("这次没有拿到榜单内容，换个时间窗或稍后再试")
+        nav = self._nav_hint(page, any(channel_page.has_more for _, channel_page in pages))
         if nav:
-            lines.append(nav)
-        return self._bounded("\n".join(lines))
+            tail.append(nav)
 
-    def _nav_hint(self, page: int) -> str:
+        head = [title, ""]
+        if per_channel is not None:
+            body.append(
+                f"（受单条消息长度限制，每家只列前 {per_channel} 名；"
+                "想看完整名次就只查一个渠道）"
+            )
+            body.append("")
+        lines = head + body + tail
+        return "\n".join(lines)
+
+    @staticmethod
+    def _nav_command(
+        aggregate: bool, pages: list[tuple[BaseChannel, RankingPage]]
+    ) -> str:
+        """下载提示里用哪个命令：聚合看 `/comic`，单渠道用它自己的命令。"""
+        if not aggregate and pages:
+            return f"/{pages[0][0].display_command}"
+        return "/comic"
+
+    def _nav_hint(self, page: int, has_more: bool) -> str:
+        """翻页提示：没有下一页时不提「下一页」，免得用户白翻一次。"""
+        parts: list[str] = []
         if page > 1:
-            return "上一页：/comic 上一页　下一页：/comic 下一页"
-        return "下一页：/comic 下一页"
+            parts.append("上一页：/comic 上一页")
+        if has_more:
+            parts.append("下一页：/comic 下一页")
+        if parts:
+            return "　".join(parts)
+        return "最后一页了：想看别的档位可以换时间窗" if page > 1 else ""
 
     def _format_item(self, index: int, item: RankingItem) -> str:
         raw_title = item.title or item.display_title
@@ -565,12 +741,14 @@ class RankingService:
         return f"{index}. {title}{meta}　ID：{item.comic_id}{mark}"
 
     @staticmethod
-    def _note_lines(outcomes: list[RankingOutcome]) -> str:
+    def _note_lines(outcomes: list[RankingOutcome], skip: set[str] | None = None) -> str:
         """把各渠道的降级说明按文案分组，避免同一句话重复四遍。"""
         grouped: dict[str, list[str]] = {}
         for outcome in outcomes:
             page = outcome.page
             if page is None or not page.note:
+                continue
+            if skip and outcome.channel.name in skip:
                 continue
             grouped.setdefault(page.note, []).append(outcome.channel.display_name)
         return "\n".join(

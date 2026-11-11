@@ -82,8 +82,13 @@ def _save(image: Image.Image, path: Path) -> None:
     suffix = path.suffix.lower()
     if suffix in {".jpg", ".jpeg"}:
         image.save(path, quality=92)
-    else:
+        return
+    try:
         image.save(path)
+    except ValueError:
+        # 后缀不是 Pillow 认得的图片扩展名（榜单卡片把取到的封面原样存成 cover-00.img），
+        # Pillow 会报 unknown file extension；退回 PNG 写回，别让整次打码白跑
+        image.save(path, "PNG")
 
 
 def censor_cover(
