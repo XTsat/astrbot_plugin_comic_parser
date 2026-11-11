@@ -1,4 +1,4 @@
-"""JM 漫画渠道的 `BaseChannel` 实现：拿 ID → 取元信息 → 下载图片。
+"""禁漫天堂（JM）渠道的 `BaseChannel` 实现：拿 ID → 取元信息 → 下载图片。
 
 打包与加密完全交给上层，所以这里看不到任何 zip/pdf/密码相关逻辑。
 """
@@ -137,7 +137,7 @@ class JMComicChannel(BaseChannel):
     name: ClassVar[str] = "jmcomic"
     command: ClassVar[str] = "jmcomic"
     command_aliases: ClassVar[tuple[str, ...]] = ("jm",)
-    display_name: ClassVar[str] = "JM 漫画"
+    display_name: ClassVar[str] = "禁漫天堂"
     website: ClassVar[str] = "https://18comic.vip"
     link_template: ClassVar[str] = "https://18comic.vip/album/<ID>"
     default_use_proxy: ClassVar[bool] = False
@@ -180,7 +180,7 @@ class JMComicChannel(BaseChannel):
         matched = _FIRST_DIGITS.search(text)
         if matched:
             return matched.group(0)
-        raise ChannelError("无法从输入中识别出 JM 漫画 ID，请直接给出数字 ID")
+        raise ChannelError("无法从输入中识别出禁漫天堂的作品 ID，请直接给出数字 ID")
 
     # ---- 元信息 ----
     async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:

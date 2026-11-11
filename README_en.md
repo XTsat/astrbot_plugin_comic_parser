@@ -42,7 +42,7 @@
 | `/comic stop` (same for `/jm stop` and other channel commands; also `取消`, `停止`) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so `/comic retry` resumes. Admins can use `/comic stop 全部` to cancel every session |
 | `/comic status` (also `状态`, `队列`) | Everyone (admins can use `/comic status 全部` for every session) | Shows the downloads running and queueing in this session: live progress, bytes fetched and elapsed time for running ones, queue position for waiting ones; read-only, it never interrupts a download |
 | `/comic retry` (also `重试`, `继续`) | Everyone (subject to whitelist/blacklist) | Continues the last comic this session downloaded, so you do not have to scroll back after a pause, an interruption or a failure; an added format word (`/comic retry zip`) changes the format for this retry only. Add `全部` (also `all`, `所有`) to continue every comic this session downloaded, in the order they were requested; a format word can be combined (`/comic retry 全部 zip`). Only works under `/comic`. The latest 30 records per session are stored on disk, so they survive a plugin reload |
-| `/comic help` (also `/漫画帮助`, `/comichelp`) | Everyone | Show available channels, pack format, password and progress settings |
+| `/comic help` (also `/漫画帮助`, `/comichelp`) | Everyone | Command cheat sheet: download / search / ranking / cancel, retry and queue syntax, plus current channels, pack format, password and progress settings |
 | `/comic site` (also `/comic sites`, `/漫画网站`, `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs |
 
 - `/comic` only accepts full links (a work page address with a domain) or a number from the latest search: a bare ID or a PicaACG `pica://` share cannot tell which site it belongs to, so use the matching channel command instead. Channel commands do not pin the site either: a nhentai link after `/jm` downloads that nhentai gallery, and the download summary states which site was actually used.
@@ -85,7 +85,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Download channels
 
 <details>
-<summary>JM comic channel options (10)</summary>
+<summary>JM (Jinman Tiantang) channel options (10)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|

@@ -805,7 +805,7 @@ class ComicParserPlugin(Star):
     async def cmd_jmcomic(
         self, event: AstrMessageEvent
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """下载 JM 漫画；`/jm sou 关键词` 只搜 JM。"""
+        """下载禁漫天堂作品；`/jm sou 关键词` 只搜禁漫天堂。"""
         async for result in self._handle_download(
             event, "jmcomic", self._command_args(event)
         ):
@@ -871,8 +871,8 @@ class ComicParserPlugin(Star):
         yield event.plain_result(self._render_help_text())
 
     def _render_help_text(self) -> str:
-        """拼出完整说明正文。"""
-        packs = "、".join(PACK_FORMATS)
+        """拼出说明正文：只列命令与当前设置，站点链接明细交给 `/comic site`。"""
+        packs = " / ".join(PACK_FORMATS)
         progress_labels = {"emoji": "贴表情", "text": "文本进度", "none": "关闭"}
         template_labels = {
             "id_short_title": "[简写ID]标题",
@@ -887,123 +887,89 @@ class ComicParserPlugin(Star):
         }
         if self.settings.upload_to_group_file:
             folder = self.settings.group_file_folder
-            fallback = (
-                "没有就新建"
-                if self.settings.group_file_create_folder
-                else "没有就传根目录"
-            )
-            group_file_desc = (
-                f"下载完成后传进「{folder}」（{fallback}）"
-                if folder
-                else "下载完成后传进群文件根目录"
-            )
+            group_file_text = f"群文件「{folder}」" if folder else "群文件 根目录"
         else:
-            group_file_desc = "关闭"
+            group_file_text = "群文件 关闭"
         if self.settings.segment_timeout > 0:
             minutes = max(1, round(self.settings.segment_timeout / 60))
-            resume_desc = f"每 {minutes} 分钟先暂停，再发同一条命令接着下"
+            resume_desc = f"每 {minutes} 分钟"
         else:
-            resume_desc = "不分段，一次下完"
+            resume_desc = "关闭"
         searchable = [
             channel
             for channel in self.channels.values()
             if channel.enabled and channel.supports_search
         ]
         if not self.settings.search_enabled:
-            search_desc = "未启用（在插件配置的「搜索」里打开）"
+            search_lines = "未启用（在插件配置的「搜索」里打开）\n"
         elif searchable:
-            search_desc = (
-                f"/comic sou <关键词> 一次搜 {len(searchable)} 个渠道；"
-                "也可 /<渠道命令> sou <关键词> 只搜一个"
+            search_lines = (
+                f"/comic sou <关键词> — 一次搜 {len(searchable)} 个渠道；"
+                "/<渠道命令> sou <关键词> 只搜一个\n"
+                "筛选：tag: author: actor: work: parody: group: language:"
+                "（前缀前加 - 排除，值含空格用引号；各站点支持程度不同）\n"
             )
         else:
-            search_desc = "当前没有支持搜索的渠道"
-        search_filter_desc = (
-            "搜索筛选：tag:标签 author:作者 actor:角色 work:作品 "
-            "parody:原作 group:社团 language:语言\n"
-            "（前缀前加 - 表示排除，值含空格用引号；JM 支持 tag/author/actor/work，"
-            "E-Hentai 支持全部（tag/work 为近似），其余渠道按关键词搜索、排除不生效）\n"
-            if self.settings.search_enabled and searchable
-            else ""
-        )
+            search_lines = "当前没有支持搜索的渠道\n"
+        cover_desc = "关闭"
         if self.settings.cover_send:
-            cover_desc = "下载完成后先发一张"
-            if self.settings.cover_censor:
-                cover_desc += "（已打码"
-                cover_desc += "，附检测说明" if self.settings.cover_caption else ""
-                cover_desc += "）"
-                model_label = CoverService.describe_model(
-                    self.nsfw_detector, self.settings.nsfw_model_preset
-                )
-                cover_desc += f"，评分模型：{model_label}"
-        else:
-            cover_desc = "关闭"
+            cover_desc = "发一张（已打码）" if self.settings.cover_censor else "发一张"
         rankable = [
             channel
             for channel in self.channels.values()
             if channel.enabled and channel.supports_ranking
         ]
         if not self.settings.ranking_enabled:
-            ranking_desc = "未启用（在插件配置的「排行榜」里打开）"
-        elif rankable:
-            output_labels = {"text": "文字版", "image": "图片版", "both": "文字 + 图片"}
-            ranking_desc = (
-                f"/comic 排行 [时间窗] 一次聚合 {len(rankable)} 个渠道；"
-                f"也可 /<渠道命令> 排行 只看一个；输出："
-                f"{output_labels.get(self.settings.ranking_output, '文字版')}"
-            )
+            ranking_lines = "未启用（在插件配置的「排行榜」里打开）\n"
+        elif not rankable:
+            ranking_lines = "当前没有支持排行榜的渠道\n"
         else:
-            ranking_desc = "当前没有支持排行榜的渠道"
-        if self.settings.ranking_enabled and rankable:
-            ranking_windows = "、".join(
-                board_label(item) for item in RANKING_BOARDS
-            )
-            ranking_filter_desc = (
-                f"榜单时间窗：{ranking_windows}"
-                f"（默认{board_label(self.settings.ranking_default_board)}）；"
-                "各渠道只开放自己有的那几档，缺的会在结果里说明\n"
+            windows = "|".join(board_label(item) for item in RANKING_BOARDS)
+            output_labels = {"text": "文字版", "image": "图片版", "both": "文字 + 图片"}
+            ranking_lines = (
+                f"/comic 排行 [{windows}] — 一次聚合 {len(rankable)} 个渠道；"
+                "/<渠道命令> 排行 只看一个\n"
+                f"默认{board_label(self.settings.ranking_default_board)}，"
+                "渠道缺这一档时自动改看最近的一档并注明；"
+                f"输出 {output_labels.get(self.settings.ranking_output, '文字版')}\n"
             )
             cap_label = self.settings.ranking_cap_label
             if cap_label:
-                ranking_filter_desc += (
-                    f"榜单上限：超过 {cap_label} 的作品不进榜（0 表示不限）\n"
-                )
-        else:
-            ranking_filter_desc = ""
+                ranking_lines += f"超过 {cap_label} 的作品不进榜（0 表示不限）\n"
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)
-        index_hint = (
-            f"回序号下载：搜索结果或榜单出来后，直接发 /comic <序号>（如 /comic 1），"
-            f"也可以 /<渠道命令> <序号>；翻页用 /comic 下一页、"
-            f"/<渠道命令> 上一页；序号在 {index_minutes} 分钟内有效\n"
-            if self.settings.search_enabled and searchable
+        lists_available = (self.settings.ranking_enabled and bool(rankable)) or (
+            self.settings.search_enabled and bool(searchable)
+        )
+        index_lines = (
+            f"回 /comic <序号> 下载（/<渠道命令> <序号> 同效）；"
+            f"/comic 下一页、/comic 上一页 翻页；序号 {index_minutes} 分钟内有效\n"
+            if lists_available
             else ""
         )
         text = (
-            f"📚 {PLUGIN_DISPLAY_NAME}\n"
+            f"📚 {PLUGIN_DISPLAY_NAME} · 用法速查\n\n"
+            f"📥 下载\n"
+            f"/comic <作品链接> [格式] — 自动识别站点\n"
+            f"/<渠道命令> <ID 或链接> [格式] — 只走该渠道\n"
+            f"格式：默认 {self.settings.pack_format}，可选 {packs}，写在末尾只改这一次\n\n"
+            f"🔍 搜索\n"
+            f"{search_lines}\n"
+            f"🏆 排行榜\n"
+            f"{ranking_lines}\n"
+            f"🔢 结果与任务\n"
+            f"{index_lines}"
+            f"/comic stop [全部] 取消 · /comic retry [全部] 接着下 · "
+            f"/comic status [全部] 看排队\n\n"
+            f"🌐 渠道\n"
             f"{describe_channels(self.channels)}\n\n"
-            f"🔗 支持的站点与作品页链接示意（<ID> 处替换成作品 ID）：\n"
-            f"{describe_links(self.channels)}\n\n"
-            f"🌐 支持的网站与作品页链接示意（找 ID 用）：/comic site\n\n"
-            f"打包格式：{self.settings.pack_format}（可选 {packs}）\n"
-            f"单次改格式：命令末尾加格式词，如 /jm 123456 pdf、/comic <链接> long_img，"
-            f"只对这一次生效（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
-            f"打包密码：{'已设置' if self.settings.pack_password else '未设置'}\n"
-            f"文件名模板：{template_labels.get(self.settings.filename_template, '[简写ID]标题')}\n"
-            f"进度提示：{progress_labels.get(self.settings.progress_style, '关闭')}\n"
-            f"封面：{cover_desc}\n"
-            f"下载分段：{resume_desc}\n"
-            f"群文件：{group_file_desc}\n"
-            f"用法：/comic <作品链接> [格式]，或 /<渠道命令> <ID 或链接> [格式]\n"
-            f"搜索：{search_desc}\n"
-            f"{search_filter_desc}"
-            f"排行榜：{ranking_desc}\n"
-            f"{ranking_filter_desc}"
-            f"{index_hint}"
-            f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
-            f"接着下：/comic retry（最近一本）、/comic retry 全部（本会话记录过的全下）\n"
-            f"查看排队：/comic status（管理员可用 /comic status 全部）\n"
-            f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错\n"
-            f"本说明：/comic help（也认 /漫画帮助）；站点速查：/comic site（也认 /漫画网址）"
+            f"⚙️ 当前设置\n"
+            f"密码{'已设置' if self.settings.pack_password else '未设置'} · "
+            f"文件名 {template_labels.get(self.settings.filename_template, '[简写ID]标题')} · "
+            f"封面 {cover_desc}\n"
+            f"进度 {progress_labels.get(self.settings.progress_style, '关闭')} · "
+            f"分段 {resume_desc} · {group_file_text}\n\n"
+            f"本说明 /comic help（也认 /漫画帮助） · 站点与链接速查 /comic site\n"
+            f"渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
         )
         return text
 

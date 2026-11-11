@@ -73,7 +73,7 @@ astrbot_plugin_comic_parser/
     ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
     ├── search.py                # 搜索编排：单渠道超时、聚合、缓存、翻页与结果渲染
     ├── channels/                # 每个渠道一个文件夹，渠道私有代码全在自己文件夹里
-    │   ├── jmcomic/             # JM 漫画渠道
+    │   ├── jmcomic/             # 禁漫天堂（JM）渠道
     │   │   ├── __init__.py      #   只导出 JMComicChannel（上层只认这个类）
     │   │   ├── channel.py       #   BaseChannel 实现：解析 ID → 元信息 → 下载
     │   │   ├── option.py        #   jmcomic 惰性 import + option 构建
@@ -417,7 +417,7 @@ async def on_message(
 | `/comic <作品链接>` | 全部（受白名单/黑名单约束） | 按链接自动识别站点并下载整本 |
 | `/comic sou <关键词>` | 全部（受白名单/黑名单约束） | 并发搜索所有支持搜索的渠道；每渠道单独超时，慢渠道跳过 |
 | `/jm sou <关键词>`（渠道命令同理） | 全部（受白名单/黑名单约束） | 只搜该渠道；`sou` 也认 `search`、`搜索`、`搜` |
-| `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 JM 漫画 |
+| `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本禁漫天堂作品 |
 | `/nh <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
 | `/comic help`（也认 `/漫画帮助`、`/comichelp`） | 全部 | 查看可用渠道、打包格式、密码与进度提示设置 |
 | `/comic site`（也认 `/comic sites`、`/漫画网站`、`/comicsites`） | 全部 | 列出各渠道官网与作品页链接示意（`<ID>` 占位），方便到站内找作品 ID |

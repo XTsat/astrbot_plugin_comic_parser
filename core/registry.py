@@ -59,7 +59,10 @@ def command_map(channels: dict[str, BaseChannel]) -> dict[str, BaseChannel]:
 
 
 def describe_channels(channels: dict[str, BaseChannel]) -> str:
-    """帮助文案里的渠道列表：行首是缩写命令，全称与其它别名收进括号，不单独占行。"""
+    """帮助文案里的渠道列表：一行一个，「命令 — 站点名（网络与其它别名）」。
+
+    用法在帮助的「下载」段落里统一讲过，这里不再逐个重复 `<ID 或链接>`。
+    """
     if not channels:
         return "（当前没有任何渠道，请先在插件配置里添加下载渠道）"
 
@@ -69,7 +72,7 @@ def describe_channels(channels: dict[str, BaseChannel]) -> str:
         others = [name for name in channel.command_names if name != channel.display_command]
         also = f"；也可用 {'、'.join(f'/{name}' for name in others)}" if others else ""
         lines.append(
-            f"/{channel.display_command} <ID 或链接> — {channel.display_name}{state}"
+            f"/{channel.display_command} — {channel.display_name}{state}"
             f"（网络：{channel.proxy_summary()}{also}）"
         )
     return "\n".join(lines)

@@ -5,7 +5,7 @@
     "hint": "内置渠道默认启用，装好即可用；要停用把对应渠道的「启用」关掉",
     "templates": {
       "jmcomic": {
-        "name": "JM 漫画（jm）",
+        "name": "禁漫天堂（jm）",
         "items": {
           "enable": {
             "type": "bool",
