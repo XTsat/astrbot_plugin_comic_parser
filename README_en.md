@@ -17,7 +17,7 @@
 - **Unified packing**: every download becomes a ZIP archive, a PDF or a long vertical image, or can simply stay on disk; a format word at the end of the command overrides it for that one download
 - **Encryption**: set one pack password and it applies, ZIP with AES and PDF with AES-256
 - **Visible progress**: the bot reacts on your command message by default (downloading → done / failed), and you can switch to text progress or turn it off
-- **Pause at the deadline, resume later**: a request that runs too long stops and keeps the images it already fetched, and `/comic retry` continues from there
+- **Pause at the deadline, resume later**: a request that runs too long stops and keeps the images it already fetched, and `/comic retry` continues from there; when several comics were interrupted, `/comic retry 全部` picks them all up at once
 - **Queueing and limits**: a global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
 - **Session control**: whitelist / blacklist decide who may download, and debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin picks the fastest one before downloading
@@ -41,7 +41,7 @@
 | `<download command> <format word>` | Everyone (subject to whitelist/blacklist) | Sets the pack format for this one download, overriding the "Pack format" setting; the values are `zip` / `pdf` / `long_img` / `none` (save locally only), and the Chinese words `压缩包` / `文档` / `长图` / `本地` work too |
 | `/comic stop` (same for `/jm stop` and other channel commands; also `取消`, `停止`) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so `/comic retry` resumes. Admins can use `/comic stop 全部` to cancel every session |
 | `/comic status` (also `状态`, `队列`) | Everyone (admins can use `/comic status 全部` for every session) | Shows the downloads running and queueing in this session: live progress, bytes fetched and elapsed time for running ones, queue position for waiting ones; read-only, it never interrupts a download |
-| `/comic retry` (also `重试`, `继续`) | Everyone (subject to whitelist/blacklist) | Continues the last comic this session downloaded, so you do not have to scroll back after a pause, an interruption or a failure; an added format word (`/comic retry zip`) changes the format for this retry only. Only works under `/comic`. The record is stored on disk, so it survives a plugin reload |
+| `/comic retry` (also `重试`, `继续`) | Everyone (subject to whitelist/blacklist) | Continues the last comic this session downloaded, so you do not have to scroll back after a pause, an interruption or a failure; an added format word (`/comic retry zip`) changes the format for this retry only. Add `全部` (also `all`, `所有`) to continue every comic this session downloaded, in the order they were requested; a format word can be combined (`/comic retry 全部 zip`). Only works under `/comic`. The latest 30 records per session are stored on disk, so they survive a plugin reload |
 | `/comic help` (also `/漫画帮助`, `/comichelp`) | Everyone | Show available channels, pack format, password and progress settings |
 | `/comic site` (also `/comic sites`, `/漫画网站`, `/comicsites`) | Everyone | List every supported site's homepage plus a sample work-page link with `<ID>` as a placeholder, so you can browse for comics and find IDs |
 

@@ -83,6 +83,7 @@ from .domain.constants import (
     PROGRESS_REACTIONS,
     PROGRESS_STALL_INTERVAL,
     LAST_REQUEST_FILENAME,
+    LAST_REQUEST_KEEP,
     LAST_REQUEST_LIMIT,
     PROGRESS_STEP_PERCENT,
     RESUME_DIRNAME,
@@ -127,7 +128,7 @@ class _RunningTask:
 
 @dataclass(slots=True)
 class _LastRequest:
-    """本会话最近一次真正开始下载的请求，`/comic retry` 用它原样重放。
+    """本会话的一条下载记录，`/comic retry` 用它原样重放。
 
     存的是**规范化之后的 ID**：搜索序号会过期、作品链接可能带分享尾巴，重放时再解析一遍
     只会多出失败点，不如记已经能直接下手的那个值。
@@ -136,6 +137,22 @@ class _LastRequest:
     command: str  # 渠道命令名（不带斜杠）
     comic_id: str
     pack_format: str | None = None
+
+
+def _parse_last_request(item: object) -> _LastRequest | None:
+    """把存盘的一条记录还原成 `_LastRequest`；字段缺失或类型不对就丢弃这一条。"""
+    if not isinstance(item, dict):
+        return None
+    command = item.get("command")
+    comic_id = item.get("comic_id")
+    if not isinstance(command, str) or not isinstance(comic_id, str):
+        return None
+    pack_format = item.get("pack_format")
+    return _LastRequest(
+        command=command,
+        comic_id=comic_id,
+        pack_format=pack_format if isinstance(pack_format, str) else None,
+    )
 
 
 def _event_call_action(
@@ -299,9 +316,10 @@ class ComicParserPlugin(Star):
         # 正在跑的任务：排队提示与「前面下到哪」都读它
         self._running: dict[int, _RunningTask] = {}
         self._task_seq = 0
-        # 每个会话记一条最近的下载请求，供 `/comic retry` 原样重放。
+        # 每个会话记一串最近的下载请求（队尾是刚下的那本），供 `/comic retry` 原样重放：
+        # 不加参数重放队尾，加 `全部` 按记录顺序把中断过的每本都接着下。
         # 落盘：重载会重建实例，只放内存的话重载中断后 `/comic retry` 就查不到记录了
-        self._last_request: dict[str, _LastRequest] = self._load_last_requests()
+        self._last_request: dict[str, list[_LastRequest]] = self._load_last_requests()
         # 测速排名是上个配置周期的结论：配置改过（域名清单、代理、阈值）就该重新测
         DOMAIN_RACE_CACHE.clear()
         self._clean_temp_on_start()
@@ -977,7 +995,7 @@ class ComicParserPlugin(Star):
             f"{ranking_filter_desc}"
             f"{index_hint}"
             f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
-            f"接着下上一次：/comic retry（暂停、下载中断或失败后发这一条）\n"
+            f"接着下：/comic retry（最近一本）、/comic retry 全部（本会话记录过的全下）\n"
             f"查看排队：/comic status（管理员可用 /comic status 全部）\n"
             f"任一渠道命令后面贴别的站点的作品链接也按链接走，不会下错\n"
             f"本说明：/comic help（也认 /漫画帮助）；站点速查：/comic site（也认 /漫画网址）"
@@ -1020,7 +1038,7 @@ class ComicParserPlugin(Star):
                 "或 /comic sou <关键词>（全渠道搜索）、/comic 排行 [日榜|周榜|月榜|总榜]\n"
                 "格式可选 zip / pdf / long_img / none，写在最后只对这一次生效\n"
                 "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
-                "接着下上一次：/comic retry（暂停、下载中断或失败后重发这一条即可）\n"
+                "接着下：/comic retry（最近一本）、/comic retry 全部（本会话记录过的全下）\n"
                 "查看排队：/comic status（管理员可加 全部 看所有会话）\n"
                 "完整说明：/comic help；站点速查：/comic site\n"
                 f"{describe_links(self.channels)}"
@@ -1060,14 +1078,28 @@ class ComicParserPlugin(Star):
                 yield result
             return
         if head_lower in RETRY_WORDS:
-            override = None
-            if rest.strip():
-                # `/comic retry pdf` 只给这一次重试换个格式，其余参数沿用上次；
-                # 单发一个格式词时 split_pack_format 不认（它只切「有前文 + 末尾」），补一次查表
-                _, override = split_pack_format(rest.strip())
-                if override is None:
-                    override = PACK_FORMAT_ALIASES.get(rest.strip().lower())
-            async for result in self._handle_retry(event, override):
+            include_all = False
+            override: str | None = None
+            unknown: list[str] = []
+            # `全部` 用来把本会话记录过的每本都接着下；剩下的词按格式认（`/comic retry 全部 zip`）。
+            # 单发一个格式词时 split_pack_format 不认（它只切「有前文 + 末尾」），所以这里逐词查表
+            for token in rest.split():
+                token_lower = token.lower()
+                if token_lower in STOP_ALL_WORDS:
+                    include_all = True
+                elif (fmt := PACK_FORMAT_ALIASES.get(token_lower)) is not None:
+                    override = fmt
+                else:
+                    unknown.append(token)
+            if unknown:
+                yield event.plain_result(
+                    f"❌ 不认识 {' '.join(unknown)}；用法：/comic retry [全部] [格式]，"
+                    f"格式可选 {' / '.join(PACK_FORMATS)}，不写就接着下最近一本"
+                )
+                return
+            async for result in self._handle_retry(
+                event, override, include_all=include_all
+            ):
                 yield result
             return
         if not rest.strip() and (
@@ -1154,7 +1186,7 @@ class ComicParserPlugin(Star):
         if head_lower in RETRY_WORDS:
             # 重试只认 `/comic retry`：它要知道「上一条」是哪个渠道的，渠道命令无从判断
             yield event.plain_result(
-                "ℹ️ 重试请用 /comic retry（只重放本会话最近一次下载）；"
+                "ℹ️ 重试请用 /comic retry（默认最近一本，加 全部 重放本会话每一本）；"
                 f"要下新的就发 /{command} <ID 或链接>"
             )
             return
@@ -2044,9 +2076,19 @@ class ComicParserPlugin(Star):
         self._running.pop(slot, None)
 
     def _remember_request(self, session_id: str, request: _LastRequest) -> None:
-        """记住本会话最近一次下载请求；只保留最近若干个会话，长时间运行也不会堆积。"""
-        self._last_request.pop(session_id, None)
-        self._last_request[session_id] = request
+        """记下本会话的一条下载请求，队尾即「最近一本」。
+
+        同一本再下一次只把它挪到队尾，不重复占位——否则 `/comic retry 全部` 会把同一本下好几遍。
+        每个会话只留最近 `LAST_REQUEST_KEEP` 条、只留最近若干个会话，长时间运行也不会堆积。
+        """
+        records = [
+            item
+            for item in self._last_request.pop(session_id, [])
+            if (item.command, item.comic_id) != (request.command, request.comic_id)
+        ]
+        records.append(request)
+        del records[:-LAST_REQUEST_KEEP]
+        self._last_request[session_id] = records
         while len(self._last_request) > LAST_REQUEST_LIMIT:
             self._last_request.pop(next(iter(self._last_request)))
         self._save_last_requests()
@@ -2056,8 +2098,11 @@ class ComicParserPlugin(Star):
     def _last_request_file(self) -> Path:
         return self.data_dir / LAST_REQUEST_FILENAME
 
-    def _load_last_requests(self) -> dict[str, _LastRequest]:
-        """读回上次存盘的下载记录；文件缺失、损坏或字段不对都只当没有记录。"""
+    def _load_last_requests(self) -> dict[str, list[_LastRequest]]:
+        """读回上次存盘的下载记录；文件缺失、损坏或字段不对都只当没有记录。
+
+        老版本每个会话只存一条（一个对象），读到这种形态就当成只有一条记录的队列。
+        """
         path = self.data_dir / LAST_REQUEST_FILENAME
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -2071,32 +2116,33 @@ class ComicParserPlugin(Star):
             logger.warning(f"[{PLUGIN_NAME}] 重试记录格式不对，按空处理")
             return {}
 
-        loaded: dict[str, _LastRequest] = {}
-        for session_id, item in raw.items():
-            if not isinstance(session_id, str) or not isinstance(item, dict):
+        loaded: dict[str, list[_LastRequest]] = {}
+        for session_id, value in raw.items():
+            if not isinstance(session_id, str):
                 continue
-            command = item.get("command")
-            comic_id = item.get("comic_id")
-            if not isinstance(command, str) or not isinstance(comic_id, str):
-                continue
-            pack_format = item.get("pack_format")
-            loaded[session_id] = _LastRequest(
-                command=command,
-                comic_id=comic_id,
-                pack_format=pack_format if isinstance(pack_format, str) else None,
-            )
+            items = value if isinstance(value, list) else [value]
+            records = [
+                record
+                for item in items
+                if (record := _parse_last_request(item)) is not None
+            ]
+            if records:
+                loaded[session_id] = records[-LAST_REQUEST_KEEP:]
         return loaded
 
     def _save_last_requests(self) -> None:
         """整表写回磁盘（原子替换）；落盘失败只记日志，不能影响这次下载。"""
         path = self._last_request_file()
         payload = {
-            session_id: {
-                "command": item.command,
-                "comic_id": item.comic_id,
-                "pack_format": item.pack_format,
-            }
-            for session_id, item in self._last_request.items()
+            session_id: [
+                {
+                    "command": item.command,
+                    "comic_id": item.comic_id,
+                    "pack_format": item.pack_format,
+                }
+                for item in records
+            ]
+            for session_id, records in self._last_request.items()
         }
         tmp = path.with_suffix(path.suffix + ".tmp")
         try:
@@ -2157,36 +2203,77 @@ class ComicParserPlugin(Star):
         yield event.plain_result("\n".join(lines))
 
     async def _handle_retry(
-        self, event: AstrMessageEvent, pack_format: str | None = None
+        self,
+        event: AstrMessageEvent,
+        pack_format: str | None = None,
+        *,
+        include_all: bool = False,
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """重放本会话最近一次下载，效果等同「再发一次同样的命令」。
+        """重放本会话的下载记录，效果等同「再发一次同样的命令」。
 
-        存的是规范化后的 ID，所以重试不依赖搜索结果是否还在、也不需要用户回去翻原消息。
+        默认只重放最近一本；`include_all` 时按记录顺序把本会话记录过的每一本都重放一遍，
+        打断了几本就接着下几本。存的是规范化后的 ID，所以重试不依赖搜索结果是否还在、
+        也不需要用户回去翻原消息。
         """
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
-        last = self._last_request.get(session_id)
-        if last is None:
+        records = list(self._last_request.get(session_id) or [])
+        if not records:
             yield event.plain_result(
                 "ℹ️ 本会话还没有下载记录，没有可重试的漫画；"
                 "直接发 /comic <作品链接> 或 /<渠道命令> <ID> 开始一本新的"
             )
             return
-        channel = self._commands.get(last.command)
-        if channel is None:
-            yield event.plain_result(
-                f"❌ 上次用的渠道（{last.command}）现在没有启用，"
-                "重试前请先在插件配置里加回来"
-            )
-            return
-        async for result in self._handle_download(
-            event,
-            channel.command,
-            last.comic_id,
-            allow_index=False,
-            # 命令里临时指定的格式优先，其次沿用上次那一次的格式
-            pack_format=pack_format or last.pack_format,
-        ):
-            yield result
+        if not include_all:
+            records = records[-1:]
+
+        if not include_all:
+            record = records[-1]
+            channel = self._commands.get(record.command)
+            if channel is None:
+                yield event.plain_result(
+                    f"❌ 上次用的渠道（{record.command}）现在没有启用，"
+                    "重试前请先在插件配置里加回来"
+                )
+                return
+            targets: list[tuple[BaseChannel, _LastRequest]] = [(channel, record)]
+        else:
+            targets = []
+            missing: list[str] = []
+            for record in records:
+                channel = self._commands.get(record.command)
+                if channel is None:
+                    missing.append(record.command)
+                    continue
+                targets.append((channel, record))
+            if missing:
+                yield event.plain_result(
+                    f"⚠️ 有几条记录的渠道现在没启用（"
+                    f"{'、'.join(dict.fromkeys(missing))}），先跳过"
+                )
+            if not targets:
+                yield event.plain_result(
+                    "❌ 记录里用到的渠道现在都没启用，重试前请先在插件配置里加回来"
+                )
+                return
+            if len(targets) > 1:
+                listed = "、".join(
+                    f"{channel.display_command} {record.comic_id}"
+                    for channel, record in targets
+                )
+                yield event.plain_result(
+                    f"↻ 按记录顺序接着下 {len(targets)} 本：{listed}"
+                )
+
+        for channel, record in targets:
+            async for result in self._handle_download(
+                event,
+                channel.command,
+                record.comic_id,
+                allow_index=False,
+                # 命令里临时指定的格式优先，其次沿用那次记录里的格式
+                pack_format=pack_format or record.pack_format,
+            ):
+                yield result
 
     async def _handle_stop(
         self, event: AstrMessageEvent, *, include_all: bool

@@ -313,7 +313,11 @@ RETRY_WORDS: Final = frozenset({"retry", "again", "重试", "继续", "再来一
 # 查看当前在跑与排队的请求：只读，`全部` 仅管理员可用（看所有会话）
 STATUS_WORDS: Final = frozenset({"status", "queue", "状态", "队列", "排队"})
 
-# 每个会话记一条最近的下载请求；上限按会话数截断，避免长期运行堆积
+# 每个会话记下最近几本下载请求：`/comic retry` 默认认队尾那一本，加 `全部` 就整队重放，
+# 所以要留成队列；同一本再下只挪到队尾、不重复记，条数上限只为防长期运行堆积
+LAST_REQUEST_KEEP: Final = 30
+
+# 记录涉及多少个会话：上限按会话数截断，避免长期运行堆积
 LAST_REQUEST_LIMIT: Final = 500
 
 # 这条记录要存盘：插件重载会重建实例，只放内存里的话重载中断提示刚让你发 `/comic retry`，
