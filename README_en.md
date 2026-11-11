@@ -11,6 +11,7 @@
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: use a channel command (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) when you already have the ID
 - **Search right in the chat**: `/comic sou <keyword>` searches every channel that supports search in one go, `/jm sou` searches a single channel; reply with the number of a hit to download it, and page through longer result sets
+- **Rankings**: `/comic 排行` collects the leaderboards of every channel at once, `/jm 排行` shows one channel only; pick daily / weekly / monthly / all-time, and each channel opens only the windows it actually has (missing ones are explained in the reply). Hits are downloadable by number and page through the same way as search
 - **Multiple channels**: JM, nhentai, PicaACG, Hanime1, WNACG and E-Hentai; E-Hentai needs no cookie for the 1280px resampled images, and originals are used once a cookie is added (charged against your site quota)
 - **Unified packing**: every download becomes a ZIP archive, a PDF or a long vertical image, or can simply stay on disk; a format word at the end of the command overrides it for that one download
 - **Encryption**: set one pack password and it applies, ZIP with AES and PDF with AES-256
@@ -32,8 +33,10 @@
 | `/eh <gid:token or link>` | Everyone (subject to whitelist/blacklist) | An E-Hentai ID has two parts, gid and token, so a bare number is rejected with a hint (anonymous 1280px; originals need a cookie) |
 | `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; hits are numbered continuously; type prefixes such as `tag:` and `author:` plus `-` exclusions are supported |
 | `<channel command> sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜` |
-| `/comic <number>` (same for `/<channel command> <number>`) | Everyone (subject to whitelist/blacklist) | Download the search hit with that number, from the channel the hit belongs to |
-| `/comic 下一页` (also `/comic next`; go back with `上一页` or `prev`) | Everyone (subject to whitelist/blacklist) | Turn the page of the latest search in this session; numbers continue across pages |
+| `/comic 排行 [日榜\|周榜\|月榜\|总榜]` (also `rank`, `榜`) | Everyone (subject to whitelist/blacklist) | Collect the leaderboards of every channel that has one, each listing its own top entries; without a window word it uses the default window from the settings (weekly by default) |
+| `<channel command> 排行 [日榜\|周榜\|月榜\|总榜]` | Everyone (subject to whitelist/blacklist) | Show the leaderboard of that channel only; if it lacks that window, the reply lists the windows it does have |
+| `/comic <number>` (same for `/<channel command> <number>`) | Everyone (subject to whitelist/blacklist) | Download the hit with that number from the latest search or leaderboard, from the channel the hit belongs to |
+| `/comic 下一页` (also `/comic next`; go back with `上一页` or `prev`) | Everyone (subject to whitelist/blacklist) | Turn the page of the latest list (search or leaderboard) in this session; search numbers continue across pages, leaderboard numbers restart at 1 on every page |
 | `<download command> <format word>` | Everyone (subject to whitelist/blacklist) | Sets the pack format for this one download, overriding the "Pack format" setting; the values are `zip` / `pdf` / `long_img` / `none` (save locally only), and the Chinese words `压缩包` / `文档` / `长图` / `本地` work too |
 | `/comic stop` (same for `/jm stop` and other channel commands; also `取消`, `停止`) | Everyone | Cancels the downloads of your own session, including requests still queueing; images already fetched are kept, so `/comic retry` resumes. Admins can use `/comic stop 全部` to cancel every session |
 | `/comic status` (also `状态`, `队列`) | Everyone (admins can use `/comic status 全部` for every session) | Shows the downloads running and queueing in this session: live progress, bytes fetched and elapsed time for running ones, queue position for waiting ones; read-only, it never interrupts a download |
@@ -45,6 +48,7 @@
 - The short commands (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) are what you will use day to day, and they are what the bot shows in its replies; the full site names work exactly the same way.
 - To use a different format for one download, put the format word at the very end of the command: `/jm 123456 pdf`, `/comic <link> long_img`, `/jm 1 none`. It only affects that download and never changes the setting; while searching with `sou`, the trailing word still counts as part of the keyword.
 - Search hits show only the title, author/page count, a continuous number and the ID; the download example is shown once at the end. Send `/comic 1` (or `/jm 1`) to download the first hit. A new search replaces the numbers, and they stay valid for 10 minutes. When there is more than one page, the footer shows a hint such as `下一页：/jm 下一页`; paging first uses results already fetched and only asks the site for its next page when that buffer runs out, and numbers continue across pages.
+- Leaderboards share the "reply with a number" and "previous / next page" entries with search: whichever list came last is the one that numbers and paging refer to. Each channel keeps its own ranks (sites measure popularity differently, so they are never merged into one cross-site order) while downloads still go through the channel a work belongs to; leaderboard numbers belong to the current page and stay valid for 10 minutes.
 - An E-Hentai ID has two parts, gid and token (e.g. `4306312:0123456789`). `gid:token`, `gid/token` and `gid-token` are all accepted, with or without a trailing slash, and copying the gallery link from your browser's address bar is the easiest way. Do not know where to find the ID? Send `/漫画网站` to see each site's sample work-page link (`<ID>` placeholder). A search hit is not a promise that it can be downloaded (it may need a login, be delisted, or be region-locked).
 
 Examples:
@@ -57,6 +61,8 @@ Examples:
 /jm sou tag:"big breasts" -tag:NTR        # search one channel with a type filter
 /comic 1                                  # download hit 1 by its number
 /jm 下一页                                # turn the page of the results
+/comic 排行                               # the weekly leaderboard of every channel
+/jm 排行 日榜                              # the daily leaderboard of JM only
 /jm 123456 pdf                            # export this one as PDF; the setting stays unchanged
 ```
 
@@ -318,6 +324,22 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 | Auto-proxy retry on timeout (`auto_proxy`) | bool | true | When any channel misses the per-channel search timeout, retry once through the global proxy configured in the plugin; has no effect without a global proxy |
 | Extra time for auto-proxy retry (`auto_proxy_timeout`) | int | 15 | The retry has its own time budget and does not consume the per-channel search timeout; only used when auto-proxy is on and a global proxy is configured |
 
+</details>
+
+### Rankings
+
+<details>
+<summary>Rankings (7)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable rankings (`enable`) | bool | true | When off, `/comic 排行` reports that rankings are disabled; search and downloads are unaffected |
+| Default window (`default_board`) | string | week | Which window is used when the command has no window word; daily / weekly / monthly / all-time |
+| Per-channel timeout (`timeout`) | int | 15 | Each channel is timed on its own; sites that serve HTML list pages are slower, and a channel that misses the deadline is skipped while the others still show |
+| Ranks per page, single channel (`page_size`) | int | 10 | How many ranks a single-channel leaderboard shows per page; `/comic 下一页` continues downwards |
+| Ranks per channel, all channels (`aggregate_limit`) | int | 5 | How many top entries each channel contributes to an all-channel leaderboard; sites rank by different metrics, so they are listed side by side instead of merged |
+| Cache lifetime (`cache_ttl`) | int | 300 | Reuses the previous result for the same channel and window within this window; 0 disables caching |
+| Ranking cooldown (`cooldown`) | int | 3 | Minimum seconds between two leaderboard views in the same session; 0 disables the limit |
 </details>
 
 ## Others

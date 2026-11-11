@@ -27,7 +27,12 @@ from astrbot.api import logger
 
 from ....domain import ChannelError
 from ....domain.constants import PLUGIN_NAME
-from .constants import PAGE_REQUESTS_PER_MINUTE, SEARCH_PATH, USER_AGENT
+from .constants import (
+    PAGE_REQUESTS_PER_MINUTE,
+    RANKING_PATH,
+    SEARCH_PATH,
+    USER_AGENT,
+)
 
 if TYPE_CHECKING:  # 仅为类型标注；运行时按下面的惰性分支处理依赖缺失
     import aiohttp
@@ -109,6 +114,11 @@ def search_path(keyword: str, page: int = 1) -> str:
     return SEARCH_PATH.format(
         keyword=quote(keyword, safe=""), page=max(1, int(page))
     )
+
+
+def ranking_path(page: int = 1, period: str = "week") -> str:
+    """收藏排行页路径；``period`` 取 week / month / total（对应周榜、月榜、总榜）。"""
+    return RANKING_PATH.format(page=max(1, int(page)), period=period)
 
 
 def parse_search_results(

@@ -31,3 +31,5 @@ PAGE_REQUESTS_PER_MINUTE: Final = 50
 # 搜索页：`q` 关键词、`p` 页码、`s` 排序（默认按创建时间倒序）。
 # 注意：搜索页与详情页共用同一个 50 次/分钟限速器，搜索会占用下载的页面配额。
 SEARCH_PATH: Final = "/search/index.php?s=create_time_DESC&q={keyword}&p={page}"
+# 收藏排行页（站内「排行榜」）：只按收藏数排，没有日榜，最小粒度是一周
+RANKING_PATH: Final = "/albums-favorite_ranking-page-{page}-type-{period}.html"

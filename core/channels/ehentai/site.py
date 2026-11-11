@@ -194,6 +194,11 @@ def ehentai_search_url(host: str, keyword: str, page: int = 0) -> str:
     )
 
 
+def ehentai_popular_url(host: str) -> str:
+    """站点「Popular Right Now」页：按近期收藏热度排的一屏作品，没有时间窗参数。"""
+    return f"https://{host}/popular"
+
+
 def parse_search_results(
     document: str, page: int = 0
 ) -> tuple[list[SearchHit], bool]:

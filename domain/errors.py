@@ -33,6 +33,14 @@ class SearchTimeoutError(SearchError):
     """搜索超时：聚合搜索时单个渠道超时不应该拖垮整次结果。"""
 
 
+class RankingError(PluginError):
+    """排行榜取数失败，message 是可直接发给用户的中文文案。"""
+
+
+class RankingUnsupportedError(RankingError):
+    """渠道没有实现排行榜能力（或没有该时间窗的榜）。"""
+
+
 class DownloadError(PluginError):
     """下载过程失败，或下载不完整到无法继续打包。"""
 

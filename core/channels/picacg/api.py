@@ -34,11 +34,13 @@ from .constants import (
     IMAGE_SERVER_BS,
     IMAGE_SERVER_DEFAULT,
     IMAGE_SERVER_TOBEIMG,
+    LEADERBOARD_CATEGORY,
     MAX_PAGES,
     MIN_IMAGE_BYTES,
     PATH_COMIC,
     PATH_EPISODE_PAGES,
     PATH_EPISODES,
+    PATH_LEADERBOARD,
     PATH_SEARCH,
     PATH_SIGN_IN,
     USER_AGENT,
@@ -262,6 +264,18 @@ class PicaClient:
             body={"keyword": keyword, "categories": [], "s": "ua"},
         )
         return payload
+
+    async def leaderboard(self, window: str, page: int = 1) -> dict[str, Any]:
+        """取一页排行榜；``window`` 是官方的时间窗取值（H24 / D7 / D30）。"""
+        return await self.request(
+            "GET",
+            PATH_LEADERBOARD,
+            params={
+                "tt": window,
+                "ct": LEADERBOARD_CATEGORY,
+                "page": max(1, int(page)),
+            },
+        )
 
     async def fetch_comic(self, comic_id: str) -> dict[str, Any]:
         payload = await self.request("GET", PATH_COMIC.format(comic_id=comic_id))

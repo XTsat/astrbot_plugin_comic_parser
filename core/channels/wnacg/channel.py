@@ -26,6 +26,9 @@ from ....domain import (
     DownloadedComic,
     DownloadError,
     PluginSettings,
+    RankingItem,
+    RankingPage,
+    RankingUnsupportedError,
     SearchItem,
     SearchPage,
     SearchQuery,
@@ -51,6 +54,7 @@ from .progress import (
     unregister_session,
 )
 from .site import (
+    ranking_path,
     AlbumPage,
     WnacgSite,
     album_path,
@@ -65,6 +69,10 @@ from .site import (
     search_path,
     sniff_image_suffix,
 )
+
+
+# 榜单窗口 → 站内排行页的 period 取值。站内没有日榜，最小粒度是一周
+_BOARD_PERIOD = {"week": "week", "month": "month", "all": "total"}
 
 
 class WnacgChannel(BaseChannel):
@@ -272,6 +280,42 @@ class WnacgChannel(BaseChannel):
             items=items,
             has_more=has_more or len(hits) > len(items),
             note=fallback_note(query),
+        )
+
+    # ---- 排行榜 ----
+    ranking_boards: ClassVar[tuple[str, ...]] = ("week", "month", "all")
+
+    async def ranking(
+        self, board: str, page: int = 1, limit: int = 10
+    ) -> RankingPage:
+        """站内收藏排行（「排行榜」）：按收藏数排，只有周/月/总三档，没有日榜。
+
+        排行页与搜索页共用同一套列表结构（`li.gallary_item`），所以复用同一个解析器；
+        注意它会占下载的页面配额（站点按每分钟 50 次限速）。
+        """
+        period = _BOARD_PERIOD.get(board)
+        if period is None:
+            raise RankingUnsupportedError(f"紳士漫畫没有「{board}」这一档榜单")
+        site = self._site()
+        async with site:
+            document = await site.fetch_page(ranking_path(page=page, period=period))
+        hits, has_more = parse_search_results(document, page=page)
+        items = [
+            RankingItem(
+                channel=self.name,
+                comic_id=hit.comic_id,
+                title=hit.title,
+                page_count=hit.page_count,
+                cover_url=hit.cover_url,
+                rank=index + 1,
+            )
+            for index, hit in enumerate(hits[: max(1, limit)])
+        ]
+        return RankingPage(
+            channel=self.name,
+            board=board,
+            items=items,
+            has_more=has_more or len(hits) > len(items),
         )
 
     def cancel_downloads(self) -> list[str]:

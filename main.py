@@ -39,6 +39,7 @@ from .core import (
     ProgressState,
     ModelWeights,
     PanelService,
+    RankingService,
     SearchService,
     create_detector,
     ensure_onnxruntime,
@@ -57,6 +58,7 @@ from .core.channel import (
 )
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
 from .core.packer import Packer
+from .core.ranking import board_label, parse_board
 from .domain import (
     CoverCensorError,
     DownloadCancelled,
@@ -88,6 +90,8 @@ from .domain.constants import (
     SEARCH_NEXT_WORDS,
     SEARCH_PREV_WORDS,
     SEARCH_RESULT_TTL,
+    RANKING_BOARDS,
+    RANKING_WORDS,
     SEARCH_WORDS,
     STOP_ALL_WORDS,
     STOP_WORDS,
@@ -217,6 +221,9 @@ class ComicParserPlugin(Star):
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self.search_service = SearchService(self.channels, self.settings)
+        self.ranking_service = RankingService(self.channels, self.settings)
+        # 本会话最近一次列表是谁出的（search / ranking）：序号下载与翻页按它决定先问谁
+        self._index_source: dict[str, str] = {}
         # 封面：权重默认不随插件分发，缺失时按配置自动下载（见 initialize）
         self.models_dir = Path(__file__).resolve().parent / "models"
         self.model_weights = ModelWeights(
@@ -876,11 +883,36 @@ class ComicParserPlugin(Star):
                 cover_desc += f"，评分模型：{model_label}"
         else:
             cover_desc = "关闭"
+        rankable = [
+            channel
+            for channel in self.channels.values()
+            if channel.enabled and channel.supports_ranking
+        ]
+        if not self.settings.ranking_enabled:
+            ranking_desc = "未启用（在插件配置的「排行榜」里打开）"
+        elif rankable:
+            ranking_desc = (
+                f"/comic 排行 [时间窗] 一次聚合 {len(rankable)} 个渠道；"
+                "也可 /<渠道命令> 排行 只看一个"
+            )
+        else:
+            ranking_desc = "当前没有支持排行榜的渠道"
+        if self.settings.ranking_enabled and rankable:
+            ranking_windows = "、".join(
+                board_label(item) for item in RANKING_BOARDS
+            )
+            ranking_filter_desc = (
+                f"榜单时间窗：{ranking_windows}"
+                f"（默认{board_label(self.settings.ranking_default_board)}）；"
+                "各渠道只开放自己有的那几档，缺的会在结果里说明\n"
+            )
+        else:
+            ranking_filter_desc = ""
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)
         index_hint = (
-            f"搜索后下载：直接发 /comic <序号>（如 /comic 1），"
+            f"回序号下载：搜索结果或榜单出来后，直接发 /comic <序号>（如 /comic 1），"
             f"也可以 /<渠道命令> <序号>；翻页用 /comic 下一页、"
-            f"/<渠道命令> 上一页；序号在搜索后 {index_minutes} 分钟内有效\n"
+            f"/<渠道命令> 上一页；序号在 {index_minutes} 分钟内有效\n"
             if self.settings.search_enabled and searchable
             else ""
         )
@@ -902,6 +934,8 @@ class ComicParserPlugin(Star):
             f"用法：/comic <作品链接> [格式]，或 /<渠道命令> <ID 或链接> [格式]\n"
             f"搜索：{search_desc}\n"
             f"{search_filter_desc}"
+            f"排行榜：{ranking_desc}\n"
+            f"{ranking_filter_desc}"
             f"{index_hint}"
             f"取消下载：/comic stop（管理员可用 /comic stop 全部）\n"
             f"接着下上一次：/comic retry（暂停、下载中断或失败后发这一条）\n"
@@ -939,8 +973,8 @@ class ComicParserPlugin(Star):
         text = " ".join((args or "").split())
         if not text:
             yield event.plain_result(
-                "用法：/comic <作品链接> [格式]、/comic <搜索序号> [格式]，"
-                "或 /comic sou <关键词>（全渠道搜索）\n"
+                "用法：/comic <作品链接> [格式]、/comic <序号> [格式]，"
+                "或 /comic sou <关键词>（全渠道搜索）、/comic 排行 [日榜|周榜|月榜|总榜]\n"
                 "格式可选 zip / pdf / long_img / none，写在最后只对这一次生效\n"
                 "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
                 "接着下上一次：/comic retry（暂停、下载中断或失败后重发这一条即可）\n"
@@ -953,6 +987,10 @@ class ComicParserPlugin(Star):
         head_lower = head.lower()
         if head_lower in SEARCH_WORDS:
             async for result in self._handle_search(event, None, rest.strip()):
+                yield result
+            return
+        if head_lower in RANKING_WORDS:
+            async for result in self._handle_ranking(event, None, rest.strip()):
                 yield result
             return
         if head_lower in STOP_ALL_WORDS and rest.strip().lower() in STATUS_WORDS:
@@ -1000,7 +1038,7 @@ class ComicParserPlugin(Star):
         # 末尾的格式词只改这一次的产物形态（`/comic <链接> pdf`）；搜索与翻页已在上面分流，
         # 因此关键词里的格式词（如 long_img、长图）不会被当成格式
         text, pack_format = split_pack_format(text)
-        indexed = self.search_service.resolve_index(session_id, text)
+        indexed = self._resolve_index(session_id, text)
         if indexed is not None:
             channel, comic_id = indexed
             # 序号已经解析成渠道 + 规范 ID，不能再让下载入口把它当成新序号
@@ -1018,13 +1056,13 @@ class ComicParserPlugin(Star):
         if resolved is None:
             if text.isdigit():
                 # 越界/过期先说清是哪一种，别让用户拿着一个序号去猜为什么不动
-                hint = self.search_service.index_hint(session_id, text)
+                hint = self._index_hint(session_id, text)
                 yield event.plain_result(
                     hint
                     or (
-                        "❌ 没有找到这个序号对应的搜索结果（可能已过期）："
-                        "先 /comic sou <关键词> 搜一次；按 ID 下载请用对应渠道命令，"
-                        "或直接贴作品链接"
+                        "❌ 没有找到这个序号对应的结果（可能已过期）："
+                        "先 /comic sou <关键词> 或 /comic 排行 看一次；"
+                        "按 ID 下载请用对应渠道命令，或直接贴作品链接"
                     )
                 )
             else:
@@ -1083,6 +1121,12 @@ class ComicParserPlugin(Star):
             ):
                 yield result
             return
+        if head_lower in RANKING_WORDS:
+            async for result in self._handle_ranking(
+                event, channel, rest.strip()
+            ):
+                yield result
+            return
         if head_lower in STOP_WORDS or head_lower in STOP_ALL_WORDS:
             include_all = (
                 head_lower in STOP_ALL_WORDS
@@ -1095,7 +1139,7 @@ class ComicParserPlugin(Star):
             # 示例用缩写命令：用户日常敲的就是这个，全称只是注册名
             hint = channel.display_command
             yield event.plain_result(
-                f"用法：/{hint} <ID 或链接> [格式]，或 /{hint} sou <关键词>\n"
+                f"用法：/{hint} <ID 或链接> [格式]，/{hint} sou <关键词>，/{hint} 排行\n"
                 f"示例：/{hint} 123456、/{hint} 123456 pdf（这一次只用 PDF 打包）"
             )
             return
@@ -1113,13 +1157,13 @@ class ComicParserPlugin(Star):
             return
 
         if allow_index:
-            indexed = self.search_service.resolve_index(session_id, text)
+            indexed = self._resolve_index(session_id, text)
             if indexed is not None:
                 # 序号指向哪本就走哪个渠道：聚合搜索的结果跨渠道，命令只是入口
                 channel, text = indexed
             else:
                 # 序号越界/过期时说清原因，别掉进渠道的「无法识别 ID」里让人以为是 ID 写错了
-                hint = self.search_service.index_hint(
+                hint = self._index_hint(
                     session_id, text, channel.display_command
                 )
                 if hint:
@@ -1312,6 +1356,8 @@ class ComicParserPlugin(Star):
                     )
                 outcome = await self.search_service.search_one(channel, query)
                 result_state = "fail" if outcome.error else "ok"
+                if outcome.page is not None and not outcome.page.empty:
+                    self._mark_index_source(session_id, "search")
                 yield event.plain_result(
                     await self.search_service.render_one(outcome, query, session_id)
                 )
@@ -1335,6 +1381,11 @@ class ComicParserPlugin(Star):
             result_state = (
                 "ok" if any(not outcome.error for outcome in outcomes) else "fail"
             )
+            if any(
+                outcome.page is not None and not outcome.page.empty
+                for outcome in outcomes
+            ):
+                self._mark_index_source(session_id, "search")
             yield event.plain_result(
                 await self.search_service.render_all(outcomes, query, session_id)
             )
@@ -1384,6 +1435,15 @@ class ComicParserPlugin(Star):
             yield event.plain_result(denied)
             return
 
+        # 榜单与搜索共用「上一页/下一页」：翻的是本会话最近一次出列表的那个
+        if (
+            self._index_source.get(session_id) == "ranking"
+            and self.ranking_service.session_active(session_id)
+        ):
+            async for item in self._turn_ranking_page(event, step):
+                yield item
+            return
+
         # 翻页也归在搜索流程里：本地缓冲够翻时一瞬完成，去上游取下一页时才需要提示
         use_reaction, use_text = await self._begin_progress(event)
         result_state = "fail"
@@ -1409,10 +1469,174 @@ class ComicParserPlugin(Star):
                 )
                 return
             result_state = "ok"
+            self._mark_index_source(session_id, "search")
             yield event.plain_result(text)
         finally:
             if use_reaction:
                 await self._react(event, "done" if result_state == "ok" else "fail")
+
+    # ==================== 排行榜流程 ====================
+
+    async def _handle_ranking(
+        self,
+        event: AstrMessageEvent,
+        channel: BaseChannel | None,
+        args: str,
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """`/comic 排行 [时间窗]` 聚合所有渠道，`/<渠道> 排行 [时间窗]` 只看一个渠道。
+
+        榜单与搜索是两条平行链路：不共享关键词解析，也不共享会话——只有「回序号下载」
+        与「上一页/下一页」两句入口是共用的，靠 `_index_source` 记住最近一次的列表是谁出的。
+        """
+        if not self.settings.ranking_enabled:
+            yield event.plain_result(
+                "❌ 排行榜未启用：请在插件配置的「排行榜」里打开「启用排行榜」"
+            )
+            return
+
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        denied = self.guard.check_session(session_id)
+        if denied:
+            yield event.plain_result(denied)
+            return
+
+        token = " ".join((args or "").split())
+        board = self.settings.ranking_default_board
+        if token:
+            parsed = parse_board(token)
+            if parsed is None:
+                yield event.plain_result(self._ranking_usage(channel, unknown=token))
+                return
+            board = parsed
+
+        targets: list[BaseChannel]
+        if channel is not None:
+            try:
+                channel.ensure_available()
+            except PluginError as exc:
+                yield event.plain_result(f"❌ {exc}")
+                return
+            if not channel.supports_ranking:
+                yield event.plain_result(f"❌ {channel.display_name} 暂不支持排行榜")
+                return
+            if board not in channel.ranking_boards:
+                supported = "、".join(
+                    board_label(item) for item in channel.ranking_boards
+                )
+                yield event.plain_result(
+                    f"❌ {channel.display_name} 没有{board_label(board)}，只有：{supported}"
+                )
+                return
+            targets = [channel]
+        else:
+            targets = self.ranking_service.rankable()
+            if not targets:
+                yield event.plain_result(
+                    "❌ 当前没有支持排行榜的渠道：请先在插件配置里启用渠道"
+                )
+                return
+
+        cooling = self.ranking_service.begin(session_id)
+        if cooling:
+            yield event.plain_result(cooling)
+            return
+
+        use_reaction, use_text = await self._begin_progress(event)
+        result_state = "fail"
+        try:
+            if use_text:
+                names = "、".join(item.display_name for item in targets)
+                yield event.plain_result(
+                    f"🏆 正在取{board_label(board)}：{names}…"
+                )
+            result = await self.ranking_service.run(session_id, channel, board)
+            if result.count:
+                result_state = "ok"
+                self._mark_index_source(session_id, "ranking")
+            yield event.plain_result(result.text)
+        finally:
+            if use_reaction:
+                await self._react(event, "done" if result_state == "ok" else "fail")
+
+    async def _turn_ranking_page(
+        self, event: AstrMessageEvent, step: int
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """翻榜单的上一页/下一页（榜单与搜索共用同一句「下一页」）。"""
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        use_reaction, use_text = await self._begin_progress(event)
+        result_state = "fail"
+        try:
+            if use_text:
+                yield event.plain_result("📄 正在取下一页榜单…")
+            turn = await self.ranking_service.turn_page(session_id, step)
+            if turn.result is None:
+                yield event.plain_result(
+                    turn.message
+                    or "❌ 没有可翻页的榜单（可能已过期）：先发 /comic 排行 看一次"
+                )
+                return
+            result_state = "ok"
+            self._mark_index_source(session_id, "ranking")
+            yield event.plain_result(turn.result.text)
+        finally:
+            if use_reaction:
+                await self._react(event, "done" if result_state == "ok" else "fail")
+
+    # ---- 序号路由：搜索与榜单共用「回序号下载」 ----
+    def _index_order(self, session_id: str) -> list[str]:
+        """先问最近一次出列表的服务，再问另一个。"""
+        latest = self._index_source.get(session_id, "")
+        return ["ranking", "search"] if latest == "ranking" else ["search", "ranking"]
+
+    def _mark_index_source(self, session_id: str, source: str) -> None:
+        """记下这次列表是谁出的：下一个裸数字该按谁的序号解释。"""
+        if not session_id:
+            return
+        self._index_source[session_id] = source
+        if len(self._index_source) > 1024:
+            self._index_source = {
+                key: value
+                for key, value in self._index_source.items()
+                if self.search_service.session_active(key)
+                or self.ranking_service.session_active(key)
+            }
+
+    def _resolve_index(
+        self, session_id: str, token: str
+    ) -> tuple[BaseChannel, str] | None:
+        for source in self._index_order(session_id):
+            found = (
+                self.ranking_service.resolve_index(session_id, token)
+                if source == "ranking"
+                else self.search_service.resolve_index(session_id, token)
+            )
+            if found is not None:
+                return found
+        return None
+
+    def _index_hint(self, session_id: str, token: str, command: str = "comic") -> str | None:
+        for source in self._index_order(session_id):
+            hint = (
+                self.ranking_service.index_hint(session_id, token, command)
+                if source == "ranking"
+                else self.search_service.index_hint(session_id, token, command)
+            )
+            if hint:
+                return hint
+        return None
+
+    def _ranking_usage(self, channel: BaseChannel | None = None, unknown: str = "") -> str:
+        """榜单用法提示：时间窗取值、省略时的默认值，以及一个具体例子。"""
+        head = f"❌ 认不出「{unknown}」是哪一档榜单" + "\n" if unknown else ""
+        boards = "、".join(board_label(item) for item in RANKING_BOARDS)
+        command = f"/{channel.display_command}" if channel is not None else "/comic"
+        return (
+            f"{head}用法：{command} 排行 [时间窗]，时间窗可省略"
+            f"（默认{board_label(self.settings.ranking_default_board)}）\n"
+            f"时间窗：{boards}（也认 今日 / 本周 / 本月 / 全部）\n"
+            f"例：{command} 排行 日榜、{command} rank week\n"
+            "看后面的名次：/comic 下一页；下载：直接回序号"
+        )
 
     async def _deliver_cover(
         self, event: AstrMessageEvent, outcome: DownloadOutcome

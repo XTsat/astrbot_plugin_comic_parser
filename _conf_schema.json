@@ -707,7 +707,11 @@
         "description": "文件名长度上限",
         "hint": "产物文件名的字符数上限，超过就截短标题（末尾的密码段和扩展名不受影响）。中文标题还要按 UTF-8 字节再收一道，避免超过文件系统单名 255 字节的上限而落盘失败",
         "default": 100,
-        "slider": {"min": 20, "max": 150, "step": 5}
+        "slider": {
+          "min": 20,
+          "max": 150,
+          "step": 5
+        }
       },
       "upload_to_group_file": {
         "type": "bool",
@@ -1030,6 +1034,92 @@
         "default": 15,
         "slider": {
           "min": 1,
+          "max": 60,
+          "step": 1
+        }
+      }
+    }
+  },
+  "ranking": {
+    "type": "object",
+    "description": "排行榜",
+    "hint": "命令后加「排行」触发：/comic 排行 一次聚合所有渠道，/jm 排行 只看一个渠道；可跟时间窗（日榜/周榜/月榜/总榜），省略时用下面的默认窗口",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用排行榜",
+        "hint": "关闭后「/comic 排行」会提示未启用；搜索与下载不受影响",
+        "default": true
+      },
+      "default_board": {
+        "type": "string",
+        "description": "默认时间窗",
+        "hint": "命令里不写时间窗时看哪一档；周榜是各站交集最大的窗口（只有 Hanime1 没有周榜以外的差异，缺的档会在结果里说明）",
+        "default": "week",
+        "options": [
+          "day",
+          "week",
+          "month",
+          "all"
+        ],
+        "labels": [
+          "日榜",
+          "周榜",
+          "月榜",
+          "总榜"
+        ]
+      },
+      "timeout": {
+        "type": "int",
+        "description": "单渠道榜单超时（秒）",
+        "hint": "每个渠道单独计时；抓 HTML 列表页的站点比较慢，到点就跳过该渠道，其余结果照常显示",
+        "default": 15,
+        "slider": {
+          "min": 3,
+          "max": 60,
+          "step": 1
+        }
+      },
+      "page_size": {
+        "type": "int",
+        "description": "单渠道每页名次",
+        "hint": "只看看一个渠道时每页展示多少名；用「/comic 下一页」继续往下看",
+        "default": 10,
+        "slider": {
+          "min": 5,
+          "max": 30,
+          "step": 1
+        }
+      },
+      "aggregate_limit": {
+        "type": "int",
+        "description": "聚合时每渠道名次",
+        "hint": "全渠道榜单每个渠道各展示前几名；不同站点的热度口径不同，所以只并列展示、不混排",
+        "default": 5,
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        }
+      },
+      "cache_ttl": {
+        "type": "int",
+        "description": "榜单缓存时长（秒）",
+        "hint": "同一渠道、同一时间窗在有效期内复用上次结果；榜单变化比搜索慢，可以设长一些，0 表示不缓存",
+        "default": 300,
+        "slider": {
+          "min": 0,
+          "max": 3600,
+          "step": 30
+        }
+      },
+      "cooldown": {
+        "type": "int",
+        "description": "看榜冷却（秒）",
+        "hint": "同一会话两次看榜之间至少间隔这么久；0 表示不限制",
+        "default": 3,
+        "slider": {
+          "min": 0,
           "max": 60,
           "step": 1
         }

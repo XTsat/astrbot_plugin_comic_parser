@@ -22,6 +22,9 @@ from ....domain import (
     DownloadError,
     DownloadedComic,
     PluginSettings,
+    RankingItem,
+    RankingPage,
+    RankingUnsupportedError,
     SearchItem,
     SearchPage,
     SearchQuery,
@@ -40,6 +43,9 @@ from .constants import (
     SHORT_ID_LENGTH,
     WEB_COMIC_DOMAINS,
 )
+
+# 榜单窗口 → 官方排行榜的时间窗取值。哔咔只有 24 小时/7 天/30 天三档，没有总榜
+_BOARD_WINDOW = {"day": "H24", "week": "D7", "month": "D30"}
 
 # 哔咔的漫画 ID 是 Mongo ObjectId：24 位十六进制
 _COMIC_ID = re.compile(r"[0-9a-fA-F]{24}")
@@ -198,6 +204,57 @@ class PicacgChannel(BaseChannel):
             total=total or None,
             has_more=pages > max(1, int(page)),
             note=fallback_note(query),
+        )
+
+    # ---- 排行榜 ----
+    ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month")
+
+    async def ranking(
+        self, board: str, page: int = 1, limit: int = 10
+    ) -> RankingPage:
+        """官方排行榜页；与搜索一样必须登录，没账号时给明确提示而不是「空榜」。
+
+        哔咔的榜只有 24 小时/7 天/30 天三档（对应日/周/月），没有总榜，
+        所以 `ranking_boards` 里不声明 ``all``——聚合层会说明这档缺失。
+        """
+        window = _BOARD_WINDOW.get(board)
+        if window is None:
+            raise RankingUnsupportedError(f"哔咔没有「{board}」这一档榜单")
+        if not self.opt_str("account") or not self.opt_str("password"):
+            raise ChannelError("哔咔排行榜需要账号：请先在渠道配置里填写哔咔账号与密码")
+
+        async with self._session() as client:
+            payload = await client.leaderboard(window, page=page)
+        comics = (payload.get("data") or {}).get("comics") or {}
+        docs = comics.get("docs") if isinstance(comics, dict) else None
+        items: list[RankingItem] = []
+        if isinstance(docs, list):
+            for entry in docs[: max(1, limit)]:
+                if not isinstance(entry, dict):
+                    continue
+                comic_id = str(entry.get("_id") or "").strip()
+                if not comic_id:
+                    continue
+                items.append(
+                    RankingItem(
+                        channel=self.name,
+                        comic_id=comic_id,
+                        title=str(entry.get("title") or ""),
+                        author=_author_name(entry.get("author")),
+                        page_count=_as_int(
+                            entry.get("epsCount") or entry.get("pagesCount"), 0
+                        ),
+                        cover_url=_cover_url(entry.get("thumb")),
+                    )
+                )
+        total = _as_int(comics.get("total"), 0) if isinstance(comics, dict) else 0
+        pages = _as_int(comics.get("pages"), 1) if isinstance(comics, dict) else 1
+        return RankingPage(
+            channel=self.name,
+            board=board,
+            items=items,
+            total=total or None,
+            has_more=pages > max(1, int(page)),
         )
 
     # ---- 封面 ----

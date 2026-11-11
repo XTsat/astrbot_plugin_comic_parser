@@ -31,6 +31,9 @@ from ....domain import (
     DownloadError,
     DownloadPaused,
     PluginSettings,
+    RankingItem,
+    RankingPage,
+    RankingUnsupportedError,
     SearchItem,
     SearchPage,
     SearchQuery,
@@ -73,6 +76,7 @@ from .progress import (
 )
 from .site import (
     GalleryMeta,
+    ehentai_popular_url,
     ehentai_search_url,
     gallery_url,
     is_banned,
@@ -286,6 +290,69 @@ class EHentaiChannel(BaseChannel):
                 return host, pages[0]
         detail = f"：{last_error}" if last_error is not None else ""
         raise ChannelError(f"作品页里没有解析到缩略图（可能已删除或需要登录）{detail}")
+
+    # ---- 排行榜 ----
+    # 站点只有一个「当前热门」页，没有日/周/月/总的分档；四档都接受，但非日榜会注明
+    # 时间窗不生效——藏起来让用户以为「E-Hentai 没榜单」比说实话更糟
+    ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month", "all")
+
+    async def ranking(
+        self, board: str, page: int = 1, limit: int = 10
+    ) -> RankingPage:
+        """站点热门页（`/popular`）：按近期收藏热度排，匿名可用。
+
+        与搜索共用域名降级、代理与风控判定；页面结构同样是作品行，所以复用搜索解析器。
+        站点不提供时间窗，除日榜外都注明「时间窗不生效」，并把「第几页」交给站点默认。
+        """
+        if board not in self.ranking_boards:
+            raise RankingUnsupportedError(f"E-Hentai 没有「{board}」这一档榜单")
+        note = "" if board == "day" else "E-Hentai 只提供「当前热门」一档，时间窗不生效"
+        hosts = self._search_hosts()
+        proxy, source = self.resolve_proxy()
+        last_error: Exception | None = None
+        async with self._client(proxy, source) as client:
+            for host in hosts:
+                try:
+                    document, final_url = await client.get_text(
+                        ehentai_popular_url(host)
+                    )
+                except (EHQuotaExceeded, EHLoginRequired, EHBanned) as exc:
+                    raise ChannelError(f"E-Hentai 排行榜获取失败：{exc}") from exc
+                except ChannelError as exc:
+                    last_error = exc
+                    logger.warning(
+                        f"[{PLUGIN_NAME}] E-Hentai 热门页抓取失败，换下一个域名：{exc}"
+                    )
+                    continue
+                if is_banned(document):
+                    raise ChannelError("E-Hentai 热门页被临时封禁，请过几小时再试")
+                if is_login_wall(document) or "sadpanda" in final_url.lower():
+                    last_error = ChannelError("热门页需要登录")
+                    continue
+                hits, has_more = parse_search_results(document, page=0)
+                if hits:
+                    items = [
+                        RankingItem(
+                            channel=self.name,
+                            comic_id=_canonical(hit.gid, hit.token),
+                            title=hit.title,
+                            page_count=hit.page_count,
+                            rank=index + 1,
+                        )
+                        for index, hit in enumerate(hits[: max(1, limit)])
+                    ]
+                    return RankingPage(
+                        channel=self.name,
+                        board=board,
+                        items=items,
+                        has_more=has_more or len(hits) > len(items),
+                        note=note,
+                    )
+                last_error = ChannelError("热门页没有解析到结果")
+
+        if last_error is not None:
+            raise ChannelError(f"E-Hentai 排行榜获取失败：{last_error}") from last_error
+        return RankingPage(channel=self.name, board=board, note=note)
 
     # ---- 搜索 ----
     async def search(

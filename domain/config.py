@@ -36,6 +36,13 @@ from .constants import (
     DEFAULT_PROBE_TIMEOUT,
     DEFAULT_PROGRESS_STYLE,
     DEFAULT_RESUME_TTL,
+    DEFAULT_RANKING_AGGREGATE_LIMIT,
+    DEFAULT_RANKING_BOARD,
+    DEFAULT_RANKING_CACHE_TTL,
+    DEFAULT_RANKING_COOLDOWN,
+    DEFAULT_RANKING_ENABLED,
+    DEFAULT_RANKING_PAGE_SIZE,
+    DEFAULT_RANKING_TIMEOUT,
     DEFAULT_RETRY_TIMES,
     DEFAULT_SEARCH_AGGREGATE_LIMIT,
     DEFAULT_SEARCH_AUTO_PROXY,
@@ -52,6 +59,7 @@ from .constants import (
     NSFW_MODEL_PRESETS,
     PACK_FORMATS,
     PROGRESS_STYLES,
+    RANKING_BOARDS,
 )
 
 # template_list 里每条渠道配置都带这个 key，标记它属于哪个渠道模板
@@ -151,6 +159,14 @@ class PluginSettings:
     search_cooldown: int = DEFAULT_SEARCH_COOLDOWN
     search_auto_proxy: bool = DEFAULT_SEARCH_AUTO_PROXY
     search_auto_proxy_timeout: int = DEFAULT_SEARCH_AUTO_PROXY_TIMEOUT
+    # 排行榜：独立成一组；窗口是跨渠道统一词汇，各渠道只能实现自己有的那几档
+    ranking_enabled: bool = DEFAULT_RANKING_ENABLED
+    ranking_default_board: str = DEFAULT_RANKING_BOARD
+    ranking_timeout: int = DEFAULT_RANKING_TIMEOUT
+    ranking_page_size: int = DEFAULT_RANKING_PAGE_SIZE
+    ranking_aggregate_limit: int = DEFAULT_RANKING_AGGREGATE_LIMIT
+    ranking_cache_ttl: int = DEFAULT_RANKING_CACHE_TTL
+    ranking_cooldown: int = DEFAULT_RANKING_COOLDOWN
     # 封面：下载完成后单独发一张图，打码复用 NSFW 检测框；
     # 封面说明跟随「发送下载完成摘要」，不另设开关
     cover_send: bool = DEFAULT_COVER_SEND
@@ -178,6 +194,7 @@ class PluginSettings:
         access = _section(data, "access")
         probe = _section(data, "probe")
         search = _section(data, "search")
+        ranking = _section(data, "ranking")
         cover = _section(data, "cover")
         # 打码与模型各嵌在「封面与模型」的一个子块里，与封面共用一张卡片；
         # 旧配置里 censor 是个 bool（打码还没分组），非 Mapping 一律按默认值兜底
@@ -196,6 +213,11 @@ class PluginSettings:
         )
         if progress_style not in PROGRESS_STYLES:
             progress_style = DEFAULT_PROGRESS_STYLE
+        ranking_board = _as_str(
+            ranking.get("default_board"), DEFAULT_RANKING_BOARD
+        )
+        if ranking_board not in RANKING_BOARDS:
+            ranking_board = DEFAULT_RANKING_BOARD
         censor_style = _as_str(
             censor.get("style"), DEFAULT_COVER_CENSOR_STYLE
         )
@@ -324,6 +346,32 @@ class PluginSettings:
                     minimum=1,
                 ),
                 120,
+            ),
+            ranking_enabled=_as_bool(
+                ranking.get("enable"), DEFAULT_RANKING_ENABLED
+            ),
+            ranking_default_board=ranking_board,
+            ranking_timeout=min(
+                _as_int(ranking.get("timeout"), DEFAULT_RANKING_TIMEOUT, minimum=1),
+                120,
+            ),
+            ranking_page_size=min(
+                _as_int(ranking.get("page_size"), DEFAULT_RANKING_PAGE_SIZE, minimum=1),
+                30,
+            ),
+            ranking_aggregate_limit=min(
+                _as_int(
+                    ranking.get("aggregate_limit"),
+                    DEFAULT_RANKING_AGGREGATE_LIMIT,
+                    minimum=1,
+                ),
+                20,
+            ),
+            ranking_cache_ttl=_as_int(
+                ranking.get("cache_ttl"), DEFAULT_RANKING_CACHE_TTL, minimum=0
+            ),
+            ranking_cooldown=_as_int(
+                ranking.get("cooldown"), DEFAULT_RANKING_COOLDOWN, minimum=0
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
             cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),

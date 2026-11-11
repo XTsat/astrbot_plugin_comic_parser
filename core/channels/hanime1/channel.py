@@ -21,6 +21,9 @@ from ....domain import (
     DownloadedComic,
     DownloadError,
     PluginSettings,
+    RankingItem,
+    RankingPage,
+    RankingUnsupportedError,
     SearchItem,
     SearchPage,
     SearchQuery,
@@ -64,6 +67,7 @@ from .site import (
     build_image_urls,
     build_page_url,
     challenge_markers,
+    comic_ranking_path,
     comic_search_path,
     parse_comic_search,
     parse_detail,
@@ -76,6 +80,10 @@ _COMIC_IN_TEXT = re.compile(r"/comic/(\d+)", re.IGNORECASE)
 # 视频页 /watch?v=<ID>：本渠道只做漫画，输入视频链接时给一句明确提示
 _VIDEO_IN_TEXT = re.compile(r"/watch\?v=\d+", re.IGNORECASE)
 _FIRST_DIGITS = re.compile(r"\d+")
+
+
+# 榜单窗口 → 站内热度档位。Hanime1 只有「本日/本週/所有」三档，没有月榜
+_BOARD_SORT = {"day": "popular-today", "week": "popular-week", "all": "popular"}
 
 
 class Hanime1Channel(BaseChannel):
@@ -519,6 +527,63 @@ class Hanime1Channel(BaseChannel):
             keyword=query.raw,
             note=fallback_note(query),
         )
+
+    # ---- 排行榜 ----
+    ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "all")
+
+    async def ranking(
+        self, board: str, page: int = 1, limit: int = 10
+    ) -> RankingPage:
+        """漫画区热度列表：同一个搜索页，关键词留空、按站内热度档位排序。
+
+        Hanime1 的漫画区由 nhentai 供源，热度档位只有「本日/本週/所有」三档，
+        没有月榜——所以 `ranking_boards` 不声明 ``month``。
+        """
+        sort = _BOARD_SORT.get(board)
+        if sort is None:
+            raise RankingUnsupportedError(f"Hanime1 没有「{board}」这一档榜单")
+        scraper = self._scraper()
+        domains = self.opt_list("site_domains") or split_option_list(
+            DEFAULT_SITE_DOMAINS
+        )
+        # 与搜索一致：漫画区只在 hanimeone 系列域名有内容，先试它们
+        ordered = [domain for domain in domains if "hanimeone" in domain] + [
+            domain for domain in domains if "hanimeone" not in domain
+        ]
+        last_error: Exception | None = None
+        for domain in ordered:
+            url = build_page_url(domain, comic_ranking_path(sort, page=page))
+            try:
+                document = await asyncio.to_thread(scraper.fetch_text, url)
+            except ChannelError as exc:
+                last_error = exc
+                logger.warning(
+                    f"[{PLUGIN_NAME}] Hanime1 榜单页抓取失败，换下一个域名：{exc}"
+                )
+                continue
+            hits = parse_comic_search(document)
+            if not hits:
+                continue
+            items = [
+                RankingItem(
+                    channel=self.name,
+                    comic_id=hit.comic_id,
+                    title=hit.title,
+                    cover_url=hit.cover_url,
+                    rank=index + 1,
+                )
+                for index, hit in enumerate(hits[: max(1, limit)])
+            ]
+            return RankingPage(
+                channel=self.name,
+                board=board,
+                items=items,
+                has_more=len(hits) > len(items)
+                or search_has_more(document, page, len(hits)),
+            )
+        if last_error is not None:
+            raise ChannelError(f"Hanime1 排行榜获取失败：{last_error}") from last_error
+        return RankingPage(channel=self.name, board=board)
 
     def _build_downloader(self) -> ImageDownloader:
         site = self._single_option("site_domains", DEFAULT_SITE_DOMAINS)

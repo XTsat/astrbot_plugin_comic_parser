@@ -28,6 +28,8 @@ from ..domain import (
     DownloadError,
     DownloadedComic,
     PluginSettings,
+    RankingPage,
+    RankingUnsupportedError,
     SearchPage,
     SearchQuery,
     SearchUnsupportedError,
@@ -140,6 +142,8 @@ class BaseChannel(ABC):
     default_use_proxy: ClassVar[bool] = False
     # 搜索超时时追加给用户的排查提示（渠道私有，不知道就留空）
     search_timeout_hint: ClassVar[str] = ""
+    # 支持的榜单窗口（见 domain/constants.py 的 RANKING_BOARDS）；空元组表示本渠道没有榜单
+    ranking_boards: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
         self.options: dict[str, Any] = dict(options)
@@ -359,6 +363,28 @@ class BaseChannel(ABC):
         并在 `SearchPage.note` 里说明降级方式，避免用户误以为做了精确筛选。
         """
         raise SearchUnsupportedError(f"{self.display_name} 暂不支持搜索")
+
+    # ---- 排行榜：可选能力，默认不支持 ----
+    @property
+    def supports_ranking(self) -> bool:
+        """是否实现了排行榜。
+
+        除了覆盖 `ranking()`，还要求 `ranking_boards` 非空：渠道可能只想开放自己有的
+        那几档（哔咔没有总榜、Hanime1 没有月榜），空元组等于「这个渠道没有榜单」。
+        """
+        if not self.ranking_boards:
+            return False
+        return type(self).ranking is not BaseChannel.ranking
+
+    async def ranking(
+        self, board: str, page: int = 1, limit: int = 10
+    ) -> RankingPage:
+        """取本渠道 ``board`` 时间窗的第 ``page`` 页榜单，返回至多 ``limit`` 条。
+
+        ``board`` 只可能是 ``ranking_boards`` 里声明过的窗口。默认抛
+        `RankingUnsupportedError`：没有榜单的渠道照常能下载与搜索，不需要写 stub。
+        """
+        raise RankingUnsupportedError(f"{self.display_name} 暂不支持排行榜")
 
     # ---- 子类必须实现 ----
     @abstractmethod

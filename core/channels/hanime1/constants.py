@@ -27,6 +27,8 @@ IMAGE_HOST_FALLBACKS: Final = ("i.nhentai.net", "i3.nhentai.net", "i4.nhentai.ne
 PATH_DETAIL: Final = "/comic/{comic_id}"
 # 漫画区搜索：视频搜索 `/search?query=` 只返回视频，漫画区是独立入口，只挂在 hanimeone.me
 PATH_COMIC_SEARCH: Final = "/comics/search?query={keyword}&page={page}"
+# 漫画区热度列表：同一个搜索页，只是不带关键词、把排序换成站内热度档位
+PATH_COMIC_RANKING: Final = "/comics/search?query=&page={page}&sort={sort}"
 PATH_READER: Final = "/comic/{comic_id}/{page}"
 
 # ---- 请求 ----

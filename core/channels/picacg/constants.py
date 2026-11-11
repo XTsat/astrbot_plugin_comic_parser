@@ -12,6 +12,9 @@ BASE_URL: Final = "https://picaapi.picacomic.com/"
 PATH_SIGN_IN: Final = "auth/sign-in"
 # 搜索：官方 App 的「进阶搜索」，必须登录（401 不带 token）；旧接口 comics/search 仍存在但字段更少
 PATH_SEARCH: Final = "comics/advanced-search"
+# 排行榜（官方 App 的「排行榜」页）：tt 是时间窗，ct=VC 表示按漫画计数
+PATH_LEADERBOARD: Final = "comics/leaderboard"
+LEADERBOARD_CATEGORY: Final = "VC"
 PATH_COMIC: Final = "comics/{comic_id}"
 PATH_EPISODES: Final = "comics/{comic_id}/eps"
 PATH_EPISODE_PAGES: Final = "comics/{comic_id}/order/{order}/pages"

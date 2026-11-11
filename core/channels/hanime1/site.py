@@ -36,6 +36,7 @@ from .constants import (
     IMAGE_EXTENSIONS,
     MAX_PAGES,
     MIN_IMAGE_BYTES,
+    PATH_COMIC_RANKING,
     PATH_COMIC_SEARCH,
 )
 
@@ -149,6 +150,13 @@ def comic_search_path(keyword: str, page: int = 1) -> str:
     """漫画区搜索路径；关键词要 URL 编码。"""
     return PATH_COMIC_SEARCH.format(
         keyword=quote(keyword, safe=""), page=max(1, int(page))
+    )
+
+
+def comic_ranking_path(sort: str, page: int = 1) -> str:
+    """漫画区热度列表路径：同一个搜索页，关键词留空、按站内热度档位排序。"""
+    return PATH_COMIC_RANKING.format(
+        sort=quote(sort, safe=""), page=max(1, int(page))
     )
 
 

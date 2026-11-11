@@ -77,6 +77,70 @@ SEARCH_INDEX_HINT_MAX: Final = 99
 SEARCH_NEXT_WORDS: Final = frozenset({"next", "下一页", "下页"})
 SEARCH_PREV_WORDS: Final = frozenset({"prev", "previous", "上一页", "上页"})
 
+# ---- 排行榜 ----
+
+# 榜单窗口是跨渠道的统一词汇：各站原生档位并不一致（哔咔是 24 小时/7 天/30 天，
+# 紳士没有日榜，Hanime1 没有月榜），所以由渠道用 `ranking_boards` 声明自己支持哪些窗口，
+# 聚合层只展示交集，缺失的窗口在文案里说明，而不是报错或悄悄换一档
+RANKING_BOARDS: Final = ("day", "week", "month", "all")
+RANKING_BOARD_LABELS: Final = {
+    "day": "日榜",
+    "week": "周榜",
+    "month": "月榜",
+    "all": "总榜",
+}
+# 命令词：`/comic 排行`、`/jm rank` 都认；窗口词也认中文
+RANKING_WORDS: Final = frozenset({"rank", "ranking", "排行", "排行榜", "榜"})
+RANKING_BOARD_ALIASES: Final = {
+    "day": "day",
+    "d": "day",
+    "today": "day",
+    "daily": "day",
+    "日": "day",
+    "日榜": "day",
+    "今日": "day",
+    "每日": "day",
+    "week": "week",
+    "w": "week",
+    "weekly": "week",
+    "周": "week",
+    "周榜": "week",
+    "本周": "week",
+    "这周": "week",
+    "month": "month",
+    "m": "month",
+    "monthly": "month",
+    "月": "month",
+    "月榜": "month",
+    "本月": "month",
+    "all": "all",
+    "total": "all",
+    "全部": "all",
+    "总": "all",
+    "总榜": "all",
+    "历史": "all",
+}
+# 默认看周榜：六家里五家都有周榜，日榜体量太小、月榜更新太慢
+DEFAULT_RANKING_BOARD: Final = "week"
+DEFAULT_RANKING_ENABLED: Final = True
+# 榜单超时比搜索宽：几个渠道要抓 HTML 列表页，站点在境外且限速
+DEFAULT_RANKING_TIMEOUT: Final = 15
+# 单渠道每页条数：榜单看前十就够，再多刷屏
+DEFAULT_RANKING_PAGE_SIZE: Final = 10
+# 聚合时每个渠道取前几条：全渠道一起发时每个渠道都只给头部，避免一条消息几百行
+DEFAULT_RANKING_AGGREGATE_LIMIT: Final = 5
+# 榜单缓存时长（秒）：榜单比搜索结果稳定得多，翻页与重复查看不必回回打上游
+DEFAULT_RANKING_CACHE_TTL: Final = 300
+# 同会话榜单冷却（秒）：与搜索同理，防一个人连续刷上游
+DEFAULT_RANKING_COOLDOWN: Final = 3
+RANKING_MAX_TEXT_CHARS: Final = SEARCH_MAX_TEXT_CHARS
+# 序号下载的记忆时长与搜索一致：同一句话里的「序号」只属于最近那次列表
+RANKING_RESULT_TTL: Final = SEARCH_RESULT_TTL
+RANKING_INDEX_HINT_MAX: Final = SEARCH_INDEX_HINT_MAX
+# 榜单缓存与会话记忆的条数上限：与搜索同理，会话/窗口组合不可控，超限先清最旧的
+RANKING_CACHE_MAX_ENTRIES: Final = 128
+RANKING_RESULT_MAX_SESSIONS: Final = SEARCH_RESULT_MAX_SESSIONS
+
 # 渠道私有常量（域名清单、单请求超时与重试默认值等）不放这里，
 # 一律跟着渠道走：`core/channels/<渠道名>/constants.py`
 PACK_FORMATS: Final = ("zip", "pdf", "long_img", "none")

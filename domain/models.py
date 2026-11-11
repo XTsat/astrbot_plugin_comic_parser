@@ -46,6 +46,45 @@ class SearchItem:
 
 
 @dataclass(slots=True)
+class RankingItem:
+    """榜单里的一条作品。
+
+    与 :class:`SearchItem` 分开：榜单不需要关键词与筛选说明，但需要「第几名」与封面，
+    而且它天然可以被回序号下载——编号由展示层统一给，``rank`` 只记上游自己的位次。
+    """
+
+    channel: str
+    comic_id: str
+    title: str = ""
+    author: str = ""
+    page_count: int = 0
+    cover_url: str = ""
+    tags: list[str] = field(default_factory=list)
+    rank: int = 0  # 上游位次；0 表示渠道没给，展示层按页内顺序补
+
+    @property
+    def display_title(self) -> str:
+        """展示用标题：渠道没给标题时退回 ID，避免消息里出现空标题。"""
+        return self.title.strip() or f"{self.channel}-{self.comic_id}"
+
+
+@dataclass(slots=True)
+class RankingPage:
+    """某渠道某个时间窗的一页榜单。"""
+
+    channel: str
+    board: str
+    items: list[RankingItem] = field(default_factory=list)
+    total: int | None = None  # 上游给出的榜单总量；没有时为 None
+    has_more: bool = False  # 上游这一页之后还有名次
+    note: str = ""  # 该渠道对时间窗/能力的说明（降级时给用户看）
+
+    @property
+    def empty(self) -> bool:
+        return not self.items
+
+
+@dataclass(slots=True)
 class SearchFilter:
     """一条结构化搜索条件：``field`` 是规范化字段名，``value`` 是用户填的值。"""
 

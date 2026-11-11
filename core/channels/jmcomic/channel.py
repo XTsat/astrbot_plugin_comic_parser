@@ -20,6 +20,9 @@ from ....domain import (
     DownloadCancelled,
     DownloadError,
     DownloadedComic,
+    RankingItem,
+    RankingPage,
+    RankingUnsupportedError,
     SearchItem,
     SearchPage,
     SearchQuery,
@@ -54,6 +57,14 @@ from .speed import build_probe
 
 _ALBUM_IN_TEXT = re.compile(r"/(?:album|photo)/(\d+)")
 _FIRST_DIGITS = re.compile(r"\d+")
+
+# 榜单窗口 → categories/filter 的 `t` 参数。jmcomic 的 JmMagicConstants 是同一套取值，
+# 但它只能在运行期惰性 import，常量表放这里省掉一次依赖检查（'a' = 全部时间）
+_BOARD_TIME = {"day": "t", "week": "w", "month": "m", "all": "a"}
+# 榜单按「最多浏览」排，与库里的 day_ranking/week_ranking/month_ranking 口径一致
+_RANKING_ORDER = "mv"
+# 不限定类别（0 = 全部）
+_RANKING_CATEGORY = "0"
 
 # 已知图片文件头：图床偶尔以 200 回错误页/HTML，原样交给面板只会显示一张裂图
 _IMAGE_SIGNATURES: tuple[bytes, ...] = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF8")
@@ -503,6 +514,76 @@ class JMComicChannel(BaseChannel):
             has_more=page_count > page,
             note=note,
         )
+
+    # ---- 排行榜 ----
+    ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month", "all")
+
+    async def ranking(
+        self, board: str, page: int = 1, limit: int = 10
+    ) -> RankingPage:
+        """分类排行：JM 的 `categories/filter` 按「时间窗 × 最多浏览」就是日/周/月榜。
+
+        库里的 day/week/month_ranking 只是这三档的薄封装，总榜要另传 ``TIME_ALL``，
+        所以直接调 `categories_filter`，省掉「库没有总榜方法」的分支。
+        """
+        time_range = _BOARD_TIME.get(board)
+        if time_range is None:
+            raise RankingUnsupportedError(f"JM 没有「{board}」这一档榜单")
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+
+        option = await asyncio.to_thread(
+            build_option,
+            self,
+            jmcomic,
+            Path(tempfile.gettempdir()),
+            impl="api",
+            for_search=True,
+        )
+        result = await asyncio.to_thread(
+            self._ranking_sync, option, time_range, page
+        )
+
+        items: list[RankingItem] = []
+        for album_id, info in getattr(result, "content", [])[: max(1, limit)]:
+            if not isinstance(info, dict):
+                continue
+            items.append(
+                RankingItem(
+                    channel=self.name,
+                    comic_id=str(album_id),
+                    title=str(info.get("name") or ""),
+                    author=_author_text(info.get("author")),
+                    tags=[
+                        str(tag)
+                        for tag in (info.get("tags") or [])
+                        if str(tag).strip()
+                    ],
+                )
+            )
+        total = _to_int(getattr(result, "total", 0))
+        page_count = _to_int(getattr(result, "page_count", 1))
+        return RankingPage(
+            channel=self.name,
+            board=board,
+            items=items,
+            total=total or None,
+            has_more=page_count > max(1, int(page)),
+        )
+
+    def _ranking_sync(self, option: Any, time_range: str, page: int) -> Any:
+        """在线程里跑 jmcomic 的分类排行；库异常统一翻译成用户文案。"""
+        try:
+            client = option.new_jm_client()
+            return client.categories_filter(
+                page=max(1, int(page)),
+                time=time_range,
+                category=_RANKING_CATEGORY,
+                order_by=_RANKING_ORDER,
+            )
+        except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，统一转 ChannelError
+            raise ChannelError(f"JM 排行榜获取失败：{exc}") from exc
 
     @staticmethod
     def _build_search(query: SearchQuery) -> tuple[str, str, str]:

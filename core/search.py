@@ -148,6 +148,16 @@ class SearchService:
         self._prune_searched_at(now)
         return None
 
+    def session_active(self, session_id: str) -> bool:
+        """本会话是否还有仍然有效的搜索结果（序号路由/翻页据此决定问哪个服务）。"""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return False
+        if time.monotonic() - session.stored_at > SEARCH_RESULT_TTL:
+            self._sessions.pop(session_id, None)
+            return False
+        return True
+
     def _prune_searched_at(self, now: float) -> None:
         """搜索留痕只用于解释序号失效，条数不可控：超限时先清过期的，再丢最早的。"""
         if len(self._searched_at) <= SEARCH_RESULT_MAX_SESSIONS:

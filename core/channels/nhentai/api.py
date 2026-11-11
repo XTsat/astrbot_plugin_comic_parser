@@ -81,6 +81,23 @@ class NhentaiApi:
             raise ChannelError("nhentai 搜索接口返回了非预期的数据格式")
         return payload
 
+    async def ranking(self, sort: str, page: int = 1) -> dict[str, Any]:
+        """按热度排序取一页作品（不带关键词）。
+
+        `sort` 与站内列表页同一套取值（`popular` / `popular-today` / `popular-week` /
+        `popular-month`）：同一排序里不带 `query` 就是「按该热度浏览整站」。
+        """
+        path = (
+            f"{SEARCH_API_PATH}?page={max(1, int(page))}"
+            f"&sort={quote(sort, safe='')}"
+        )
+        payload = await self._get_json(
+            path, not_found=ChannelError("nhentai 榜单接口不存在")
+        )
+        if not isinstance(payload, dict):
+            raise ChannelError("nhentai 榜单接口返回了非预期的数据格式")
+        return payload
+
     async def image_servers(self) -> list[str]:
         """图床服务器清单；取不到就用默认图床域名，绝不让它挡住下载。"""
         if self._image_servers:

@@ -21,6 +21,9 @@ from ....domain import (
     DownloadedComic,
     DownloadError,
     PluginSettings,
+    RankingItem,
+    RankingPage,
+    RankingUnsupportedError,
     SearchItem,
     SearchPage,
     SearchQuery,
@@ -57,6 +60,15 @@ from .site import (
     parse_api_gallery,
     parse_html_gallery,
 )
+
+# 榜单窗口 → 列表排序取值。站内列表页与 API v2 的排序是同一套词，
+# 所以四个窗口都能直接映射，不需要另造降级
+_BOARD_SORT = {
+    "day": "popular-today",
+    "week": "popular-week",
+    "month": "popular-month",
+    "all": "popular",
+}
 
 _GALLERY_IN_TEXT = re.compile(r"/g/(\d+)")
 _FIRST_DIGITS = re.compile(r"\d+")
@@ -267,6 +279,52 @@ class NhentaiChannel(BaseChannel):
             total=total,
             has_more=_as_int(payload.get("num_pages")) > max(1, int(page)),
             note=fallback_note(query),
+        )
+
+    # ---- 排行榜 ----
+    ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month", "all")
+
+    async def ranking(
+        self, board: str, page: int = 1, limit: int = 10
+    ) -> RankingPage:
+        """按热度取一页：走官方 API v2 的排序参数，不抓 HTML 列表页。
+
+        站点列表页在 Cloudflare 后面，而 `/api/v2/search` 匿名可用，所以榜单也走接口：
+        排序词与站内完全一致（popular-today / popular-week / popular-month / popular）。
+        """
+        sort = _BOARD_SORT.get(board)
+        if sort is None:
+            raise RankingUnsupportedError(f"nhentai 没有「{board}」这一档榜单")
+
+        payload = await self._api().ranking(sort, page=page)
+        raw = payload.get("result")
+        items: list[RankingItem] = []
+        if isinstance(raw, list):
+            for entry in raw[: max(1, limit)]:
+                if not isinstance(entry, dict):
+                    continue
+                comic_id = str(entry.get("id") or "").strip()
+                if not comic_id:
+                    continue
+                title = str(
+                    entry.get("english_title")
+                    or entry.get("japanese_title")
+                    or ""
+                ).strip()
+                items.append(
+                    RankingItem(
+                        channel=self.name,
+                        comic_id=comic_id,
+                        title=title,
+                        page_count=_as_int(entry.get("num_pages")),
+                    )
+                )
+        return RankingPage(
+            channel=self.name,
+            board=board,
+            items=items,
+            total=_as_int_optional(payload.get("total")),
+            has_more=_as_int(payload.get("num_pages")) > max(1, int(page)),
         )
 
     # ---- 内部 ----
