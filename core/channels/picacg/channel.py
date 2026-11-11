@@ -210,7 +210,7 @@ class PicacgChannel(BaseChannel):
     ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month")
 
     async def ranking(
-        self, board: str, page: int = 1, limit: int = 10
+        self, board: str, page: int = 1, limit: int = 10, offset: int = 0
     ) -> RankingPage:
         """官方排行榜页；与搜索一样必须登录，没账号时给明确提示而不是「空榜」。
 
@@ -228,15 +228,16 @@ class PicacgChannel(BaseChannel):
         comics = (payload.get("data") or {}).get("comics")
         # 排行榜把整张榜塞在 `data.comics` 数组里（不是搜索那种带 docs 的分页对象）
         docs = comics.get("docs") if isinstance(comics, dict) else comics
-        items: list[RankingItem] = []
+        candidates: list[RankingItem] = []
         if isinstance(docs, list):
-            for entry in docs[: max(1, limit)]:
+            # 整张榜都在这一份响应里，所以超上限的条目可以就地让位给后面的名次
+            for entry in docs:
                 if not isinstance(entry, dict):
                     continue
                 comic_id = str(entry.get("_id") or "").strip()
                 if not comic_id:
                     continue
-                items.append(
+                candidates.append(
                     RankingItem(
                         channel=self.name,
                         comic_id=comic_id,
@@ -246,17 +247,22 @@ class PicacgChannel(BaseChannel):
                         page_count=_as_int(
                             entry.get("pagesCount") or entry.get("epsCount"), 0
                         ),
+                        chapter_count=_as_int(entry.get("epsCount"), 0),
                         cover_url=_cover_url(entry.get("thumb")),
                     )
                 )
+        begin = max(0, int(offset))
+        window = candidates[begin : begin + max(1, int(limit))]
+        exhausted = begin + len(window) >= len(candidates)
         total = _as_int(comics.get("total"), 0) if isinstance(comics, dict) else 0
         return RankingPage(
             channel=self.name,
             board=board,
-            items=items,
+            items=window,
             # 排行榜一次给整张榜，没有下一页；页数参数上游也不认
             total=total or None,
-            has_more=False,
+            has_more=not exhausted,
+            exhausted=exhausted,
         )
 
     # ---- 封面 ----

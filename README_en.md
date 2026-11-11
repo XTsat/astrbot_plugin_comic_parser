@@ -11,7 +11,7 @@
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: use a channel command (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) when you already have the ID
 - **Search right in the chat**: `/comic sou <keyword>` searches every channel that supports search in one go, `/jm sou` searches a single channel; reply with the number of a hit to download it, and page through longer result sets
-- **Rankings**: `/comic 排行` collects the leaderboards of every channel at once, `/jm 排行` shows one channel only; pick daily / weekly / monthly / all-time, and each channel uses its own window and falls back to the nearest one when that window is missing, saying so in the reply. Hits are downloadable by number and page through the same way as search
+- **Rankings**: `/comic 排行` collects the leaderboards of every channel at once, `/jm 排行` shows one channel only; pick daily / weekly / monthly / all-time, and each channel uses its own window and falls back to the nearest one when that window is missing, saying so in the reply. Hits are downloadable by number and page through the same way as search. Overlong serials are filtered out by default (300 pages and 10 chapters, both configurable, 0 disables either cap); fetched ranks are buffered locally and filtered only when a page is assembled, so dropped entries and the leftover tail of a page stay in the buffer and the next page continues from them (another upstream block is fetched only when a page cannot be filled); the reply says how many were skipped
 - **Rankings as an image** (optional): render one page of a leaderboard as a card (cover grid, rank badges, title/author); the all-channel board (`/comic 排行`) puts every platform into **one image** with ranks continuing across sections, while a single-channel board sends one card per page. The covers follow the "Censor the cover" switch and are censored one by one before the card is composed — with no detection available only those covers are censored whole, so ranks and titles stay readable
 - **Multiple channels**: JM, nhentai, PicaACG, Hanime1, WNACG and E-Hentai; E-Hentai needs no cookie for the 1280px resampled images, and originals are used once a cookie is added (charged against your site quota)
 - **Unified packing**: every download becomes a ZIP archive, a PDF or a long vertical image, or can simply stay on disk; a format word at the end of the command overrides it for that one download
@@ -330,7 +330,7 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 ### Rankings
 
 <details>
-<summary>Rankings (8 + 3)</summary>
+<summary>Rankings (10 + 3)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -339,6 +339,8 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 | Per-channel timeout (`timeout`) | int | 15 | Each channel is timed on its own; sites that serve HTML list pages are slower, and a channel that misses the deadline is skipped while the others still show |
 | Ranks per page, single channel (`page_size`) | int | 10 | How many ranks a single-channel leaderboard shows per page; `/comic 下一页` continues downwards |
 | Ranks per channel, all channels (`aggregate_limit`) | int | 3 | How many top entries each channel contributes to an all-channel leaderboard, 3 by default (18 entries for six channels, which keeps one message from being truncated); sites rank by different metrics, so they are listed side by side instead of merged |
+| Page cap (`max_pages`) | int | 300 | Works longer than this many pages stay out of the leaderboard and do not take a rank: long serials dominate the board and are impossible to finish anyway. Around 300 pages keeps collected volumes in while cutting the very long serials; download a long work directly by its ID if you want it. 0 disables the cap, and entries whose page count is unknown are still shown |
+| Chapter cap (`max_chapters`) | int | 10 | Works with more chapters than this also stay out, which catches serials that are not page-heavy but endless. 10 chapters by default, 0 disables it. Only channels that know their chapter count (JM and PicaACG) use it; the others still go by page count alone |
 | Cache lifetime (`cache_ttl`) | int | 300 | Reuses the previous result for the same channel and window within this window. The image version keeps its card per board period instead — until midnight for the daily board, until next Monday for weekly, until the 1st for monthly, and 7 days for all-time — so a repeat request returns the same image without refetching covers or re-running explicitness checks; 0 disables caching |
 | Ranking cooldown (`cooldown`) | int | 3 | Minimum seconds between two leaderboard views in the same session; 0 disables the limit |
 | Output (`output`) | string | text | Text can be downloaded by number; `image` renders cards (one combined image for the all-channel board, one card per page otherwise); `both` sends the text first and the images after |

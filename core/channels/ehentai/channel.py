@@ -297,7 +297,7 @@ class EHentaiChannel(BaseChannel):
     ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month", "all")
 
     async def ranking(
-        self, board: str, page: int = 1, limit: int = 10
+        self, board: str, page: int = 1, limit: int = 10, offset: int = 0
     ) -> RankingPage:
         """站点热门页（`/popular`）：按近期收藏热度排，匿名可用。
 
@@ -331,7 +331,7 @@ class EHentaiChannel(BaseChannel):
                     continue
                 hits, has_more = parse_search_results(document, page=0)
                 if hits:
-                    items = [
+                    candidates = [
                         RankingItem(
                             channel=self.name,
                             comic_id=_canonical(hit.gid, hit.token),
@@ -339,14 +339,18 @@ class EHentaiChannel(BaseChannel):
                             page_count=hit.page_count,
                             rank=index + 1,
                         )
-                        for index, hit in enumerate(hits[: max(1, limit)])
+                        for index, hit in enumerate(hits)
                     ]
+                    begin = max(0, int(offset))
+                    window = candidates[begin : begin + max(1, int(limit))]
+                    exhausted = begin + len(window) >= len(candidates)
                     return RankingPage(
                         channel=self.name,
                         board=board,
-                        items=items,
-                        has_more=has_more or len(hits) > len(items),
+                        items=window,
+                        has_more=(not exhausted) or has_more,
                         note=note,
+                        exhausted=exhausted,
                     )
                 last_error = ChannelError("热门页没有解析到结果")
 

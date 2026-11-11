@@ -45,6 +45,8 @@ from .constants import (
     DEFAULT_RANKING_IMAGE_PAGE_SIZE,
     DEFAULT_RANKING_IMAGE_SHOW_AUTHOR,
     DEFAULT_RANKING_IMAGE_SHOW_ID,
+    DEFAULT_RANKING_MAX_CHAPTERS,
+    DEFAULT_RANKING_MAX_PAGES,
     DEFAULT_RANKING_OUTPUT,
     DEFAULT_RANKING_PAGE_SIZE,
     DEFAULT_RANKING_TIMEOUT,
@@ -67,6 +69,8 @@ from .constants import (
     RANKING_BOARDS,
     RANKING_IMAGE_COLUMNS_RANGE,
     RANKING_IMAGE_PAGE_SIZES,
+    RANKING_MAX_CHAPTERS_LIMIT,
+    RANKING_MAX_PAGES_LIMIT,
     RANKING_OUTPUTS,
 )
 
@@ -173,6 +177,8 @@ class PluginSettings:
     ranking_timeout: int = DEFAULT_RANKING_TIMEOUT
     ranking_page_size: int = DEFAULT_RANKING_PAGE_SIZE
     ranking_aggregate_limit: int = DEFAULT_RANKING_AGGREGATE_LIMIT
+    ranking_max_pages: int = DEFAULT_RANKING_MAX_PAGES
+    ranking_max_chapters: int = DEFAULT_RANKING_MAX_CHAPTERS
     ranking_cache_ttl: int = DEFAULT_RANKING_CACHE_TTL
     ranking_cooldown: int = DEFAULT_RANKING_COOLDOWN
     ranking_output: str = DEFAULT_RANKING_OUTPUT
@@ -198,6 +204,29 @@ class PluginSettings:
     nsfw_model_url: str = ""
     proxy: str = ""
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def ranking_size_ok(self, page_count: int, chapter_count: int) -> bool:
+        """榜单准入：页数与章节数都没超上限才进榜（0 表示不限，取不到按通过算）。
+
+        判定放在这里而不是各渠道里：渠道负责把页数/章节数查回来，谁该进榜由这一处说了算，
+        榜单服务与补数据的渠道才不会各判一套。
+        """
+        max_pages = max(0, int(self.ranking_max_pages))
+        if max_pages and page_count > max_pages:
+            return False
+        max_chapters = max(0, int(self.ranking_max_chapters))
+        return not (max_chapters and chapter_count > max_chapters)
+
+    @property
+    def ranking_cap_label(self) -> str:
+        """上限的说明文案（如「300 页或 10 章」），两个都关掉时为空串。"""
+        pages = max(0, int(self.ranking_max_pages))
+        chapters = max(0, int(self.ranking_max_chapters))
+        if pages and chapters:
+            return f"{pages} 页或 {chapters} 章"
+        if pages:
+            return f"{pages} 页"
+        return f"{chapters} 章" if chapters else ""
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any] | None) -> PluginSettings:
@@ -400,6 +429,20 @@ class PluginSettings:
                     minimum=1,
                 ),
                 20,
+            ),
+            ranking_max_pages=min(
+                _as_int(
+                    ranking.get("max_pages"), DEFAULT_RANKING_MAX_PAGES, minimum=0
+                ),
+                RANKING_MAX_PAGES_LIMIT,
+            ),
+            ranking_max_chapters=min(
+                _as_int(
+                    ranking.get("max_chapters"),
+                    DEFAULT_RANKING_MAX_CHAPTERS,
+                    minimum=0,
+                ),
+                RANKING_MAX_CHAPTERS_LIMIT,
             ),
             ranking_cache_ttl=_as_int(
                 ranking.get("cache_ttl"), DEFAULT_RANKING_CACHE_TTL, minimum=0

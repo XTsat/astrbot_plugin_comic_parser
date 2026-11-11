@@ -136,6 +136,14 @@ DEFAULT_RANKING_PAGE_SIZE: Final = 10
 # 聚合时每个渠道取前几条：全渠道一起发时每个渠道都只给头部。默认 3 —— 六家 × 3 = 18 条，
 # 既不会把单条消息撑到被平台截断，榜单这件事本身看的也就是前几名
 DEFAULT_RANKING_AGGREGATE_LIMIT: Final = 3
+# 榜单尺寸上限：连载长篇会长期霸榜、点进去也下不完，超上限的不进榜。
+# 页数挡「一册就上千页」的厚本，章节数挡「几十章追不完」的连载；300 页 / 10 章这个组合
+# 既能留住合订本，又能排除超长连载。两个都是 0 表示不限制
+DEFAULT_RANKING_MAX_PAGES: Final = 300
+DEFAULT_RANKING_MAX_CHAPTERS: Final = 10
+# 配置兜底上限：再高就等于没限制，写个能过 slider 的整数即可
+RANKING_MAX_PAGES_LIMIT: Final = 10000
+RANKING_MAX_CHAPTERS_LIMIT: Final = 1000
 # 榜单缓存时长（秒）：榜单比搜索结果稳定得多，翻页与重复查看不必回回打上游
 DEFAULT_RANKING_CACHE_TTL: Final = 300
 # 同会话榜单冷却（秒）：与搜索同理，防一个人连续刷上游

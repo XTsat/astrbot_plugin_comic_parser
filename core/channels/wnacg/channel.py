@@ -286,7 +286,7 @@ class WnacgChannel(BaseChannel):
     ranking_boards: ClassVar[tuple[str, ...]] = ("week", "month", "all")
 
     async def ranking(
-        self, board: str, page: int = 1, limit: int = 10
+        self, board: str, page: int = 1, limit: int = 10, offset: int = 0
     ) -> RankingPage:
         """站内收藏排行（「排行榜」）：按收藏数排，只有周/月/总三档，没有日榜。
 
@@ -300,7 +300,7 @@ class WnacgChannel(BaseChannel):
         async with site:
             document = await site.fetch_page(ranking_path(page=page, period=period))
         hits, has_more = parse_search_results(document, page=page)
-        items = [
+        candidates = [
             RankingItem(
                 channel=self.name,
                 comic_id=hit.comic_id,
@@ -309,13 +309,17 @@ class WnacgChannel(BaseChannel):
                 cover_url=hit.cover_url,
                 rank=index + 1,
             )
-            for index, hit in enumerate(hits[: max(1, limit)])
+            for index, hit in enumerate(hits)
         ]
+        begin = max(0, int(offset))
+        window = candidates[begin : begin + max(1, int(limit))]
+        exhausted = begin + len(window) >= len(candidates)
         return RankingPage(
             channel=self.name,
             board=board,
-            items=items,
-            has_more=has_more or len(hits) > len(items),
+            items=window,
+            has_more=(not exhausted) or has_more,
+            exhausted=exhausted,
         )
 
     def cancel_downloads(self) -> list[str]:

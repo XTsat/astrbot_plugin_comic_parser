@@ -44,6 +44,10 @@ from .constants import (
     DEFAULT_HTML_DOMAINS,
     DEFAULT_REQUEST_RETRY_TIMES,
     DEFAULT_REQUEST_TIMEOUT,
+    RANKING_DETAIL_CACHE_TTL,
+    RANKING_DETAIL_CONCURRENCY,
+    RANKING_DETAIL_TIMEOUT,
+    RANKING_ENRICH_BUDGET,
 )
 from .option import build_option, import_jmcomic
 from .progress import (
@@ -519,12 +523,15 @@ class JMComicChannel(BaseChannel):
     ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month", "all")
 
     async def ranking(
-        self, board: str, page: int = 1, limit: int = 10
+        self, board: str, page: int = 1, limit: int = 10, offset: int = 0
     ) -> RankingPage:
         """分类排行：JM 的 `categories/filter` 按「时间窗 × 最多浏览」就是日/周/月榜。
 
         库里的 day/week/month_ranking 只是这三档的薄封装，总榜要另传 ``TIME_ALL``，
         所以直接调 `categories_filter`，省掉「库没有总榜方法」的分支。
+
+        只交出上游这一块候选（``offset`` 起的至多 ``limit`` 条，带页数与章节数），
+        按尺寸上限过滤是榜单服务在本地缓冲里做的事——这里筛掉就等于把零头丢了。
         """
         time_range = _BOARD_TIME.get(board)
         if time_range is None:
@@ -545,8 +552,11 @@ class JMComicChannel(BaseChannel):
             self._ranking_sync, option, time_range, page
         )
 
+        content = getattr(result, "content", []) or []
+        begin = max(0, int(offset))
+        window = content[begin : begin + max(1, int(limit))]
         items: list[RankingItem] = []
-        for album_id, info in getattr(result, "content", [])[: max(1, limit)]:
+        for album_id, info in window:
             if not isinstance(info, dict):
                 continue
             items.append(
@@ -562,6 +572,9 @@ class JMComicChannel(BaseChannel):
                     ],
                 )
             )
+        if items:
+            await self._enrich_ranking(items, jmcomic)
+        exhausted = begin + len(window) >= len(content)
         total = _to_int(getattr(result, "total", 0))
         page_count = _to_int(getattr(result, "page_count", 1))
         return RankingPage(
@@ -569,8 +582,86 @@ class JMComicChannel(BaseChannel):
             board=board,
             items=items,
             total=total or None,
-            has_more=page_count > max(1, int(page)),
+            has_more=(not exhausted) or page_count > max(1, int(page)),
+            exhausted=exhausted,
         )
+
+    def _ranking_page_cache(self) -> dict[str, tuple[float, int, int]]:
+        """补页数/章节数的缓存：渠道实例随插件重载重建，挂实例上就够。"""
+        cache = getattr(self, "_ranking_pages", None)
+        if cache is None:
+            cache = {}
+            self._ranking_pages = cache
+        return cache
+
+    async def _detail_option(self, jmcomic: Any) -> Any:
+        """补详情专用的 option：少重试 + 短超时，坏域名不该在每一本上耗满重试。"""
+        return await asyncio.to_thread(
+            build_option,
+            self,
+            jmcomic,
+            Path(tempfile.gettempdir()),
+            impl="api",
+            for_search=True,
+            retry_times=1,
+            request_timeout=RANKING_DETAIL_TIMEOUT,
+        )
+
+    async def _enrich_ranking(self, items: list[RankingItem], jmcomic: Any) -> None:
+        """给缺页数/章节数的条目补一次作品详情，到点就收手、留空的当「未知」。"""
+        targets = [
+            item for item in items if item.page_count <= 0 or item.chapter_count <= 0
+        ]
+        if not targets:
+            return
+        option = await self._detail_option(jmcomic)
+        semaphore = asyncio.Semaphore(RANKING_DETAIL_CONCURRENCY)
+        cache = self._ranking_page_cache()
+        budget = max(
+            3, min(RANKING_ENRICH_BUDGET, self.settings.ranking_timeout - 4)
+        )
+
+        async def fill(item: RankingItem) -> None:
+            cached = cache.get(item.comic_id)
+            if (
+                cached is not None
+                and time.monotonic() - cached[0] <= RANKING_DETAIL_CACHE_TTL
+            ):
+                item.page_count = item.page_count or cached[1]
+                item.chapter_count = item.chapter_count or cached[2]
+                return
+            async with semaphore:
+                try:
+                    pages, chapters = await asyncio.to_thread(
+                        self._album_size_sync, jmcomic, option, item.comic_id
+                    )
+                except Exception as exc:  # noqa: BLE001 - 补数据失败只影响这一行
+                    logger.debug(
+                        f"[{PLUGIN_NAME}] 榜单补页数失败（{item.comic_id}）：{exc}"
+                    )
+                    return
+            if pages > 0 or chapters > 0:
+                item.page_count = item.page_count or pages
+                item.chapter_count = item.chapter_count or chapters
+                cache[item.comic_id] = (time.monotonic(), pages, chapters)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(fill(item) for item in targets)), timeout=budget
+            )
+        except asyncio.TimeoutError:
+            logger.info(
+                f"[{PLUGIN_NAME}] JM 榜单补页数超过 {budget:.0f} 秒，"
+                "未补到的条目按「页数未知」展示"
+            )
+
+    def _album_size_sync(
+        self, jmcomic: Any, option: Any, comic_id: str
+    ) -> tuple[int, int]:
+        """取一本的（总页数, 章节数）：``page_count`` 是页数，``len(album)`` 是章节数。"""
+        client = option.new_jm_client()
+        album = client.get_album_detail(jmcomic.JmcomicText.parse_to_jm_id(comic_id))
+        return _to_int(getattr(album, "page_count", 0)), len(album)
 
     def _ranking_sync(self, option: Any, time_range: str, page: int) -> Any:
         """在线程里跑 jmcomic 的分类排行；库异常统一翻译成用户文案。"""

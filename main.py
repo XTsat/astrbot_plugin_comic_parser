@@ -963,6 +963,11 @@ class ComicParserPlugin(Star):
                 f"（默认{board_label(self.settings.ranking_default_board)}）；"
                 "各渠道只开放自己有的那几档，缺的会在结果里说明\n"
             )
+            cap_label = self.settings.ranking_cap_label
+            if cap_label:
+                ranking_filter_desc += (
+                    f"榜单上限：超过 {cap_label} 的作品不进榜（0 表示不限）\n"
+                )
         else:
             ranking_filter_desc = ""
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)

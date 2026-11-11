@@ -60,13 +60,17 @@ def board_label(board: str) -> str:
 
 @dataclass(slots=True)
 class RankingOutcome:
-    """一个渠道的榜单结果：成功、空榜或失败都收在这一层，聚合层不抛异常。"""
+    """一个渠道的榜单结果：成功、空榜或失败都收在这一层，聚合层不抛异常。
+
+    ``stream`` 是这个渠道这次的本地缓冲：取完页要交回会话，下一页接着用。
+    """
 
     channel: BaseChannel
     page: RankingPage | None = None
     error: str = ""
     timed_out: bool = False
     elapsed: float = 0.0
+    stream: "_RankStream | None" = None
 
 
 @dataclass(slots=True)
@@ -117,10 +121,36 @@ class _RankingSession:
     entries: list[tuple[str, str]] = field(default_factory=list)  # (渠道名, 作品 ID)
     start_index: int = 1  # 当前这一页第一条的序号
     counts: dict[int, int] = field(default_factory=dict)  # 页码 → 该页展示了几条
+    # 渠道名 → 本地榜单缓冲（上游候选按名次攒着，取页时才过滤，零头不会被丢）
+    streams: dict[str, "_RankStream"] = field(default_factory=dict)
+
+
+@dataclass
+class _RankStream:
+    """一个渠道某档的本地榜单缓冲。
+
+    ``items`` 是**按上游名次顺序**攒下来的候选（含超上限的，先不动——过滤只发生在
+    取页的时候，所以改上限、翻页都不会把「零头」丢掉）；``page`` / ``offset`` 是下一次
+    要往上游哪儿要数据（本页第几条 / 下一页）；``starts`` 记住每个逻辑页从 ``items``
+    的哪一条开始，翻回上一页靠它。
+    """
+
+    items: list[RankingItem] = field(default_factory=list)
+    seen: set[str] = field(default_factory=set)  # 已收下的作品 ID，用来挡重复块
+    total: int | None = None
+    page: int = 1  # 下一个要拉的上游页
+    offset: int = 0  # 该上游页里下一个要拉的候选序号
+    exhausted: bool = False  # 上游已经没有更多候选
+    cursor: int = 0  # 下一段从这里开始取（= 已经分给前面各页的条数）
+    starts: dict[int, int] = field(default_factory=dict)  # 逻辑页 → items 起始下标
+    notes: list[str] = field(default_factory=list)  # 渠道给的说明（去重后一起展示）
 
 
 class RankingService:
     """榜单编排：超时、缓存、冷却、翻页、序号记忆与文本渲染。"""
+
+    # 档位从窄到宽：缺档时按这个顺序找最近的一档（同样远时优先更窄的那档）
+    _BOARD_ORDER = ("day", "week", "month", "all")
 
     def __init__(
         self,
@@ -129,7 +159,7 @@ class RankingService:
     ) -> None:
         self.channels = channels
         self.settings = settings
-        self._cache: dict[tuple[str, str, int, int], _CacheEntry] = {}
+        self._cache: dict[tuple[str, str, int, int, int], _CacheEntry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._last_view: dict[str, float] = {}
         self._sessions: dict[str, _RankingSession] = {}
@@ -185,16 +215,29 @@ class RankingService:
             limit = max(limit, int(self.settings.ranking_image_page_size))
         return limit
 
+    # 一页最多往上游要几块：被上限挡掉的条目可能连着好几块都没货，
+    # 但补位不值得无限要——4 块已经是四倍的候选量
+    _MAX_CHUNKS = 4
+
     async def ranking_one(
         self,
         channel: BaseChannel,
         board: str,
         page: int = 1,
         limit: int = 10,
+        session_id: str = "",
+        dry_run: bool = False,
     ) -> RankingOutcome:
-        """取一个渠道的榜单；超时/失败都收成 outcome，绝不向聚合层抛异常。"""
+        """取一个渠道榜单的第 ``page`` 个逻辑页；超时/失败都收成 outcome，不向聚合层抛异常。
+
+        取数走本会话里这个渠道的**本地缓冲**（:class:`_RankStream`）：缓冲里已经有够用的
+        候选就只用本地的，不够再按 ``(上游页, 页内序号)`` 往下游要一块，攒进同一个缓冲里
+        接着挑。因为过滤只发生在取页这一刻，被挡掉的条目和没展示的零头都还在缓冲里，
+        翻下一页时接着用，既不重复也不漏。
+        """
         started = time.monotonic()
         page = max(1, int(page))
+        limit = max(1, int(limit))
         if not channel.supports_ranking:
             return RankingOutcome(
                 channel=channel,
@@ -216,16 +259,141 @@ class RankingService:
             board = fallback
             fallback_note = f"没有{board_label(requested)}，已改看{board_label(fallback)}"
 
-        cache_key = (channel.name, board, page, limit)
-        cached = self._cache_get(cache_key)
-        if cached is not None:
+        timeout = max(1, int(getattr(self.settings, "ranking_timeout", 15)))
+        # 缓冲按「用户要的那一档」归类：渠道缺档改看别的档时，同一个会话仍用同一份缓冲
+        stream = self._stream_for(session_id, channel.name, requested)
+        start = stream.starts.get(page, stream.cursor)
+        picked, end, skipped, has_more, error = await self._assemble(
+            channel, board, stream, start, limit, timeout
+        )
+        if error is not None and not picked:
+            elapsed = time.monotonic() - started
+            if isinstance(error, asyncio.TimeoutError):
+                return RankingOutcome(
+                    channel=channel,
+                    error=f"超时（{timeout} 秒）",
+                    timed_out=True,
+                    elapsed=elapsed,
+                )
+            if isinstance(error, PluginError):
+                return RankingOutcome(channel=channel, error=str(error), elapsed=elapsed)
+            logger.warning(
+                f"[{PLUGIN_NAME}] {channel.display_name} 榜单出现未预期异常: {error}"
+            )
             return RankingOutcome(
-                channel=channel,
-                page=self._relabel(cached, requested, fallback_note),
-                elapsed=time.monotonic() - started,
+                channel=channel, error=f"未预期错误：{error}", elapsed=elapsed
             )
 
-        timeout = max(1, int(getattr(self.settings, "ranking_timeout", 15)))
+        if not dry_run:
+            stream.starts[page] = start
+            stream.cursor = end
+
+        note_parts = [fallback_note, *stream.notes]
+        cap_label = self.settings.ranking_cap_label
+        if skipped and cap_label:
+            note_parts.append(f"已跳过 {skipped} 本超上限的长篇（{cap_label}）")
+        result = RankingPage(
+            channel=channel.name,
+            board=requested,
+            items=picked,
+            total=stream.total,
+            has_more=has_more,
+            note="；".join(part for part in dict.fromkeys(note_parts) if part),
+        )
+        return RankingOutcome(
+            channel=channel,
+            page=result,
+            elapsed=time.monotonic() - started,
+            stream=stream if not dry_run else None,
+        )
+
+    def _stream_for(
+        self, session_id: str, channel_name: str, board: str
+    ) -> _RankStream:
+        """本会话里该渠道的缓冲；没有（或换了档位）就给一个空的。"""
+        session = self._sessions.get(session_id) if session_id else None
+        if session is not None and session.board == board:
+            stream = session.streams.get(channel_name)
+            if stream is not None:
+                return stream
+        return _RankStream()
+
+    async def _assemble(
+        self,
+        channel: BaseChannel,
+        board: str,
+        stream: _RankStream,
+        start: int,
+        limit: int,
+        timeout: int,
+    ) -> tuple[list[RankingItem], int, int, bool, Exception | None]:
+        """从缓冲里攒出一页：返回（条目, 结束下标, 跳过几本, 上游还有没有, 出错时的异常）。
+
+        只有缓冲里凑不满一页时才回上游要下一块；要多少块有上限，也受单渠道超时约束。
+        """
+        idx = start
+        picked: list[RankingItem] = []
+        skipped = 0
+        chunks = 0
+        error: Exception | None = None
+        started = time.monotonic()
+        while len(picked) < limit:
+            while idx < len(stream.items) and len(picked) < limit:
+                item = stream.items[idx]
+                idx += 1
+                if self.settings.ranking_size_ok(item.page_count, item.chapter_count):
+                    picked.append(item)
+                elif item.page_count > 0 or item.chapter_count > 0:
+                    skipped += 1
+            if len(picked) >= limit or stream.exhausted:
+                break
+            if chunks >= self._MAX_CHUNKS or time.monotonic() - started > timeout:
+                break
+            chunks += 1
+            try:
+                raw = await self._fetch_upstream(
+                    channel, board, stream.page, stream.offset, limit, timeout
+                )
+            except Exception as exc:  # noqa: BLE001 - 交给调用方决定怎么报
+                error = exc
+                break
+            if raw.note and raw.note not in stream.notes:
+                stream.notes.append(raw.note)
+            if stream.total is None:
+                stream.total = raw.total
+            fresh = 0
+            for item in raw.items:
+                if item.comic_id in stream.seen:
+                    continue
+                stream.seen.add(item.comic_id)
+                stream.items.append(item)
+                fresh += 1
+            if raw.exhausted:
+                stream.page += 1
+                stream.offset = 0
+            else:
+                stream.offset += len(raw.items)
+            # 上游到底了、这一块没货、或整块都是重复（站点不认页码）就收手
+            if not raw.has_more or not raw.items or (raw.items and not fresh):
+                stream.exhausted = True
+        has_more = not stream.exhausted or idx < len(stream.items)
+        return picked, idx, skipped, has_more, error
+
+    async def _fetch_upstream(
+        self,
+        channel: BaseChannel,
+        board: str,
+        page: int,
+        offset: int,
+        limit: int,
+        timeout: int,
+    ) -> RankingPage:
+        """取上游第 ``page`` 页、从第 ``offset`` 条起的一块候选（带缓存 + 超时 + 代理重试）。"""
+        cache_key = (channel.name, board, page, offset, limit)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
         proxy = (getattr(self.settings, "proxy", "") or "").strip()
         auto_proxy = bool(getattr(self.settings, "search_auto_proxy", True)) and bool(
             proxy
@@ -242,54 +410,25 @@ class RankingService:
                 if cached_page is not None:
                     return cached_page
                 return await asyncio.wait_for(
-                    channel.ranking(board, page=page, limit=limit), timeout=budget
+                    channel.ranking(board, page=page, limit=limit, offset=offset),
+                    timeout=budget,
                 )
 
         try:
-            try:
-                result = await fetch(timeout)
-            except (asyncio.TimeoutError, PluginError, OSError) as exc:
-                if not auto_proxy:
-                    raise
-                # 直连慢/被挡时用插件代理再给一次机会，预算独立于正常超时
-                logger.info(
-                    f"[{PLUGIN_NAME}] {channel.display_name} 榜单直连不理想（{exc}），"
-                    f"改用代理重试"
-                )
-                with search_proxy_override(proxy):
-                    result = await fetch(retry_timeout)
-        except asyncio.TimeoutError:
-            return RankingOutcome(
-                channel=channel,
-                error=f"超时（{timeout} 秒）",
-                timed_out=True,
-                elapsed=time.monotonic() - started,
+            result = await fetch(timeout)
+        except (asyncio.TimeoutError, PluginError, OSError) as exc:
+            if not auto_proxy:
+                raise
+            # 直连慢/被挡时用插件代理再给一次机会，预算独立于正常超时
+            logger.info(
+                f"[{PLUGIN_NAME}] {channel.display_name} 榜单直连不理想（{exc}），"
+                f"改用代理重试"
             )
-        except PluginError as exc:
-            return RankingOutcome(
-                channel=channel,
-                error=str(exc),
-                elapsed=time.monotonic() - started,
-            )
-        except Exception as exc:  # noqa: BLE001 - 渠道实现里的意外异常不该拖垮整条命令
-            logger.warning(
-                f"[{PLUGIN_NAME}] {channel.display_name} 榜单出现未预期异常: {exc}"
-            )
-            return RankingOutcome(
-                channel=channel,
-                error=f"未预期错误：{exc}",
-                elapsed=time.monotonic() - started,
-            )
-
+            with search_proxy_override(proxy):
+                result = await fetch(retry_timeout)
         if result is not None and not result.empty:
             self._cache_put(cache_key, result)
-            result = self._relabel(result, requested, fallback_note)
-        return RankingOutcome(
-            channel=channel, page=result, elapsed=time.monotonic() - started
-        )
-
-    # 档位从窄到宽：缺档时按这个顺序找最近的一档（同样远时优先更窄的那档）
-    _BOARD_ORDER = ("day", "week", "month", "all")
+        return result
 
     def _fallback_board(self, channel: BaseChannel, board: str) -> str | None:
         """渠道没有这一档时用哪一档顶：取距离最近的一档，等距时用更窄的。"""
@@ -307,26 +446,13 @@ class RankingService:
             ),
         )
 
-    @staticmethod
-    def _relabel(
-        page: RankingPage, requested: str, fallback_note: str
-    ) -> RankingPage:
-        """把「实际取到的档位」标成用户要的那一档，并附上改看说明。
-
-        返回新对象：``page`` 可能是缓存里的实例，就地改会污染后续请求。
-        """
-        note = "；".join(part for part in (fallback_note, page.note) if part)
-        return RankingPage(
-            channel=page.channel,
-            board=requested,
-            items=page.items,
-            total=page.total,
-            has_more=page.has_more,
-            note=note,
-        )
-
     async def ranking_all(
-        self, board: str, page: int = 1, limit: int = 5
+        self,
+        board: str,
+        page: int = 1,
+        limit: int = 5,
+        session_id: str = "",
+        dry_run: bool = False,
     ) -> list[RankingOutcome]:
         """并发取所有支持榜单的渠道；彼此独立，一个失败不影响其它。"""
         targets = self.rankable()
@@ -335,14 +461,21 @@ class RankingService:
         return list(
             await asyncio.gather(
                 *(
-                    self.ranking_one(channel, board, page=page, limit=limit)
+                    self.ranking_one(
+                        channel,
+                        board,
+                        page=page,
+                        limit=limit,
+                        session_id=session_id,
+                        dry_run=dry_run,
+                    )
                     for channel in targets
                 )
             )
         )
 
     # ---- 缓存 ----
-    def _cache_get(self, key: tuple[str, str, int, int]) -> RankingPage | None:
+    def _cache_get(self, key: tuple[str, str, int, int, int]) -> RankingPage | None:
         entry = self._cache.get(key)
         if entry is None:
             return None
@@ -352,7 +485,9 @@ class RankingService:
             return None
         return entry.page
 
-    def _cache_put(self, key: tuple[str, str, int, int], page: RankingPage) -> None:
+    def _cache_put(
+        self, key: tuple[str, str, int, int, int], page: RankingPage
+    ) -> None:
         ttl = max(0, int(getattr(self.settings, "ranking_cache_ttl", 300)))
         if ttl <= 0:
             return
@@ -368,19 +503,39 @@ class RankingService:
         channel: BaseChannel | None,
         board: str,
         page: int = 1,
+        store: bool = True,
     ) -> RankingResult:
-        """取一页榜单并渲染成成品；``channel`` 为 None 时聚合所有渠道。"""
+        """取一页榜单并渲染成成品；``channel`` 为 None 时聚合所有渠道。
+
+        ``store=False`` 是翻页前的「探一探」：照样从会话的本地缓冲里取数（缓冲可以顺手
+        多拉一块回来，下次真翻页就不用再等），但不推进「当前页」的位置。
+        """
         page = max(1, int(page))
         if channel is not None:
             limit = self._fetch_limit(False)
-            outcome = await self.ranking_one(channel, board, page=page, limit=limit)
+            outcome = await self.ranking_one(
+                channel,
+                board,
+                page=page,
+                limit=limit,
+                session_id=session_id,
+                dry_run=not store,
+            )
             outcomes = [outcome]
             aggregate = False
         else:
             limit = self._fetch_limit(True)
-            outcomes = await self.ranking_all(board, page=page, limit=limit)
+            outcomes = await self.ranking_all(
+                board,
+                page=page,
+                limit=limit,
+                session_id=session_id,
+                dry_run=not store,
+            )
             aggregate = True
-        return self._build_result(session_id, board, page, outcomes, aggregate)
+        return self._build_result(
+            session_id if store else "", board, page, outcomes, aggregate
+        )
 
     async def turn_page(self, session_id: str, step: int) -> RankingTurn:
         """翻上一页/下一页；返回成品或边界提示。"""
@@ -399,7 +554,7 @@ class RankingService:
             return RankingTurn()
         if step > 0:
             # 先探一下有没有下一页：上游这页是空的就没得翻
-            probe = await self._probe_next(session, target)
+            probe = await self._probe_next(session_id, session, target)
             if not probe:
                 return RankingTurn(
                     message=f"📄 没有更多名次了（第 {session.page} 页已是最后一页）"
@@ -407,15 +562,18 @@ class RankingService:
         result = await self.run(session_id, channel, session.board, page=target)
         return RankingTurn(result=result)
 
-    async def _probe_next(self, session: _RankingSession, target: int) -> bool:
+    async def _probe_next(
+        self, session_id: str, session: _RankingSession, target: int
+    ) -> bool:
         """下一页是否还有内容：取一次上游，有结果就算能翻（结果本身会被缓存复用）。"""
         result = await self.run(
-            "",  # 探测不写会话，避免把「当前页」状态覆盖成下一页
+            session_id,
             None
             if session.aggregate
             else self.channels.get(session.order[0] if session.order else ""),
             session.board,
             page=target,
+            store=False,  # 探测不写会话，避免把「当前页」状态覆盖成下一页
         )
         return result.count > 0
 
@@ -544,7 +702,20 @@ class RankingService:
         )
         if session_id and pages:
             self._store_session(
-                session_id, board, page, aggregate, order, entries, start_index
+                session_id,
+                board,
+                page,
+                aggregate,
+                order,
+                entries,
+                start_index,
+                # 每个渠道的缓冲都要交回会话（哪怕这一页它没内容）：
+                # 漏一个下次就会从第 1 页重新读，翻页会重复
+                streams={
+                    outcome.channel.name: outcome.stream
+                    for outcome in outcomes
+                    if outcome.stream is not None
+                },
             )
         return result
 
@@ -613,6 +784,7 @@ class RankingService:
         order: list[str],
         entries: list[tuple[str, str]],
         start_index: int = 1,
+        streams: dict[str, "_RankStream"] | None = None,
     ) -> None:
         if len(self._sessions) > RANKING_RESULT_MAX_SESSIONS:
             now = time.monotonic()
@@ -627,11 +799,20 @@ class RankingService:
                 for key in oldest:
                     self._sessions.pop(key, None)
         previous = self._sessions.get(session_id)
-        counts = dict(previous.counts) if previous is not None else {}
-        if previous is not None and previous.board == board:
-            counts[page] = len(entries)
-        else:
-            counts = {page: len(entries)}
+        same_board = previous is not None and previous.board == board
+        counts = dict(previous.counts) if same_board and previous is not None else {}
+        counts[page] = len(entries)
+        # 各渠道的本地缓冲只在同一档位内沿用：换档位等于重新看一场榜
+        buffers: dict[str, _RankStream] = {}
+        if same_board and previous is not None:
+            buffers = dict(previous.streams)
+        buffers.update(
+            {
+                name: stream
+                for name, stream in (streams or {}).items()
+                if stream is not None
+            }
+        )
         self._sessions[session_id] = _RankingSession(
             stored_at=time.monotonic(),
             board=board,
@@ -641,6 +822,7 @@ class RankingService:
             entries=entries,
             start_index=start_index,
             counts=counts,
+            streams=buffers,
         )
 
     def _render_text(

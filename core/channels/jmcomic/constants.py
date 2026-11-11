@@ -37,3 +37,12 @@ DEFAULT_REQUEST_RETRY_TIMES: Final = 5
 # 取封面的单域名超时（秒）：封面只有一张小图，实测一半图床域名会直接超时，
 # 等满 30 秒的请求超时只会让面板等到没脾气，8 秒没回就换下一个域名
 COVER_TIMEOUT: Final = 8
+
+# 榜单补页数：榜单接口只回标题与作者，页数与章节数要一本一次详情才拿得到。
+# 并发 4 本够快，又不至于把接口打出限流；单请求 10 秒 + 只重试 1 次，坏节点尽快放弃
+RANKING_DETAIL_CONCURRENCY: Final = 4
+RANKING_DETAIL_TIMEOUT: Final = 10
+# 补数据的整轮总时限：必须比「单渠道榜单超时」小，超时由榜单服务兜底
+RANKING_ENRICH_BUDGET: Final = 12
+# 页数按天缓存：榜单一天里反复翻，同一本没必要回回查详情
+RANKING_DETAIL_CACHE_TTL: Final = 1800

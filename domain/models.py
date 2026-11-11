@@ -57,7 +57,8 @@ class RankingItem:
     comic_id: str
     title: str = ""
     author: str = ""
-    page_count: int = 0
+    page_count: int = 0  # 作品页数，0 表示渠道没给
+    chapter_count: int = 0  # 章节数，0 表示渠道没给（只有 JM 这类连载站区分得出来）
     cover_url: str = ""
     tags: list[str] = field(default_factory=list)
     rank: int = 0  # 上游位次；0 表示渠道没给，展示层按页内顺序补
@@ -70,14 +71,20 @@ class RankingItem:
 
 @dataclass(slots=True)
 class RankingPage:
-    """某渠道某个时间窗的一页榜单。"""
+    """某渠道某个时间窗的一页榜单（渠道侧的一「块」候选）。
+
+    渠道不再自己按尺寸上限筛：它只把上游这一块候选按名次顺序交出来（``items`` 就是
+    候选本身，``page_count`` / ``chapter_count`` 有就填），过滤与分页由榜单服务在本地
+    缓冲里做——这样被挡掉的条目不会被渠道顺手丢掉，下一块里还能接上。
+    """
 
     channel: str
     board: str
     items: list[RankingItem] = field(default_factory=list)
     total: int | None = None  # 上游给出的榜单总量；没有时为 None
-    has_more: bool = False  # 上游这一页之后还有名次
+    has_more: bool = False  # 上游还有更多候选（本页剩余名次或下一页）
     note: str = ""  # 该渠道对时间窗/能力的说明（降级时给用户看）
+    exhausted: bool = True  # 这一上游页的候选已经给完，下次要从下一页接着要
 
     @property
     def empty(self) -> bool:

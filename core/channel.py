@@ -377,9 +377,13 @@ class BaseChannel(ABC):
         return type(self).ranking is not BaseChannel.ranking
 
     async def ranking(
-        self, board: str, page: int = 1, limit: int = 10
+        self, board: str, page: int = 1, limit: int = 10, offset: int = 0
     ) -> RankingPage:
-        """取本渠道 ``board`` 时间窗的第 ``page`` 页榜单，返回至多 ``limit`` 条。
+        """取本渠道 ``board`` 时间窗第 ``page`` 页里、从第 ``offset`` 条起的至多 ``limit`` 条候选。
+
+        返回的是**未按尺寸上限筛过**的候选（带 ``page_count`` / ``chapter_count``）：
+        过滤与分页由榜单服务在本地缓冲里做，渠道这一层只管按名次顺序交数据。
+        ``exhausted`` 说明这一上游页的候选是不是给完了（给完了下次要翻页）。
 
         ``board`` 只可能是 ``ranking_boards`` 里声明过的窗口。默认抛
         `RankingUnsupportedError`：没有榜单的渠道照常能下载与搜索，不需要写 stub。

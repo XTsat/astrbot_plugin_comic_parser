@@ -285,7 +285,7 @@ class NhentaiChannel(BaseChannel):
     ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month", "all")
 
     async def ranking(
-        self, board: str, page: int = 1, limit: int = 10
+        self, board: str, page: int = 1, limit: int = 10, offset: int = 0
     ) -> RankingPage:
         """按热度取一页：走官方 API v2 的排序参数，不抓 HTML 列表页。
 
@@ -298,9 +298,10 @@ class NhentaiChannel(BaseChannel):
 
         payload = await self._api().ranking(sort, page=page)
         raw = payload.get("result")
-        items: list[RankingItem] = []
+        candidates: list[RankingItem] = []
         if isinstance(raw, list):
-            for entry in raw[: max(1, limit)]:
+            # 一页 25 条，展示只取前几条：超上限的条目让位给同一页后面的名次即可
+            for entry in raw:
                 if not isinstance(entry, dict):
                     continue
                 comic_id = str(entry.get("id") or "").strip()
@@ -311,7 +312,7 @@ class NhentaiChannel(BaseChannel):
                     or entry.get("japanese_title")
                     or ""
                 ).strip()
-                items.append(
+                candidates.append(
                     RankingItem(
                         channel=self.name,
                         comic_id=comic_id,
@@ -319,12 +320,17 @@ class NhentaiChannel(BaseChannel):
                         page_count=_as_int(entry.get("num_pages")),
                     )
                 )
+        begin = max(0, int(offset))
+        window = candidates[begin : begin + max(1, int(limit))]
+        exhausted = begin + len(window) >= len(candidates)
         return RankingPage(
             channel=self.name,
             board=board,
-            items=items,
+            items=window,
             total=_as_int_optional(payload.get("total")),
-            has_more=_as_int(payload.get("num_pages")) > max(1, int(page)),
+            has_more=(not exhausted)
+            or _as_int(payload.get("num_pages")) > max(1, int(page)),
+            exhausted=exhausted,
         )
 
     # ---- 内部 ----

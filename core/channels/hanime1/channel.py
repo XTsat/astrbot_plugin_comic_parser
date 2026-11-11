@@ -538,7 +538,7 @@ class Hanime1Channel(BaseChannel):
     ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "all")
 
     async def ranking(
-        self, board: str, page: int = 1, limit: int = 10
+        self, board: str, page: int = 1, limit: int = 10, offset: int = 0
     ) -> RankingPage:
         """漫画区热度列表：同一个搜索页，关键词留空、按站内热度档位排序。
 
@@ -570,7 +570,8 @@ class Hanime1Channel(BaseChannel):
             hits = parse_comic_search(document)
             if not hits:
                 continue
-            items = [
+            begin = max(0, int(offset))
+            window = [
                 RankingItem(
                     channel=self.name,
                     comic_id=hit.comic_id,
@@ -578,15 +579,18 @@ class Hanime1Channel(BaseChannel):
                     cover_url=hit.cover_url,
                     rank=index + 1,
                 )
-                for index, hit in enumerate(hits[: max(1, limit)])
+                for index, hit in enumerate(hits[begin : begin + max(1, int(limit))])
             ]
-            await self._enrich_ranking(items, domain)
+            if window:
+                await self._enrich_ranking(window, domain)
+            exhausted = begin + len(window) >= len(hits)
             return RankingPage(
                 channel=self.name,
                 board=board,
-                items=items,
-                has_more=len(hits) > len(items)
+                items=window,
+                has_more=(not exhausted)
                 or search_has_more(document, page, len(hits)),
+                exhausted=exhausted,
             )
         if last_error is not None:
             raise ChannelError(f"Hanime1 排行榜获取失败：{last_error}") from last_error
@@ -600,7 +604,9 @@ class Hanime1Channel(BaseChannel):
             self._ranking_detail_cache = cache
         return cache
 
-    async def _enrich_ranking(self, items: list[RankingItem], domain: str) -> None:
+    async def _enrich_ranking(
+        self, items: list[RankingItem], domain: str, budget: float | None = None
+    ) -> None:
         """给缺页数/作者的条目补一次作品页。
 
         列表页只给标题与封面；页数与作者要进作品页才拿得到（实测 1.5–2 秒一条）。
@@ -645,7 +651,10 @@ class Hanime1Channel(BaseChannel):
                 cache[item.comic_id] = (time.monotonic(), page_count, author)
 
         # 补详情不能把整次榜单顶到外层超时：给它留出外层「单渠道榜单超时」的余量
-        budget = max(3, min(RANKING_ENRICH_BUDGET, self.settings.ranking_timeout - 5))
+        if budget is None:
+            budget = max(
+                3, min(RANKING_ENRICH_BUDGET, self.settings.ranking_timeout - 5)
+            )
         try:
             await asyncio.wait_for(
                 asyncio.gather(*(fill(item) for item in targets)), timeout=budget
