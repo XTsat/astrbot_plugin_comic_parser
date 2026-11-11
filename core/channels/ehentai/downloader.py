@@ -104,7 +104,24 @@ class EHentaiDownloader:
 
         async with self._semaphore:
             for attempt in range(self._retry_times + 1):
-                payload, content_type, status, final_url = await self._client.get_bytes(url)
+                try:
+                    payload, content_type, status, final_url = await self._client.get_bytes(
+                        url
+                    )
+                except ChannelError as exc:
+                    # 断流（ContentLengthError / SSLEOFError）与瞬时超时是网络抖动，重试一次
+                    # 多半就拿到完整图；配额、登录墙、封禁是站点答复，重试只会更糟
+                    if (
+                        isinstance(exc, (EHQuotaExceeded, EHLoginRequired, EHBanned))
+                        or attempt >= self._retry_times
+                    ):
+                        raise
+                    logger.debug(
+                        f"[{PLUGIN_NAME}] E-Hentai 图片取流失败，重试 "
+                        f"({attempt + 1}/{self._retry_times})：{exc}"
+                    )
+                    await asyncio.sleep(min(1 + attempt, 3))
+                    continue
                 if status == QUOTA_STATUS or is_quota_gif(final_url):
                     raise EHQuotaExceeded("E-Hentai 返回 509：图片配额已用尽")
 

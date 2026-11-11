@@ -44,6 +44,7 @@ from .constants import (
     DEFAULT_RANKING_IMAGE_COLUMNS,
     DEFAULT_RANKING_IMAGE_PAGE_SIZE,
     DEFAULT_RANKING_IMAGE_SHOW_AUTHOR,
+    DEFAULT_RANKING_IMAGE_SHOW_ID,
     DEFAULT_RANKING_OUTPUT,
     DEFAULT_RANKING_PAGE_SIZE,
     DEFAULT_RANKING_TIMEOUT,
@@ -178,6 +179,7 @@ class PluginSettings:
     ranking_image_page_size: int = DEFAULT_RANKING_IMAGE_PAGE_SIZE
     ranking_image_columns: int = DEFAULT_RANKING_IMAGE_COLUMNS
     ranking_image_show_author: bool = DEFAULT_RANKING_IMAGE_SHOW_AUTHOR
+    ranking_image_show_id: bool = DEFAULT_RANKING_IMAGE_SHOW_ID
     # 封面：下载完成后单独发一张图，打码复用 NSFW 检测框；
     # 封面说明跟随「发送下载完成摘要」，不另设开关
     cover_send: bool = DEFAULT_COVER_SEND
@@ -410,6 +412,9 @@ class PluginSettings:
             ranking_image_columns=ranking_image_columns,
             ranking_image_show_author=_as_bool(
                 ranking_image.get("show_author"), DEFAULT_RANKING_IMAGE_SHOW_AUTHOR
+            ),
+            ranking_image_show_id=_as_bool(
+                ranking_image.get("show_id"), DEFAULT_RANKING_IMAGE_SHOW_ID
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
             cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),

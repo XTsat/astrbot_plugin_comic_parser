@@ -259,11 +259,13 @@ class ComicParserPlugin(Star):
             columns=self.settings.ranking_image_columns,
             page_size=self.settings.ranking_image_page_size,
             show_author=self.settings.ranking_image_show_author,
+            show_id=self.settings.ranking_image_show_id,
             censor=self.settings.cover_censor,
             censor_style=self.settings.cover_censor_style,
             censor_block=self.settings.cover_censor_block,
             censor_padding=self.settings.cover_censor_padding,
             full_censor_area=self.settings.cover_full_censor_area,
+            cache_ttl=self.settings.ranking_cache_ttl,
         )
         # 插件视图 views/panel：拿同一套检测器与打码函数试封面打码，参数由页面自带
         self.panel = PanelService(
@@ -1660,17 +1662,37 @@ class ComicParserPlugin(Star):
             return
 
         label = board_label(result.board)
-        # 聚合模式下各渠道接续编号，卡片上的名次与文字版、与「回序号」用的是同一套数字
+        # 卡片上的名次与文字版、与「回序号」用的是同一套数字：序号从 result.start_index 起，
+        # 而卡片按 0 基偏移画（画的时候 +1），所以第一张的偏移是 start_index - 1
+        start_offset = max(0, result.start_index - 1)
+
+        if result.aggregate and len(result.pages) > 1:
+            # 聚合榜：各渠道拼进同一张图（超长时按渠道拆成几张），序号接着往下排
+            first = result.start_index
+            cards = await self.ranking_card.render_combined(
+                result.pages,
+                board_label=label,
+                page_number=result.page,
+                start_index=start_offset,
+                download_hint=f"下载：/comic {first}（把 {first} 换成上面的序号）",
+            )
+            for note in dict.fromkeys(card.note for card in cards if card.note):
+                yield event.plain_result(f"ℹ️ {note}")
+            for card in cards:
+                async for item in self._deliver_card(event, card, "全渠道榜单图"):
+                    yield item
+            return
+
         offset = 0
         for channel, page in result.pages:
-            command = "/comic" if result.aggregate else f"/{channel.display_command}"
+            command = f"/{channel.display_command}"
             first = result.start_index + offset
             card = await self.ranking_card.render(
                 channel,
                 page,
                 board_label=label,
                 page_number=result.page,
-                start_index=offset,
+                start_index=start_offset + offset,
                 download_hint=f"下载：{command} {first}（把 {first} 换成上面的序号）",
             )
             offset += len(page.items)
@@ -1678,20 +1700,25 @@ class ComicParserPlugin(Star):
                 continue
             if card.note:
                 yield event.plain_result(f"ℹ️ {channel.display_name}：{card.note}")
-            if await self._send_card(event, card):
-                continue
-            if not (self.settings.cover_censor and self.settings.cover_retry_strong):
-                yield event.plain_result(
-                    f"⚠️ {channel.display_name} 的榜单图被平台拦下，已跳过"
-                )
-                continue
-            strong = await self.ranking_card.reinforce(card)
-            if await self._send_card(event, strong):
-                yield event.plain_result(f"ℹ️ {channel.display_name}：{strong.note}")
-            else:
-                yield event.plain_result(
-                    f"⚠️ {channel.display_name} 的榜单图整张重糊后仍未被平台接受，已跳过"
-                )
+            async for item in self._deliver_card(event, card, channel.display_name):
+                yield item
+
+    async def _deliver_card(
+        self, event: AstrMessageEvent, card: CardResult, label: str
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """发一张榜单图；被平台拦下时整张重糊再发一次，仍发不出去就跳过。"""
+        if await self._send_card(event, card):
+            return
+        if not (self.settings.cover_censor and self.settings.cover_retry_strong):
+            yield event.plain_result(f"⚠️ {label} 的榜单图被平台拦下，已跳过")
+            return
+        strong = await self.ranking_card.reinforce(card)
+        if await self._send_card(event, strong):
+            yield event.plain_result(f"ℹ️ {label}：{strong.note}")
+        else:
+            yield event.plain_result(
+                f"⚠️ {label} 的榜单图整张重糊后仍未被平台接受，已跳过"
+            )
 
     async def _send_card(self, event: AstrMessageEvent, card: CardResult) -> bool:
         """直接发一张榜单图，返回是否发送成功。

@@ -172,9 +172,18 @@ RANKING_CARD_TITLE_LINES: Final = 2
 RANKING_CARD_AUTHOR_CHARS: Final = 14
 # 单张卡片高度上限：9 张一页时约 2100 像素，留够余量但别让解码爆掉
 RANKING_MAX_CARD_HEIGHT: Final = 3200
-# 取封面的并发与超时：一张封面卡住不该让整张卡片生不出来
-RANKING_COVER_CONCURRENCY: Final = 4
-RANKING_COVER_TIMEOUT: Final = 20
+# 聚合榜单会把各渠道拼进同一张图，比单渠道允许更高；仍超过时再按渠道分成几张
+RANKING_MAX_COMBINED_HEIGHT: Final = 6000
+# 成图复用的上限：榜单内容本身就是缓存键的一部分，所以保留久点也不会串页；
+# 各档到期时间见 core.ranking_card 的 _board_cache_seconds（日榜到当天结束、
+# 周榜到下周一、月榜到下月 1 号、总榜 7 天），清理按这个上限兜底
+RANKING_IMAGE_CACHE_MAX: Final = 31 * 24 * 3600
+# 卡面上是否画作品 ID（换设备、序号过期后还能照着 ID 下；关掉版面更干净）
+DEFAULT_RANKING_IMAGE_SHOW_ID: Final = True
+# 取封面的并发与超时：一张封面卡住不该让整张卡片生不出来。20 秒对「先详情页再图址页
+# 再取图」的站点（紳士漫畫）偏紧，30 秒才稳定拿到
+RANKING_COVER_CONCURRENCY: Final = 6
+RANKING_COVER_TIMEOUT: Final = 30
 RANKING_COVER_MAX_BYTES: Final = 8 * 1024 * 1024
 
 # 中文字体：图片版唯一的硬依赖，容器里常只有 DejaVu（没有汉字），

@@ -12,7 +12,7 @@
 - **Download by ID**: use a channel command (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) when you already have the ID
 - **Search right in the chat**: `/comic sou <keyword>` searches every channel that supports search in one go, `/jm sou` searches a single channel; reply with the number of a hit to download it, and page through longer result sets
 - **Rankings**: `/comic 排行` collects the leaderboards of every channel at once, `/jm 排行` shows one channel only; pick daily / weekly / monthly / all-time, and each channel uses its own window and falls back to the nearest one when that window is missing, saying so in the reply. Hits are downloadable by number and page through the same way as search
-- **Rankings as an image** (optional): render one page of a leaderboard as a card (cover grid, rank badges, title/author), one card per channel; the covers follow the "Censor the cover" switch and are censored one by one before the card is composed — with no detection available only those covers are censored whole, so ranks and titles stay readable
+- **Rankings as an image** (optional): render one page of a leaderboard as a card (cover grid, rank badges, title/author); the all-channel board (`/comic 排行`) puts every platform into **one image** with ranks continuing across sections, while a single-channel board sends one card per page. The covers follow the "Censor the cover" switch and are censored one by one before the card is composed — with no detection available only those covers are censored whole, so ranks and titles stay readable
 - **Multiple channels**: JM, nhentai, PicaACG, Hanime1, WNACG and E-Hentai; E-Hentai needs no cookie for the 1280px resampled images, and originals are used once a cookie is added (charged against your site quota)
 - **Unified packing**: every download becomes a ZIP archive, a PDF or a long vertical image, or can simply stay on disk; a format word at the end of the command overrides it for that one download
 - **Encryption**: set one pack password and it applies, ZIP with AES and PDF with AES-256
@@ -339,12 +339,13 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 | Per-channel timeout (`timeout`) | int | 15 | Each channel is timed on its own; sites that serve HTML list pages are slower, and a channel that misses the deadline is skipped while the others still show |
 | Ranks per page, single channel (`page_size`) | int | 10 | How many ranks a single-channel leaderboard shows per page; `/comic 下一页` continues downwards |
 | Ranks per channel, all channels (`aggregate_limit`) | int | 3 | How many top entries each channel contributes to an all-channel leaderboard, 3 by default (18 entries for six channels, which keeps one message from being truncated); sites rank by different metrics, so they are listed side by side instead of merged |
-| Cache lifetime (`cache_ttl`) | int | 300 | Reuses the previous result for the same channel and window within this window; 0 disables caching |
+| Cache lifetime (`cache_ttl`) | int | 300 | Reuses the previous result for the same channel and window within this window. The image version keeps its card per board period instead — until midnight for the daily board, until next Monday for weekly, until the 1st for monthly, and 7 days for all-time — so a repeat request returns the same image without refetching covers or re-running explicitness checks; 0 disables caching |
 | Ranking cooldown (`cooldown`) | int | 3 | Minimum seconds between two leaderboard views in the same session; 0 disables the limit |
-| Output (`output`) | string | text | Text can be downloaded by number; `image` sends one card per channel; `both` sends the text first and the cards after |
-| Covers per card (`image.page_size`) | int | 6 | How many works one card holds: 3 (3×1) / 6 (3×2) / 9 (3×3). Every cover costs one explicitness check (~1s each), so 9 covers take roughly 8 seconds |
+| Output (`output`) | string | text | Text can be downloaded by number; `image` renders cards (one combined image for the all-channel board, one card per page otherwise); `both` sends the text first and the images after |
+| Covers per card (`image.page_size`) | int | 6 | How many works one card holds on a single-channel board: 3 (3×1) / 6 (3×2) / 9 (3×3); the all-channel board uses "Ranks per channel" instead. Every cover costs one explicitness check (~1s each), so 9 covers take roughly 8 seconds |
 | Columns (`image.columns`) | int | 3 | Three columns pack the most information; two columns make bigger covers for a single phone screen |
 | Show author (`image.show_author`) | bool | true | When off, each cell shows only the title and page count (some sites have no author in their leaderboard at all) |
+| Show work ID (`image.show_id`) | bool | true | Writes the ID on its own line under each title, so you can still download by ID from another device or after the numbers expire; long IDs are shortened with an ellipsis, and turning it off keeps the layout cleaner |
 
 </details>
 
@@ -352,9 +353,10 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 
 ### How leaderboard cards are produced
 
-Leaderboard cards are drawn with the Pillow dependency the plugin already uses, so no extra rendering dependency is needed, but two things must be in place:
+Leaderboard cards are drawn with the Pillow dependency the plugin already uses, so no extra rendering dependency is needed; a few things are worth knowing up front:
 
 - **A CJK font**: container images often only ship Latin fonts and would draw Chinese as empty boxes. The plugin looks for a CJK font in the plugin's `fonts/` directory, then the AstrBot data directory, then the system fonts, and **falls back to the text version** with a notice when none has Chinese glyphs. Drop something like `Noto Sans SC` into the plugin's `fonts/` to ship your own.
+- **Image height**: the all-channel board stacks every channel into one tall image (about 4000 px for six channels at 3 entries each); anything taller (more channels, or more entries per channel) is split into several images at channel boundaries — a section is never cut in half, and text is never shrunk to fit one image.
 - **The detection model used for censoring**: covers on a card follow the "Censor the cover" switch and are censored one by one before the card is composed. With censoring on but no usable model, only those covers are censored whole and the card is still sent — the card itself is left alone, so ranks, titles and the footer stay readable (better a heavily blurred cover than an uncensored one); a card rejected by the platform is still censored again across the whole image and sent once more.
 
 ### How the cover features are powered
