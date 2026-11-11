@@ -37,6 +37,7 @@ from ..domain.constants import (
     RANKING_MAX_CARD_HEIGHT,
 )
 from ..utils.font import TextFont, load_font
+from ..utils.title import has_ai_mark
 from .channel import BaseChannel
 from .nsfw import Detector, censor_cover, censor_full_image
 
@@ -52,6 +53,8 @@ _RANK_COLORS = {
     3: (176, 122, 78),
 }
 _RANK_DEFAULT = (94, 100, 112)
+# AI 生成作品的角标：紫底白字，和名次角标并排但明显不是名次
+_AI_BADGE_COLOR = (124, 82, 214)
 # 封面缺失时的占位色（图床挂掉、作品下架都会走到）
 _PLACEHOLDER = (236, 238, 243)
 # 榜单卡片与中间封面在临时目录里的保留时长：发送是异步的，不能发完就删
@@ -419,17 +422,35 @@ class RankingCardRenderer:
             (255, 255, 255),
         )
 
-        # 标题（最多两行）与作者/页数
+        # 标题（最多两行）与作者/页数；标题原样画，AI 标记另外做成封面角标
         text_top = top + cover_h + 12
-        title_lines = title_font.wrap(
-            item.title or item.display_title, cell_w, RANKING_CARD_TITLE_LINES
-        )
+        raw_title = item.title or item.display_title
+        title_lines = title_font.wrap(raw_title, cell_w, RANKING_CARD_TITLE_LINES)
         for line_index, line in enumerate(title_lines):
             title_font.draw(
                 draw,
                 (left, text_top + line_index * title_font.size),
                 line,
                 _TEXT,
+            )
+        if has_ai_mark(raw_title):
+            label = "AI"
+            pill_w = meta_font.measure(label) + 20
+            pill_h = meta_font.size + 12
+            pill_left = left + 10 + badge + 8
+            draw.rounded_rectangle(
+                (pill_left, top + 10, pill_left + pill_w, top + 10 + pill_h),
+                radius=pill_h // 2,
+                fill=_AI_BADGE_COLOR,
+            )
+            meta_font.draw(
+                draw,
+                (
+                    pill_left + 10,
+                    top + 10 + pill_h / 2 - meta_font.size * 0.62,
+                ),
+                label,
+                (255, 255, 255),
             )
         meta_parts: list[str] = []
         if self.show_author and item.author.strip():

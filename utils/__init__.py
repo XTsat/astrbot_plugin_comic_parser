@@ -6,13 +6,16 @@ from .font import cjk_available, load_font
 from .format import format_size
 from .link import host_matches, split_link
 from .pack_format import describe_pack_format, split_pack_format
+from .title import AI_MARK_BADGE, has_ai_mark
 
 __all__ = [
+    "AI_MARK_BADGE",
     "build_package_name",
     "cjk_available",
     "describe_pack_format",
     "find_existing_image",
     "format_size",
+    "has_ai_mark",
     "host_matches",
     "load_font",
     "resolve_template",

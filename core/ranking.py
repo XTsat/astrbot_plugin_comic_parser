@@ -36,6 +36,7 @@ from ..domain.constants import (
     RANKING_RESULT_TTL,
     RANKING_RESULT_MAX_SESSIONS,
 )
+from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
 
 _WHITESPACE = re.compile(r"\s+")
@@ -551,7 +552,8 @@ class RankingService:
         return "下一页：/comic 下一页"
 
     def _format_item(self, index: int, item: RankingItem) -> str:
-        title = self._clip(item.title, _TITLE_LIMIT) or item.display_title
+        raw_title = item.title or item.display_title
+        title = self._clip(raw_title, _TITLE_LIMIT) or f"{item.channel} 作品"
         meta_parts: list[str] = []
         author = self._clip(item.author, _AUTHOR_LIMIT)
         if author:
@@ -559,7 +561,8 @@ class RankingService:
         if item.page_count > 0:
             meta_parts.append(f"{item.page_count}P")
         meta = f"（{' · '.join(meta_parts)}）" if meta_parts else ""
-        return f"{index}. {title}{meta}　ID：{item.comic_id}"
+        mark = f"　{AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
+        return f"{index}. {title}{meta}　ID：{item.comic_id}{mark}"
 
     @staticmethod
     def _note_lines(outcomes: list[RankingOutcome]) -> str:

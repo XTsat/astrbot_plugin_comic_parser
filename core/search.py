@@ -38,6 +38,7 @@ from ..domain.constants import (
     SEARCH_RESULT_TTL,
     SEARCH_UPSTREAM_FETCH_LIMIT,
 )
+from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
 from .search_query import parse_search_query
 
@@ -769,9 +770,10 @@ class SearchService:
         channel: BaseChannel | None,
         show_channel: bool,
     ) -> list[str]:
-        title = self._clip(getattr(item, "title", ""), _TITLE_LIMIT) or getattr(
-            item, "display_title", ""
+        raw_title = str(getattr(item, "title", "")) or str(
+            getattr(item, "display_title", "")
         )
+        title = self._clip(raw_title, _TITLE_LIMIT)
         if not title:
             title = f"{channel.display_name if channel else item.channel} 作品"
         meta_parts: list[str] = []
@@ -787,7 +789,8 @@ class SearchService:
         if show_channel:
             name = channel.display_name if channel else item.channel
             tag = f"[{name}] "
-        return [f"{index}. {tag}{title}{meta}　ID：{comic_id}"]
+        mark = f"　{AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
+        return [f"{index}. {tag}{title}{meta}　ID：{comic_id}{mark}"]
 
     @staticmethod
     def _note_lines(outcomes: list[SearchOutcome]) -> str:
