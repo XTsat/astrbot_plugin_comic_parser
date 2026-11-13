@@ -121,6 +121,7 @@ from .domain.constants import (
     PANEL_MODEL_UPLOAD_MAX_BYTES,
 )
 from .utils import cjk_available, describe_pack_format, format_size, split_pack_format
+from .utils.pack_format import split_cover_word
 
 # 贴表情（set_msg_emoji_like）与群文件上传（upload_group_file）都只有 OneBot(CQHTTP) 协议端提供
 _ONEBOT_PLATFORMS = frozenset({"aiocqhttp"})
@@ -1118,6 +1119,7 @@ class ComicParserPlugin(Star):
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
         # 末尾的格式词只改这一次的产物形态（`/comic <链接> pdf`）；搜索与翻页已在上面分流，
         # 因此关键词里的格式词（如 long_img、长图）不会被当成格式
+        text, cover_only = split_cover_word(text)
         text, pack_format = split_pack_format(text)
         indexed = self._resolve_index(session_id, text)
         if indexed is not None:
@@ -1129,6 +1131,7 @@ class ComicParserPlugin(Star):
                 comic_id,
                 allow_index=False,
                 pack_format=pack_format,
+                cover_only=cover_only,
             ):
                 yield result
             return
@@ -1156,7 +1159,7 @@ class ComicParserPlugin(Star):
 
         channel, _ = resolved
         async for result in self._handle_download(
-            event, channel.command, text, pack_format=pack_format
+            event, channel.command, text, pack_format=pack_format, cover_only=cover_only
         ):
             yield result
 
@@ -1167,6 +1170,7 @@ class ComicParserPlugin(Star):
         raw_id: str,
         allow_index: bool = True,
         pack_format: str | None = None,
+        cover_only: bool = False,
     ) -> AsyncGenerator[MessageEventResult, None]:
         text = " ".join((raw_id or "").split())
         head, _, rest = text.partition(" ")
@@ -1234,6 +1238,9 @@ class ComicParserPlugin(Star):
 
         # 末尾的格式词只改这一次的产物形态（`/jm 123456 pdf`）：搜索与停止已在上面分流，
         # 所以 `/jm sou 长图` 里的「长图」仍是关键词（格式词放在最后才会被切走）
+        text, cover_word = split_cover_word(text)
+        if cover_word:
+            cover_only = True
         text, override = split_pack_format(text)
         if override is not None:
             pack_format = override
@@ -1269,6 +1276,12 @@ class ComicParserPlugin(Star):
             comic_id = channel.normalize_id(text)
         except PluginError as exc:
             yield event.plain_result(f"❌ {exc}")
+            return
+
+        # 「只取封面」不进任务链路：不占并发、不打包，也就不该被 retry 重放
+        if cover_only:
+            async for result in self._handle_cover_only(event, channel, comic_id):
+                yield result
             return
 
         # 记下这次要下的东西：之后不管是暂停、重载还是失败，`/comic retry` 都能原样重放
@@ -1933,6 +1946,73 @@ class ComicParserPlugin(Star):
             f"例：{command} 排行 日榜、{command} rank week\n"
             "看后面的名次：/comic 下一页；下载：直接回序号"
         )
+
+    async def _handle_cover_only(
+        self, event: AstrMessageEvent, channel: BaseChannel, comic_id: str
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """只取封面：向渠道要一张封面图，过与下载后封面同一套打码，然后只发图。
+
+        不建下载任务、不打包、不占并发，也不记进 `/comic retry` —— 用户要的就是「先看
+        一眼封面」，回头再决定要不要整本。
+        """
+        if not channel.supports_cover:
+            yield event.plain_result(
+                f"❌ {channel.display_name} 不支持只取封面；"
+                f"要下整本请用 /{channel.display_command} {comic_id}"
+            )
+            return
+        use_reaction, _ = await self._begin_progress(event)
+        try:
+            data = await channel.fetch_cover(comic_id)
+        except Exception as exc:  # noqa: BLE001 - 渠道实现的异常类型不统一，统一转成一句话
+            if use_reaction:
+                await self._react(event, "fail")
+            logger.warning(f"[{PLUGIN_NAME}] 取封面异常 {channel.name} {comic_id}: {exc}")
+            yield event.plain_result(f"❌ 取封面失败：{type(exc).__name__}: {exc}")
+            return
+        if not data:
+            if use_reaction:
+                await self._react(event, "fail")
+            reason = channel.cover_error or "渠道没有返回封面图"
+            yield event.plain_result(f"❌ 取不到封面：{reason}")
+            return
+        try:
+            result = await self.cover_service.prepare_from_bytes(
+                data, channel=channel.name, comic_id=comic_id
+            )
+        except CoverCensorError as exc:
+            # 开了打码却没打成：宁可一张都不发，也不能把没糊的图发出去
+            if use_reaction:
+                await self._react(event, "fail")
+            yield event.plain_result(f"❌ 封面未发送：{exc}")
+            return
+        except Exception as exc:  # noqa: BLE001 - 生成失败要给出原因而不是静默
+            if use_reaction:
+                await self._react(event, "fail")
+            logger.warning(f"[{PLUGIN_NAME}] 封面生成失败 {channel.name} {comic_id}: {exc}")
+            yield event.plain_result(f"❌ 生成封面失败：{exc}")
+            return
+        if result is None:
+            if use_reaction:
+                await self._react(event, "fail")
+            yield event.plain_result("❌ 取不到封面：渠道返回的图片打不开")
+            return
+        sent = await self._send_cover(event, result)
+        # 只有开了打码才敢自动加糊：用户主动关掉打码时，不能再擅自把图糊掉
+        if not sent and self.settings.cover_censor and self.settings.cover_retry_strong:
+            try:
+                strong = await self.cover_service.reinforce(result)
+            except Exception as exc:  # noqa: BLE001 - 补救失败只影响这一次
+                logger.warning(f"[{PLUGIN_NAME}] 封面加强打码失败: {exc}")
+                strong = None
+            if strong is not None:
+                sent = await self._send_cover(event, strong)
+        if use_reaction:
+            await self._react(event, "done" if sent else "fail")
+        if not sent:
+            yield event.plain_result(
+                "❌ 封面发送失败：平台把这张图拦下了（图片审核收下但不投递），可打开「给封面打码」后再试"
+            )
 
     async def _deliver_cover(
         self, event: AstrMessageEvent, outcome: DownloadOutcome

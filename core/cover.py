@@ -133,7 +133,29 @@ class CoverService:
         if cover is None:
             logger.debug(f"[{PLUGIN_NAME}] 下载目录里没有可用图片，跳过封面：{source_dir}")
             return None
+        return await self._finish_cover(cover, channel or meta.channel, meta.comic_id)
 
+    async def prepare_from_bytes(
+        self, data: bytes, *, channel: str, comic_id: str
+    ) -> CoverResult | None:
+        """用「渠道只取封面」拿到的字节准备一张封面（不经过下载目录）。
+
+        只取封面这条链路没有下载目录，所以先把字节落成临时文件，再走与下载后封面
+        完全相同的检测与打码流程——两条入口的打码规则必须一致，否则「会不会被糊」
+        会取决于你从哪个入口进来。
+        """
+        if not data:
+            return None
+        covers_dir = self.temp_root / "covers"
+        covers_dir.mkdir(parents=True, exist_ok=True)
+        source = covers_dir / f"{channel}-{comic_id}-fetched.jpg"
+        await asyncio.to_thread(source.write_bytes, data)
+        return await self._finish_cover(source, channel, comic_id)
+
+    async def _finish_cover(
+        self, cover: Path, channel: str, comic_id: str
+    ) -> CoverResult:
+        """把一张封面图变成待发送结果：判模型 → 检测 → 打码 → 落到临时目录。"""
         # 先判模型是否就位，避免为一个注定发不出去的封面白复制文件
         if self.censor and self.detector.model_path is None:
             raise CoverCensorError(
@@ -143,9 +165,7 @@ class CoverService:
             )
 
         await asyncio.to_thread(self._cleanup_old_files)
-        target = await asyncio.to_thread(
-            self._stage_cover, cover, channel or meta.channel, meta.comic_id
-        )
+        target = await asyncio.to_thread(self._stage_cover, cover, channel, comic_id)
 
         # 露骨度是用同一趟推理顺带算出来的，所以它跟着打码走：不开打码就不做推理，
         # 封面原样发送、也不写露骨度（每本省下几百毫秒）
