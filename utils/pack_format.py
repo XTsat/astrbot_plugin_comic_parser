@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from ..domain.constants import COVER_WORDS, PACK_FORMAT_ALIASES, PACK_FORMAT_LABELS
+from ..domain.constants import (
+    COVER_WORDS,
+    INFO_WORDS,
+    PACK_FORMAT_ALIASES,
+    PACK_FORMAT_LABELS,
+)
 
 
 def split_pack_format(text: str) -> tuple[str, str | None]:
@@ -21,18 +26,26 @@ def split_pack_format(text: str) -> tuple[str, str | None]:
     return body.strip(), fmt
 
 
-def split_cover_word(text: str) -> tuple[str, bool]:
-    """切出末尾的「封面」词，返回 "剩余参数, 是否只要封面"。
+def _split_trailing_word(text: str, words: frozenset[str]) -> tuple[str, bool]:
+    """切出末尾命中词表的那一个词，返回 "剩余参数, 是否命中"。
 
-    与格式词同一套规则（只在「有前文 + 末尾命中」时才切）：单独一个 /jm 封面 里没有
+    与格式词同一套规则：只在「有前文 + 末尾命中」时才切。单独一个 /jm 封面 里没有
     ID，切掉只会让用户看到「没给 ID」，所以原样留下、交给 ID 解析去报错。
     """
     body, sep, tail = text.rpartition(" ")
-    if not sep:
+    if not sep or tail.strip().lower() not in words:
         return text, False
-    if tail.strip().lower() not in COVER_WORDS:
-        return text.strip(), False
     return body.strip(), True
+
+
+def split_cover_word(text: str) -> tuple[str, bool]:
+    """切出末尾的「封面」词，表示这次只要封面图、不下载整本。"""
+    return _split_trailing_word(text, COVER_WORDS)
+
+
+def split_info_word(text: str) -> tuple[str, bool]:
+    """切出末尾的「简介 / 信息」词，表示这次只要作品信息、不下载。"""
+    return _split_trailing_word(text, INFO_WORDS)
 
 
 def describe_pack_format(fmt: str) -> str:

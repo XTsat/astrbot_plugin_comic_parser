@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import json
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -121,7 +122,7 @@ from .domain.constants import (
     PANEL_MODEL_UPLOAD_MAX_BYTES,
 )
 from .utils import cjk_available, describe_pack_format, format_size, split_pack_format
-from .utils.pack_format import split_cover_word
+from .utils.pack_format import split_cover_word, split_info_word
 
 # 贴表情（set_msg_emoji_like）与群文件上传（upload_group_file）都只有 OneBot(CQHTTP) 协议端提供
 _ONEBOT_PLATFORMS = frozenset({"aiocqhttp"})
@@ -1035,6 +1036,7 @@ class ComicParserPlugin(Star):
                 "或 /comic sou <关键词>（全渠道搜索）、/comic 排行 [日榜|周榜|月榜|总榜]\n"
                 "格式可选 zip / pdf / long_img / none，写在最后只对这一次生效\n"
                 "搜图：/comic 搜图 [严格] + 截图（也认 图搜、img、以图搜），结果直接给下载命令\n"
+                "末尾加词：封面（只发封面图）、简介（只看作品信息）\n"
                 "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
                 "接着下：/comic retry（最近一本）、/comic retry 全部（本会话记录过的全下）\n"
                 "查看排队：/comic status（管理员可加 全部 看所有会话）\n"
@@ -1120,6 +1122,7 @@ class ComicParserPlugin(Star):
         # 末尾的格式词只改这一次的产物形态（`/comic <链接> pdf`）；搜索与翻页已在上面分流，
         # 因此关键词里的格式词（如 long_img、长图）不会被当成格式
         text, cover_only = split_cover_word(text)
+        text, info_only = split_info_word(text)
         text, pack_format = split_pack_format(text)
         indexed = self._resolve_index(session_id, text)
         if indexed is not None:
@@ -1132,6 +1135,7 @@ class ComicParserPlugin(Star):
                 allow_index=False,
                 pack_format=pack_format,
                 cover_only=cover_only,
+                info_only=info_only,
             ):
                 yield result
             return
@@ -1159,7 +1163,12 @@ class ComicParserPlugin(Star):
 
         channel, _ = resolved
         async for result in self._handle_download(
-            event, channel.command, text, pack_format=pack_format, cover_only=cover_only
+            event,
+            channel.command,
+            text,
+            pack_format=pack_format,
+            cover_only=cover_only,
+            info_only=info_only,
         ):
             yield result
 
@@ -1171,6 +1180,7 @@ class ComicParserPlugin(Star):
         allow_index: bool = True,
         pack_format: str | None = None,
         cover_only: bool = False,
+        info_only: bool = False,
     ) -> AsyncGenerator[MessageEventResult, None]:
         text = " ".join((raw_id or "").split())
         head, _, rest = text.partition(" ")
@@ -1241,6 +1251,9 @@ class ComicParserPlugin(Star):
         text, cover_word = split_cover_word(text)
         if cover_word:
             cover_only = True
+        text, info_word = split_info_word(text)
+        if info_word:
+            info_only = True
         text, override = split_pack_format(text)
         if override is not None:
             pack_format = override
@@ -1281,6 +1294,12 @@ class ComicParserPlugin(Star):
         # 「只取封面」不进任务链路：不占并发、不打包，也就不该被 retry 重放
         if cover_only:
             async for result in self._handle_cover_only(event, channel, comic_id):
+                yield result
+            return
+
+        # 同理：只看信息也不进任务链路
+        if info_only:
+            async for result in self._handle_info_only(event, channel, comic_id):
                 yield result
             return
 
@@ -1946,6 +1965,48 @@ class ComicParserPlugin(Star):
             f"例：{command} 排行 日榜、{command} rank week\n"
             "看后面的名次：/comic 下一页；下载：直接回序号"
         )
+
+    async def _handle_info_only(
+        self, event: AstrMessageEvent, channel: BaseChannel, comic_id: str
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """只看信息：取作品元信息并回一段文字，不下载、不打包。
+
+        与「只取封面」并列：都是「先看一眼再决定要不要下」。页数与标签有多少条就写多少，
+        超长的标签列表截断并标省略号，避免一屏放不下。
+        """
+        use_reaction, _ = await self._begin_progress(event)
+        work_dir = self.temp_root / "info" / f"{channel.name}-{comic_id}"
+        try:
+            work_dir.mkdir(parents=True, exist_ok=True)
+            meta = await channel.fetch_meta(comic_id, work_dir)
+        except PluginError as exc:
+            if use_reaction:
+                await self._react(event, "fail")
+            yield event.plain_result(f"❌ 取信息失败：{exc}")
+            return
+        except Exception as exc:  # noqa: BLE001 - 渠道实现各异，统一转成一句话
+            if use_reaction:
+                await self._react(event, "fail")
+            logger.warning(f"[{PLUGIN_NAME}] 取元信息异常 {channel.name} {comic_id}: {exc}")
+            yield event.plain_result(f"❌ 取信息失败：{type(exc).__name__}: {exc}")
+            return
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+        lines = [f"📖 {channel.display_name} · {meta.display_title}"]
+        if meta.author:
+            lines.append(f"作者：{meta.author}")
+        if meta.page_count:
+            lines.append(f"页数：{meta.page_count}")
+        if meta.tags:
+            shown = meta.tags[:8]
+            suffix = "…" if len(meta.tags) > len(shown) else ""
+            lines.append(f"标签：{'、'.join(shown)}{suffix}")
+        lines.append(f"ID：{comic_id}")
+        lines.append(f"下载：/{channel.display_command} {comic_id}")
+        if use_reaction:
+            await self._react(event, "done")
+        yield event.plain_result("\n".join(lines))
 
     async def _handle_cover_only(
         self, event: AstrMessageEvent, channel: BaseChannel, comic_id: str
