@@ -31,6 +31,7 @@ from ..domain import (
 )
 from ..domain.constants import (
     CANCEL_POLL_INTERVAL,
+    DRAIN_TIMEOUT,
     IMAGE_SUFFIXES,
     PLUGIN_NAME,
     RESUME_DIRNAME,
@@ -44,6 +45,23 @@ from .channel import (
     ProgressState,
 )
 from .packer import Packer
+
+
+# 正在使用中的工作目录：清理过期断点时要跳过它们。
+# 目录自身的 mtime 只在直接子项增删时更新，光看时间会把还在下的那本当成过期断点删掉。
+_ACTIVE_WORK_DIRS: set[Path] = set()
+
+
+def _newest_mtime(path: Path) -> float:
+    """目录里最新一次写入的时间（含子目录里的文件），用来判断断点是不是真过期了。"""
+    newest = path.stat().st_mtime
+    for child in path.rglob("*"):
+        try:
+            if child.is_file():
+                newest = max(newest, child.stat().st_mtime)
+        except OSError:
+            continue
+    return newest
 
 
 @dataclass(slots=True)
@@ -140,7 +158,25 @@ class DownloadTask:
         comic_id = self.channel.normalize_id(raw_id)
         work_dir = self._prepare_work_dir(comic_id)
         tap = _ProgressTap(on_progress)
+        # 登记「这个目录正在用」：别的任务清理过期断点时要跳过它，否则会把还在下的那本删掉
+        _ACTIVE_WORK_DIRS.add(work_dir)
+        try:
+            return await self._download_and_pack(
+                comic_id, work_dir, tap, cancel, started
+            )
+        finally:
+            # 暂停/取消也要注销：目录留在磁盘上，但已经没人写了
+            _ACTIVE_WORK_DIRS.discard(work_dir)
 
+    async def _download_and_pack(
+        self,
+        comic_id: str,
+        work_dir: Path,
+        tap: _ProgressTap,
+        cancel: CancelToken | None,
+        started: float,
+    ) -> DownloadOutcome:
+        """取元信息 → 下载 → 打包；工作目录的登记与注销由 run 负责。"""
         try:
             meta = await self._fetch_meta(comic_id, work_dir)
             downloaded = await self._download(comic_id, work_dir, tap, meta, cancel)
@@ -185,10 +221,15 @@ class DownloadTask:
         ttl = max(0, self.settings.resume_ttl)
         now = time.time()
         for entry in root.iterdir():
-            if entry == work_dir:
+            # 正在下的那本自己不能删；别人正在用的目录也不能碰
+            if entry == work_dir or entry in _ACTIVE_WORK_DIRS:
                 continue
             try:
+                # 先按目录时间粗筛，可疑再用「目录里最新的文件」确认：图片写进章节目录时
+                # 父目录 mtime 不动，只看它会把活着的下载误判成过期断点
                 expired = ttl <= 0 or now - entry.stat().st_mtime > ttl
+                if expired and ttl > 0:
+                    expired = now - _newest_mtime(entry) > ttl
             except OSError:
                 continue
             if expired:
@@ -424,6 +465,12 @@ class DownloadTask:
             token.cancel()
             download.cancel()
         results = await asyncio.gather(download, return_exceptions=True)
+        if outcome != "done" and not await self.channel.drain(token, DRAIN_TIMEOUT):
+            # 线程没停稳时下游照样会去数目录，只能如实记一笔，别让它看起来像已经停好了
+            logger.warning(
+                f"[{PLUGIN_NAME}] {self.channel.display_name} 的下载线程未在 "
+                f"{DRAIN_TIMEOUT:.0f}s 内退出"
+            )
         error = results[0]
         if isinstance(error, BaseException):
             return outcome, error

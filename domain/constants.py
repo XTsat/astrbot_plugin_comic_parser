@@ -27,6 +27,12 @@ DEFAULT_RESUME_TTL: Final = 7200
 # 代价是异常退出留下的临时目录要手动清
 DEFAULT_CLEAN_TEMP_ON_START: Final = False
 
+# 取消下载后等下载线程真正停手的上限（秒）：线程池里的下载不会被 asyncio 取消打断，
+# 不等它退出就报「已保存 N 张」，用户紧接着 /comic retry 就会和后台线程抢同一个目录
+DRAIN_TIMEOUT: Final = 30.0
+# 等线程退出时的轮询间隔（秒）：只是看一眼 Future 有没有结束
+DRAIN_POLL_INTERVAL: Final = 0.2
+
 # 下载前测速（探测）：候选域名/图床同时探测、按实测速度排序，镜像「连得上但极慢」时才不干等。
 # 四项都可调（配置分组 probe），默认值取「够用、不用调」的档位。
 DEFAULT_PROBE_ENABLED: Final = True

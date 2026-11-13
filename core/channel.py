@@ -34,6 +34,7 @@ from ..domain import (
     SearchQuery,
     SearchUnsupportedError,
 )
+from ..domain.constants import DRAIN_TIMEOUT
 from .domain_race import (
     CACHE,
     ProbeFn,
@@ -428,6 +429,17 @@ class BaseChannel(ABC):
         默认不做事；下载跑在线程里的渠道（如 JM）应覆盖它，避免重载后线程继续白跑。
         """
         return []
+
+    async def drain(
+        self, token: CancelToken | None = None, timeout: float = DRAIN_TIMEOUT
+    ) -> bool:
+        """取消之后等本渠道的后台下载真正停下；返回是否在 timeout 内停稳。
+
+        默认实现认为没有后台线程（协程被打断就等于停了）。线程池里的渠道（如禁漫天堂）
+        必须覆盖它：asyncio 的取消只终止协程，线程会继续往工作目录写图，任务层据此
+        判断「已保存 N 张」能不能当成最终结果报给用户。
+        """
+        return True
 
     def wrap_failure(self, exc: Exception) -> DownloadError:
         """把渠道内部异常翻译成面向用户的下载失败文案。"""

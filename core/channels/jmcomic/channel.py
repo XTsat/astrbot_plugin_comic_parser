@@ -27,7 +27,12 @@ from ....domain import (
     SearchPage,
     SearchQuery,
 )
-from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
+from ....domain.constants import (
+    DRAIN_POLL_INTERVAL,
+    DRAIN_TIMEOUT,
+    IMAGE_SUFFIXES,
+    PLUGIN_NAME,
+)
 from ....utils import format_size, split_link
 from ...channel import (
     BaseChannel,
@@ -289,9 +294,17 @@ class JMComicChannel(BaseChannel):
         register_session(session)
         try:
             async with ProgressHeartbeat(session.state, on_tick=on_progress):
-                return await asyncio.to_thread(
-                    self._download_sync, jmcomic, option, comic_id, report, session
+                # 用 run_in_executor 而不是 to_thread：要把线程的 Future 留在手边，
+                # 取消后上层才能靠 drain() 等它真正停手（to_thread 把 Future 藏起来了）。
+                # shield 让「取消协程」立刻返回，而线程照旧跑完自己这一轮再停。
+                future = asyncio.get_running_loop().run_in_executor(
+                    None, self._download_sync, jmcomic, option, comic_id, report, session
                 )
+                self._live_downloads()[cancel] = future
+                future.add_done_callback(
+                    lambda done, key=cancel: self._forget_download(key, done)
+                )
+                return await asyncio.shield(future)
         finally:
             unregister_session(session)
 
@@ -727,6 +740,51 @@ class JMComicChannel(BaseChannel):
     def cancel_downloads(self) -> list[str]:
         """插件卸载时调用：取消本渠道正在跑的下载并返回其状态（供上层写日志）。"""
         return cancel_active_downloads()
+
+    # ---- 线程退出确认 ----
+
+    def _live_downloads(self) -> dict[CancelToken | None, Any]:
+        """本渠道在跑的下载线程（以取消令牌为键，None 表示这次没带令牌）。
+
+        线程池里的下载不会被 asyncio 取消打断，任务层取消后要等它自己走到检查点，
+        所以这里留一张「还在跑」的表给 drain 判断。
+        """
+        live = getattr(self, "_live", None)
+        if live is None:
+            live = {}
+            self._live = live
+        return live
+
+    def _forget_download(self, token: "CancelToken | None", future: Any) -> None:
+        """线程结束就摘表；被取消的那次没人再取结果，顺手把异常吃掉。"""
+        live = self._live_downloads()
+        if live.get(token) is future:
+            live.pop(token, None)
+        if future.done() and not future.cancelled():
+            future.exception()
+
+    async def drain(
+        self, token: CancelToken | None = None, timeout: float = DRAIN_TIMEOUT
+    ) -> bool:
+        """等下载线程真正退出：asyncio 的取消只终止协程，线程会继续写工作目录。"""
+        deadline = time.monotonic() + max(0.0, timeout)
+        live = self._live_downloads()
+        while True:
+            for key in [key for key, future in list(live.items()) if future.done()]:
+                live.pop(key, None)
+            pending = [
+                future
+                for key, future in list(live.items())
+                if token is None or key is token
+            ]
+            if not pending:
+                return True
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    f"[{PLUGIN_NAME}] 禁漫天堂的下载线程超过 {timeout:.0f}s 仍未退出，本次不再等它"
+                )
+                return False
+            await asyncio.sleep(DRAIN_POLL_INTERVAL)
 
     def _download_sync(
         self,
