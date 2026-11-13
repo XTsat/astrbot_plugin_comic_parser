@@ -2,7 +2,7 @@
 <img src="logo.png" alt="Comic Parser" width="160" />
 <h1>Comic Parser</h1>
 <p><strong>Multi-channel comic downloader with built-in search: find a work, download the whole comic, then pack and send it in one pipeline — optional password encryption</strong></p>
-<p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; search &nbsp;&nbsp; wnacg</sub></p>
+<p><sub>jmcomic &nbsp;&nbsp; nhentai &nbsp;&nbsp; search &nbsp;&nbsp; image search &nbsp;&nbsp; wnacg</sub></p>
 <p><a href="README.md">中文</a> &nbsp;/&nbsp; <strong>English</strong></p>
 </div>
 
@@ -11,6 +11,7 @@
 - **Just paste the link**: `/comic <link>` figures out the site on its own and downloads the whole comic, so you do not have to remember a command per platform
 - **Download by ID**: use a channel command (`/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh`) when you already have the ID
 - **Search right in the chat**: `/comic sou <keyword>` searches every channel that supports search in one go, `/jm sou` searches a single channel; reply with the number of a hit to download it, and page through longer result sets
+- **Find a work from a screenshot**: `/comic 搜图` (also `图搜`, `img`, `以图搜`; a bare image with no argument works too) turns a screenshot into a work, and every hit comes with a ready-to-send download command (`/nh 512345`, `/eh <gid>-<token>`). When a work exists in several languages only the Chinese version is listed, and hits under 45% similarity are hidden. Hits also enter the session list, so `/comic 1` downloads the first one
 - **Rankings**: `/comic 排行` collects the leaderboards of every channel at once, `/jm 排行` shows one channel only; pick daily / weekly / monthly / all-time, and each channel uses its own window and falls back to the nearest one when that window is missing, saying so in the reply. Hits are downloadable by number and page through the same way as search. Overlong serials are filtered out by default (300 pages and 10 chapters, both configurable, 0 disables either cap); fetched ranks are buffered locally and filtered only when a page is assembled, so dropped entries and the leftover tail of a page stay in the buffer and the next page continues from them (another upstream block is fetched only when a page cannot be filled); the reply says how many were skipped
 - **Rankings as an image** (optional): render one page of a leaderboard as a card (cover grid, rank badges, title/author); the all-channel board (`/comic 排行`) puts every platform into **one image** with ranks continuing across sections, while a single-channel board sends one card per page. The covers follow the "Censor the cover" switch and are censored one by one before the card is composed — with no detection available only those covers are censored whole, so ranks and titles stay readable
 - **Multiple channels**: JM, nhentai, PicaACG, Hanime1, WNACG and E-Hentai; E-Hentai needs no cookie for the 1280px resampled images, and originals are used once a cookie is added (charged against your site quota)
@@ -33,6 +34,7 @@
 | `<channel command> <ID or link>` | Everyone (subject to whitelist/blacklist) | Downloads one comic from that channel only. The channel commands are `/jm`, `/nh`, `/pica`, `/hm`, `/ssmh`, `/eh` (full names `/jmcomic`, `/nhentai`, `/picacg`, `/hanime1`, `/wnacg`, `/ehentai`; `/ha`, `/hanime` and `/wn` work too); `/pica` needs a PicaACG account in the channel settings |
 | `/eh <gid:token or link>` | Everyone (subject to whitelist/blacklist) | An E-Hentai ID has two parts, gid and token, so a bare number is rejected with a hint (anonymous 1280px; originals need a cookie) |
 | `/comic sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search every channel that supports search at once; hits are numbered continuously; type prefixes such as `tag:` and `author:` plus `-` exclusions are supported |
+| `/comic 搜图 [strict]` (also `图搜`, `img`, `以图搜`; a bare image with no argument works too) | Everyone (subject to whitelist/blacklist) | Drop a screenshot and find which work it comes from; every hit comes with a ready-to-send download command (e.g. `/nh 512345`). When a work exists in several languages, only the Chinese version is listed by default. Hits also enter the session list, so you can download by number (`/comic 1`, `/comic 2`, ...) |
 | `<channel command> sou <keyword>` | Everyone (subject to whitelist/blacklist) | Search that channel only; `sou` can also be written as `search`, `搜索` or `搜` |
 | `/comic 排行 [日榜\|周榜\|月榜\|总榜]` (also `rank`, `榜`) | Everyone (subject to whitelist/blacklist) | Collect the leaderboards of every channel that has one, each listing its own top entries; without a window word it uses the default window from the settings (weekly by default) |
 | `<channel command> 排行 [日榜\|周榜\|月榜\|总榜]` | Everyone (subject to whitelist/blacklist) | Show the leaderboard of that channel only; if it lacks that window it falls back to the nearest one (daily falls back to weekly, for example) and says so in the reply |
@@ -306,6 +308,25 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 | Probe timeout per candidate (`timeout`) | int | 10 | Probes run concurrently and a candidate that misses the deadline counts as slow. Too short kills "slow but usable" sites (cross-border links often need more than 5 seconds); too long wastes time |
 | Slow node threshold (`min_speed`) | int | 150 | Candidates measured below this speed (KB/s) are ranked last but never dropped; 0 ranks by response time only |
 | Ranking cache lifetime (`cache_ttl`) | int | 600 | Ranks are reused for the same candidate set within this window instead of being re-measured on every comic; 0 re-measures every time |
+
+</details>
+
+### Image search
+
+<details>
+<summary>Image search (7 options)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable image search (`enable`) | bool | true | When off, `/comic 搜图` reports that it is disabled; keyword search and downloads are unaffected |
+| Image search service URL (`base_url`) | string | see default | The default works out of the box; point it at a local reverse proxy if you run one |
+| Reuse the download proxy (`use_proxy`) | bool | false | Off by default: image search connects directly. Datacenter or shared proxies tend to get a browser challenge; turn this on only if direct access fails |
+| Dedicated image search proxy (`proxy`) | string | empty | Empty means no proxy; when set it wins over "reuse the download proxy" |
+| Minimum similarity (`min_similarity`) | float | 45 | Hits below this value are hidden. Upstream returns dozens of hits for any image without a threshold of its own, so anything below 45 is mostly noise |
+| Maximum works shown (`max_results`) | int | 5 | A work only takes one slot (language variants are merged) |
+| Keep only Chinese when a work has several languages (`prefer_chinese`) | bool | true | When off, the highest-scoring variant wins and may be Japanese or English |
+| Use strict mode by default (`strict_default`) | bool | false | Strict mode gives fewer false positives but may miss the work; override once with `/comic 搜图 普通` |
+| Image search timeout (`timeout`) | int | 120 | Covers the upload plus the upstream lookup |
 
 </details>
 

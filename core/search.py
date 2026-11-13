@@ -589,6 +589,55 @@ class SearchService:
             return None
         return channel, str(item.comic_id)
 
+    def remember_items(
+        self, session_id: str, items: list[SearchItem], *, query_text: str = ""
+    ) -> bool:
+        """把一次外部列表（如搜图命中）登记成本会话「最近一次搜索结果」。
+
+        搜图的命中已经是「渠道 + 规范 ID」，与关键词搜索的结果同构，所以不必另造一套
+        序号体系：登记成一次单页搜索会话，回序号下载与序号过期提示都能照旧复用。
+
+        Args:
+            session_id: 会话标识（与关键词搜索同一套）。
+            items: 按展示顺序排列的命中，每条必须带可用的渠道名与规范 ID。
+            query_text: 记账用的关键词文本，只影响会话元信息与提示文案。
+
+        Returns:
+            是否登记成功；会话为空或条目为空时返回 False。
+        """
+        if not session_id or not items:
+            return False
+        by_channel: dict[str, list[SearchItem]] = {}
+        for item in items:
+            by_channel.setdefault(item.channel, []).append(item)
+        pages: list[tuple[BaseChannel, SearchPage]] = []
+        for name, group in by_channel.items():
+            channel = self.channels.get(name)
+            if channel is None or not channel.enabled:
+                continue
+            pages.append(
+                (
+                    channel,
+                    SearchPage(
+                        channel=name,
+                        keyword=query_text,
+                        items=list(group),
+                        total=len(group),
+                        has_more=False,
+                    ),
+                )
+            )
+        if not pages:
+            return False
+        session = self._build_session(
+            SearchQuery(raw=query_text, keyword=query_text), aggregate=True, pages=pages
+        )
+        if session is None:
+            return False
+        self._store_session(session_id, session)
+        self._searched_at[session_id] = time.monotonic()
+        return True
+
     def index_hint(
         self, session_id: str, token: str, command: str = "comic"
     ) -> str | None:

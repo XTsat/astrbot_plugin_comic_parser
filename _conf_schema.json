@@ -1040,6 +1040,70 @@
       }
     }
   },
+  "image_search": {
+    "type": "object",
+    "description": "搜图",
+    "hint": "丢一张截图找出作品，并直接给出可发送的下载命令；与关键词搜索、下载互不影响",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用搜图",
+        "hint": "关闭后 /comic 搜图 直接提示未启用",
+        "default": true
+      },
+      "base_url": {
+        "type": "string",
+        "description": "搜图服务地址",
+        "hint": "默认值可直接使用；本机有反代时改成反代地址（如 http://127.0.0.1:8787）",
+        "default": "https://soutubot.moe"
+      },
+      "use_proxy": {
+        "type": "bool",
+        "description": "沿用下载代理",
+        "hint": "默认关闭：搜图直连上游。实测经机房/共享出口的代理反而会被站点弹浏览器校验（直连 200、走代理 403）；只有直连不通时才打开",
+        "default": false
+      },
+      "proxy": {
+        "type": "string",
+        "description": "搜图专用代理",
+        "hint": "留空表示不用代理。填了就以它为准，优先于「沿用下载代理」；支持 http:// 与 socks5://",
+        "default": ""
+      },
+      "min_similarity": {
+        "type": "float",
+        "description": "最低相似度阈值（%）",
+        "hint": "低于该值的结果不展示。上游对任何图都返几十条且不设门槛，阈值低于 45 会推上来大量误报",
+        "default": 45.0,
+        "slider": {"min": 0, "max": 100, "step": 1}
+      },
+      "max_results": {
+        "type": "int",
+        "description": "最多展示作品数",
+        "hint": "同一本作品只占一条（多语言版本会合并）",
+        "default": 5,
+        "slider": {"min": 1, "max": 20, "step": 1}
+      },
+      "prefer_chinese": {
+        "type": "bool",
+        "description": "同一作品有多语言版本时只留中文",
+        "hint": "关掉后按相似度高低取一条，可能出现日文/英文版本",
+        "default": true
+      },
+      "strict_default": {
+        "type": "bool",
+        "description": "默认使用严格模式",
+        "hint": "严格模式误报更少、但更容易搜不到；可用 /comic 搜图 普通 单次覆盖",
+        "default": false
+      },
+      "timeout": {
+        "type": "int",
+        "description": "搜图超时秒数",
+        "hint": "含图片上传与上游检索的整段时间",
+        "default": 120,
+        "slider": {"min": 10, "max": 300, "step": 10}
+      }
+    }
+  },
   "ranking": {
     "type": "object",
     "description": "排行榜",

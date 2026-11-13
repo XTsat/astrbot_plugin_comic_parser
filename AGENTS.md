@@ -23,6 +23,7 @@
 - **上层统一打包，按需加密**：任何渠道下载完都走同一套产物流程——`zip` / `pdf` / `long_img` / `none`；设置全局密码才加密（ZIP 用 AES、PDF 用 AES-256），设置了密码却缺少加密依赖时**失败关闭**，绝不静默产出未加密文件
 - **准入与调度**：会话白/黑名单、同会话防抖、全局并发上限、整本超时与重试
 - **产物交付**：压缩包以文件形式发出；仅本地保存模式的目录落进数据目录并长期保留
+- **搜图（以图搜图）**：`/comic 搜图 [严格]` 或只附图不带参数，把一张截图变成作品；命中后每条结果附一条可直接发送的渠道下载命令（`/nh <ID>`、`/eh <gid>-<token>`），同一本作品有多语言版本时默认只列中文。搜图只产出「作品 ID + 现成命令」，不碰渠道搜索接口，也不进打包链路
 - **搜索（可选能力）**：`/jm sou <关键词>` 只搜一个渠道，`/comic sou <关键词>` 并发搜所有支持搜索的渠道；每个渠道单独超时，慢渠道自动跳过；搜索结果按序号给出、只留 ID，回序号即可下载，结果多时本地翻页（翻完缓冲再取上游下一页），不进入下载/打包链路
 
 底板参考（只借形态，不复制代码）：配置底板与「白/黑名单 + 防抖 + 超时重试 + `template_list` 渠道模板」的思路参考同类 AstrBot 解析插件；ZIP/PDF 打包与加密行为参考同类漫画下载插件。下载方向与它们都不同，判断取舍时以「下载为主、搜索为辅」为准。
@@ -72,6 +73,12 @@ astrbot_plugin_comic_parser/
     ├── channel.py               # BaseChannel 抽象（渠道做取元信息 + 下载；搜索是可选方法）
     ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
     ├── search.py                # 搜索编排：单渠道超时、聚合、缓存、翻页与结果渲染
+    ├── image_search/            # 搜图（以图搜图）：图片 → 作品 ID，命中后仍交给渠道下载
+    │   ├── __init__.py          #   只导出对外 API（客户端、归一化、优选、渲染）
+    │   ├── client.py            #   上游接口客户端：缩图、严格度系数、错误翻译
+    │   ├── candidates.py        #   聊天图片引用收集与解析（URL / 本地路径 / base64）
+    │   ├── service.py           #   归一化 → 同书聚合 → 多语言优选 → 渲染下载指令
+    │   └── constants.py         #   入口词、端点、系数、语言与来源映射
     ├── channels/                # 每个渠道一个文件夹，渠道私有代码全在自己文件夹里
     │   ├── jmcomic/             # 禁漫天堂（JM）渠道
     │   │   ├── __init__.py      #   只导出 JMComicChannel（上层只认这个类）
@@ -122,7 +129,7 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 层 | 目录 | 本项目实际内容 |
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
-| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py`（搜索超时/聚合/翻页/渲染） |
+| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py`（搜索超时/聚合/翻页/渲染）、`image_search/`（搜图：图片 → 作品 ID + 可发送的下载指令） |
 | 工具层 | `utils/` | `filename.py`（文件名清洗）、`link.py`（链接拆主机名/路径、域名归属） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
@@ -325,6 +332,9 @@ class MyPlugin(Star):
 | `network.proxy` | string | 渠道共用代理地址（渠道请求、测速、搜索自动代理重试都用它） |
 | `search.enable` / `search.timeout` / `search.page_size` / `search.aggregate_limit` | bool / int / int / int | 搜索开关与节奏（`core/search.py`） |
 | `search.cache_ttl` / `search.cooldown` | int / int | 结果缓存与会话冷却（`core/search.py`） |
+| `image_search.enable` / `.base_url` / `.timeout` | bool / string / int | 搜图开关、上游地址与超时（`core/image_search/`） |
+| `image_search.min_similarity` / `.max_results` / `.prefer_chinese` / `.strict_default` | float / int / bool / bool | 搜图结果筛选与展示（`core/image_search/service.py`） |
+| `image_search.use_proxy` / `.proxy` | bool / string | 搜图代理：默认直连，代理多会被上游弹挑战页（`core/image_search/client.py`） |
 | `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |
 

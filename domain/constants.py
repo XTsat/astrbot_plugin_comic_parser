@@ -83,6 +83,20 @@ SEARCH_INDEX_HINT_MAX: Final = 99
 SEARCH_NEXT_WORDS: Final = frozenset({"next", "下一页", "下页"})
 SEARCH_PREV_WORDS: Final = frozenset({"prev", "previous", "上一页", "上页"})
 
+# 搜图（以图搜图）：默认值给到开箱可用，站点可直连；本地有反代时改 base_url 即可
+DEFAULT_IMAGE_SEARCH_ENABLED: Final = True
+DEFAULT_IMAGE_SEARCH_BASE_URL: Final = "https://soutubot.moe"
+DEFAULT_IMAGE_SEARCH_TIMEOUT: Final = 120
+DEFAULT_IMAGE_SEARCH_MAX_RESULTS: Final = 5
+# 站点对任何图都返几十条且不做门槛过滤，45 是站点自己给的可采信线，低于它的基本是噪声
+DEFAULT_IMAGE_SEARCH_MIN_SIMILARITY: Final = 45.0
+# 同一本作品常有多个语言版本：默认只留中文，避免一本作品重复出现好几次
+DEFAULT_IMAGE_SEARCH_PREFER_CHINESE: Final = True
+DEFAULT_IMAGE_SEARCH_STRICT: Final = False
+# 搜图默认直连：上游对家用出口是放行的，反而经代理（机房/共享出口）更容易被 Cloudflare 弹挑战页
+DEFAULT_IMAGE_SEARCH_USE_PROXY: Final = False
+DEFAULT_IMAGE_SEARCH_PROXY: Final = ""
+
 # 说明与站点速查：`/comic help`、`/comic site` 是标准写法，中文与旧命令名都保留，
 # 省得老用户改习惯；这几个词只当 `/comic` 的首词匹配，不会抢作品 ID 或搜索关键词
 HELP_WORDS: Final = frozenset({"help", "?", "？", "帮助", "用法", "说明"})

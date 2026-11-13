@@ -59,6 +59,22 @@ from .core.channel import (
     ProgressCallback,
 )
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
+from .core.image_search import (
+    ImageSearchClient,
+    ImageSearchError,
+    ImageSearchHit,
+    collect_image_refs,
+    has_image_ref,
+    normalize_hits,
+    render_report,
+    resolve_image_bytes,
+    select_hits,
+)
+from .core.image_search.constants import (
+    IMAGE_NORMAL_WORDS,
+    IMAGE_SEARCH_WORDS,
+    IMAGE_STRICT_WORDS,
+)
 from .core.packer import Packer
 from .core.ranking import RankingResult, board_label, parse_board
 from .domain import (
@@ -68,6 +84,7 @@ from .domain import (
     PanelError,
     PluginError,
     PluginSettings,
+    SearchItem,
     SearchQueryError,
 )
 from .domain.constants import (
@@ -1003,11 +1020,20 @@ class ComicParserPlugin(Star):
         """
         # 全角空格/多空格先压成单个半角空格，`/comic　sou　名字` 也能识别
         text = " ".join((args or "").split())
+        # 搜图与关键词搜索是两条链路：搜图吃图片、吐作品 ID，命中后再交给渠道去下载
+        image_head, _, image_rest = text.partition(" ")
+        if image_head.lower() in IMAGE_SEARCH_WORDS or (
+            not text and has_image_ref(event)
+        ):
+            async for result in self._handle_image_search(event, image_rest.strip()):
+                yield result
+            return
         if not text:
             yield event.plain_result(
                 "用法：/comic <作品链接> [格式]、/comic <序号> [格式]，"
                 "或 /comic sou <关键词>（全渠道搜索）、/comic 排行 [日榜|周榜|月榜|总榜]\n"
                 "格式可选 zip / pdf / long_img / none，写在最后只对这一次生效\n"
+                "搜图：/comic 搜图 [严格] + 截图（也认 图搜、img、以图搜），结果直接给下载命令\n"
                 "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
                 "接着下：/comic retry（最近一本）、/comic retry 全部（本会话记录过的全下）\n"
                 "查看排队：/comic status（管理员可加 全部 看所有会话）\n"
@@ -1332,6 +1358,120 @@ class ComicParserPlugin(Star):
             # 暂停/取消时表情停在「下载中」，别贴个锤子吓人
             if result_state != "paused":
                 await self._react(event, "done" if result_state == "ok" else "fail")
+
+    # ==================== 搜图流程 ====================
+
+    async def _handle_image_search(
+        self, event: AstrMessageEvent, args: str
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """`/comic 搜图 [严格]`：以图搜图，命中后直接给出可发送的下载指令。
+
+        与关键词搜索分开：它只向搜图服务要一次结果，不触碰任何渠道的搜索接口，
+        产物是「作品 ID + 现成命令」，下载仍走既有的渠道 → 任务 → 打包链路。
+        """
+        if not self.settings.image_search_enabled:
+            yield event.plain_result(
+                "❌ 搜图未启用：请在插件配置的「搜图」里打开「启用搜图」"
+            )
+            return
+        strict = self.settings.image_search_strict
+        for token in (args or "").split():
+            lowered = token.lower()
+            if lowered in IMAGE_STRICT_WORDS:
+                strict = True
+            elif lowered in IMAGE_NORMAL_WORDS:
+                strict = False
+        candidates = collect_image_refs(event)
+        if not candidates:
+            yield event.plain_result(
+                "❌ 搜图要附图：先发一张截图再发 /comic 搜图，"
+                "或引用一条含图片的消息后发 /comic 搜图\n"
+                "用法：/comic 搜图 [严格]"
+            )
+            return
+        # 进度按「进度提示」配置来：贴表情的部署不该再额外弹一条开始消息；
+        # 贴不上（私聊、协议端不支持表情回应）时才退回文本，行为与下载路径一致
+        use_reaction, use_text = await self._begin_progress(event)
+        if use_text:
+            await event.send(event.plain_result("🔍 正在以图搜图，请稍等…"))
+        image = await self._first_image_bytes(candidates)
+        if not image:
+            if use_reaction:
+                await self._react(event, "fail")
+            yield event.plain_result(
+                "❌ 图片获取失败：消息里的图片引用都解析不了（链接可能已过期）"
+            )
+            return
+        try:
+            payload = await ImageSearchClient(self.settings).search(image, strict=strict)
+        except ImageSearchError as exc:
+            if use_reaction:
+                await self._react(event, "fail")
+            yield event.plain_result(f"❌ {exc}")
+            return
+        hits, elapsed = normalize_hits(payload)
+        selected = select_hits(hits, self.settings)
+        found = len({hit.subject for hit in hits})
+        if use_reaction:
+            await self._react(event, "done" if selected else "fail")
+        indexed = self._remember_image_hits(event, selected)
+        report = render_report(
+            selected,
+            elapsed=elapsed,
+            strict=strict,
+            command_for=self._download_command_for,
+            dropped=max(0, found - len(selected)),
+        )
+        if indexed:
+            numbers = "、".join(f"/comic {i}" for i in range(1, min(indexed, 3) + 1))
+            tail = "…" if indexed > 3 else ""
+            report += f"\n也可以直接回序号：{numbers}{tail}"
+        yield event.plain_result(report)
+
+    def _remember_image_hits(
+        self, event: AstrMessageEvent, hits: list[ImageSearchHit]
+    ) -> int:
+        """把搜图命中等价成一次搜索结果，让「回序号下载」照常可用。
+
+        序号必须与展示顺序严格一致，所以只在**每条命中都能落到已启用渠道**时登记：
+        部分命中没有对应渠道时宁可不登记，也不要让 /comic 1 下到列表里第 2 本。
+
+        Returns:
+            登记成功的序号条数；未登记时返回 0（调用方据此决定要不要提「回序号」）。
+        """
+        items = [
+            SearchItem(
+                channel=hit.channel,
+                comic_id=hit.comic_id,
+                title=hit.display_title,
+            )
+            for hit in hits
+            if hit.channel and hit.channel in self.channels
+        ]
+        if not items or len(items) != len(hits):
+            return 0
+        session_id = str(getattr(event, "unified_msg_origin", "") or "")
+        if not self.search_service.remember_items(session_id, items, query_text="搜图"):
+            return 0
+        self._mark_index_source(session_id, "search")
+        return len(items)
+
+    async def _first_image_bytes(self, candidates: list[str]) -> bytes | None:
+        """按候选顺序取第一份可用的图片二进制。"""
+        for ref in candidates:
+            data = await resolve_image_bytes(
+                ref, timeout=float(self.settings.image_search_timeout)
+            )
+            if data:
+                return data
+        return None
+
+    def _download_command_for(self, hit: ImageSearchHit) -> str:
+        """把搜图命中翻译成可直接发送的下载指令；本插件没有对应渠道时返回空串。"""
+        channel = self.channels.get(hit.channel) if hit.channel else None
+        if channel is None:
+            return ""
+        return f"/{channel.display_command} {hit.comic_id}"
 
     # ==================== 搜索流程 ====================
 

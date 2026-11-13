@@ -27,6 +27,15 @@ from .constants import (
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_NSFW_AUTO_DOWNLOAD,
     DEFAULT_NSFW_IMGSZ,
+    DEFAULT_IMAGE_SEARCH_BASE_URL,
+    DEFAULT_IMAGE_SEARCH_ENABLED,
+    DEFAULT_IMAGE_SEARCH_MAX_RESULTS,
+    DEFAULT_IMAGE_SEARCH_MIN_SIMILARITY,
+    DEFAULT_IMAGE_SEARCH_PREFER_CHINESE,
+    DEFAULT_IMAGE_SEARCH_PROXY,
+    DEFAULT_IMAGE_SEARCH_STRICT,
+    DEFAULT_IMAGE_SEARCH_USE_PROXY,
+    DEFAULT_IMAGE_SEARCH_TIMEOUT,
     DEFAULT_NSFW_MODEL_PRESET,
     DEFAULT_NSFW_THRESHOLD,
     DEFAULT_PACK_FORMAT,
@@ -163,6 +172,15 @@ class PluginSettings:
     probe_min_speed: int = DEFAULT_PROBE_MIN_SPEED
     probe_cache_ttl: int = DEFAULT_PROBE_CACHE_TTL
     # 搜索：独立成一组；超时是聚合搜索不被单个慢渠道拖住的关键
+    image_search_enabled: bool = DEFAULT_IMAGE_SEARCH_ENABLED
+    image_search_base_url: str = DEFAULT_IMAGE_SEARCH_BASE_URL
+    image_search_timeout: int = DEFAULT_IMAGE_SEARCH_TIMEOUT
+    image_search_max_results: int = DEFAULT_IMAGE_SEARCH_MAX_RESULTS
+    image_search_min_similarity: float = DEFAULT_IMAGE_SEARCH_MIN_SIMILARITY
+    image_search_prefer_chinese: bool = DEFAULT_IMAGE_SEARCH_PREFER_CHINESE
+    image_search_strict: bool = DEFAULT_IMAGE_SEARCH_STRICT
+    image_search_use_proxy: bool = DEFAULT_IMAGE_SEARCH_USE_PROXY
+    image_search_proxy: str = DEFAULT_IMAGE_SEARCH_PROXY
     search_enabled: bool = DEFAULT_SEARCH_ENABLED
     search_timeout: int = DEFAULT_SEARCH_TIMEOUT
     search_page_size: int = DEFAULT_SEARCH_PAGE_SIZE
@@ -236,6 +254,7 @@ class PluginSettings:
         access = _section(data, "access")
         probe = _section(data, "probe")
         search = _section(data, "search")
+        image_search = _section(data, "image_search")
         ranking = _section(data, "ranking")
         ranking_image = ranking.get("image")
         ranking_image = ranking_image if isinstance(ranking_image, Mapping) else {}
@@ -374,6 +393,47 @@ class PluginSettings:
             ),
             probe_cache_ttl=_as_int(
                 probe.get("cache_ttl"), DEFAULT_PROBE_CACHE_TTL, minimum=0
+            ),
+            image_search_enabled=_as_bool(
+                image_search.get("enable"), DEFAULT_IMAGE_SEARCH_ENABLED
+            ),
+            image_search_base_url=(
+                str(image_search.get("base_url") or "").strip()
+                or DEFAULT_IMAGE_SEARCH_BASE_URL
+            ),
+            image_search_timeout=min(
+                _as_int(
+                    image_search.get("timeout"),
+                    DEFAULT_IMAGE_SEARCH_TIMEOUT,
+                    minimum=1,
+                ),
+                300,
+            ),
+            image_search_max_results=min(
+                _as_int(
+                    image_search.get("max_results"),
+                    DEFAULT_IMAGE_SEARCH_MAX_RESULTS,
+                    minimum=1,
+                ),
+                20,
+            ),
+            image_search_min_similarity=_as_float(
+                image_search.get("min_similarity"),
+                DEFAULT_IMAGE_SEARCH_MIN_SIMILARITY,
+                minimum=0.0,
+                maximum=100.0,
+            ),
+            image_search_prefer_chinese=_as_bool(
+                image_search.get("prefer_chinese"), DEFAULT_IMAGE_SEARCH_PREFER_CHINESE
+            ),
+            image_search_strict=_as_bool(
+                image_search.get("strict_default"), DEFAULT_IMAGE_SEARCH_STRICT
+            ),
+            image_search_use_proxy=_as_bool(
+                image_search.get("use_proxy"), DEFAULT_IMAGE_SEARCH_USE_PROXY
+            ),
+            image_search_proxy=_as_str(
+                image_search.get("proxy"), DEFAULT_IMAGE_SEARCH_PROXY
             ),
             search_enabled=_as_bool(search.get("enable"), DEFAULT_SEARCH_ENABLED),
             # 超时给下限 1 秒、上限 120 秒：配成 0 会让每次搜索立刻判超时
