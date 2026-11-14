@@ -84,7 +84,6 @@ class _SearchSession:
     aggregate: bool
     order: list[str]  # 渠道名，决定轮流取与展示的顺序
     page: int = 1
-    elapsed: float = 0.0
     buffers: dict[str, list[SearchItem]] = field(default_factory=dict)
     consumed: dict[str, int] = field(default_factory=dict)
     upstream_pages: dict[str, int] = field(default_factory=dict)
@@ -229,11 +228,12 @@ class SearchService:
                         execute(), timeout=float(retry_timeout)
                     )
             except asyncio.TimeoutError:
+                # 代理重试刚跑过并失败：这里不能再附「去打开自动代理重试」那句提示
                 return self._timeout_outcome(
                     channel,
                     started,
                     timeout,
-                    hint_suffix,
+                    "",
                     retry_timeout=retry_timeout,
                 )
             except SearchUnsupportedError as exc:
@@ -257,7 +257,7 @@ class SearchService:
                 return SearchOutcome(
                     channel=channel,
                     timed_out=True,
-                    error="自动代理重试出现未预期错误，详情见日志",
+                    error="代理重试出错了，稍后再试",
                     elapsed=time.monotonic() - started,
                 )
             logger.info(
@@ -283,7 +283,7 @@ class SearchService:
             )
             return SearchOutcome(
                 channel=channel,
-                error="搜索出现未预期错误，详情见日志",
+                error="搜索出错了，稍后再试",
                 elapsed=time.monotonic() - started,
             )
 
@@ -302,12 +302,9 @@ class SearchService:
         retry_timeout: int = 0,
     ) -> SearchOutcome:
         if retry_timeout:
-            message = (
-                f"超过 {timeout} 秒没有响应，"
-                f"自动代理重试 {retry_timeout} 秒仍未完成"
-            )
+            message = f"直连 {timeout} 秒没响应，代理重试 {retry_timeout} 秒也没成"
         else:
-            message = f"超过 {timeout} 秒没有响应"
+            message = f"{timeout} 秒没响应"
         return SearchOutcome(
             channel=channel,
             timed_out=True,
@@ -657,9 +654,15 @@ class SearchService:
         if session is not None:
             if index <= len(session.entries):
                 return None
+            # 「下一页」单独发不成立：插件只认命令，所以这里必须拼出真命令
+            more = (
+                f"发 /{command} 下一页 继续看"
+                if self._has_next(session)
+                else "换个关键词再搜一次"
+            )
             return (
                 f"❌ 本次搜索只显示到 {len(session.entries)} 条，"
-                f"序号 {index} 超出范围：发「下一页」继续看，或直接贴作品链接"
+                f"序号 {index} 超出范围：{more}"
             )
 
         searched = self._searched_at.get(session_id)
@@ -684,14 +687,12 @@ class SearchService:
             self._drop_session(session_id)
             if outcome.timed_out:
                 return f"❌ {channel.display_name} 搜索超时：{outcome.error}"
-            return f"❌ {channel.display_name} 搜索失败：{outcome.error}"
+            # 渠道自己的文案已经说清是哪一步失败，这里只补渠道名，不再叠一层「搜索失败」
+            return f"❌ {channel.display_name}：{outcome.error}"
         page = outcome.page
         if page is None or page.empty:
             self._drop_session(session_id)
-            lines = [
-                f"🔎 {channel.display_name} 没有找到「{query.raw}」的结果",
-                "换个关键词，或 /comic site 到站内搜作品、找 ID",
-            ]
+            lines = [self._empty_head(query, channel.display_name), "换个关键词再搜一次"]
             if page is not None and page.note:
                 lines.append(f"ℹ️ {page.note}")
             return "\n".join(lines)
@@ -699,8 +700,7 @@ class SearchService:
         session = self._build_session(query, False, [(channel, page)])
         if session is None:
             self._drop_session(session_id)
-            return f"🔎 {channel.display_name} 没有找到「{query.raw}」的结果"
-        session.elapsed = outcome.elapsed
+            return self._empty_head(query, channel.display_name)
         self._store_session(session_id, session)
         # 第一页也要补满：上游一页可能比展示页小，不补会把后面的条目挤到翻页之外
         await self._ensure_entries(session, self._page_size(session))
@@ -715,34 +715,31 @@ class SearchService:
             for outcome in outcomes
             if outcome.page is not None and outcome.page.items
         ]
-        if not buckets:
-            self._drop_session(session_id)
-            lines = [f"🔎 全渠道搜索「{query.raw}」", ""]
-            lines.append("没有渠道返回结果；换个关键词，或 /comic site 到站内搜作品、找 ID")
-            extra = "\n".join(
-                part
-                for part in (self._failure_lines(outcomes), self._note_lines(outcomes))
-                if part
-            )
-            if extra:
-                lines.append(extra)
-            return self._bounded("\n".join(lines))
-
-        session = self._build_session(query, True, buckets)
-        if session is None:
-            self._drop_session(session_id)
-            lines = [f"🔎 全渠道搜索「{query.raw}」", ""]
-            lines.append("没有渠道返回结果；换个关键词，或 /comic site 到站内搜作品、找 ID")
-            return self._bounded("\n".join(lines))
-        session.elapsed = max((outcome.elapsed for outcome in outcomes), default=0.0)
-        self._store_session(session_id, session)
-        await self._ensure_entries(session, self._page_size(session))
         extra = "\n".join(
             part
             for part in (self._failure_lines(outcomes), self._note_lines(outcomes))
             if part
         )
+        session = self._build_session(query, True, buckets) if buckets else None
+        if session is None:
+            self._drop_session(session_id)
+            lines = [
+                self._empty_head(query, ""),
+                "没有渠道返回结果：换个关键词再搜一次",
+            ]
+            if extra:
+                lines.append(extra)
+            return self._bounded("\n".join(lines))
+        self._store_session(session_id, session)
+        await self._ensure_entries(session, self._page_size(session))
         return self._render_session(session, extra=extra)
+
+    @staticmethod
+    def _empty_head(query: SearchQuery, channel_name: str) -> str:
+        """空结果的抬头：全渠道与单渠道只差渠道名。"""
+        if channel_name:
+            return f"🔎 {channel_name} 没有找到「{query.raw}」的结果"
+        return f"🔎 全渠道搜索「{query.raw}」"
 
     def _render_session(self, session: _SearchSession, extra: str = "") -> str:
         size = self._page_size(session)
@@ -768,8 +765,11 @@ class SearchService:
         if extra:
             lines.append("")
             lines.append(extra)
+        footer = self._session_footer(session)
+        if footer:
+            lines.append("")
+            lines.append(footer)
         lines.append("")
-        lines.append(self._session_footer(session))
         lines.append(self._download_hint(session, start + 1))
         nav = self._nav_hint(session)
         if nav:
@@ -784,33 +784,24 @@ class SearchService:
         return f"🔎 {name} 搜索「{session.query.raw}」"
 
     def _session_footer(self, session: _SearchSession) -> str:
-        parts: list[str] = []
-        if session.page > 1:
-            parts.append(f"第 {session.page} 页")
-        elif not session.aggregate and session.order:
-            total = session.totals.get(session.order[0])
-            if total:
-                parts.append(f"共约 {total} 条")
-        if session.page == 1 and session.elapsed:
-            parts.append(f"用时 {session.elapsed:.1f}s")
-        if not parts:
-            parts.append(f"第 {session.page} 页")
-        return " · ".join(parts)
+        """页脚只补一条「结果量」：页码在标题里，耗时对「挑一个下载」没有帮助。"""
+        # 聚合搜索各渠道的条数不构成一个有意义的「共约」：那是轮流取样的上限
+        if session.aggregate or not session.order:
+            return ""
+        total = session.totals.get(session.order[0])
+        return f"共约 {total} 条" if total else ""
 
     def _download_hint(self, session: _SearchSession, first_index: int) -> str:
-        return (
-            f"下载：{self._nav_command(session)} {first_index}"
-            f"（把 {first_index} 换成上面的序号）"
-        )
+        return f"下载：回序号，如 {self._nav_command(session)} {first_index}"
 
     def _nav_hint(self, session: _SearchSession) -> str:
         command = self._nav_command(session)
         parts: list[str] = []
         if session.page > 1:
-            parts.append(f"上一页：{command} 上一页")
+            parts.append(f"{command} 上一页")
         if self._has_next(session):
-            parts.append(f"下一页：{command} 下一页")
-        return "　".join(parts)
+            parts.append(f"{command} 下一页")
+        return f"翻页：{' · '.join(parts)}" if parts else ""
 
     def _format_item(
         self,
@@ -838,8 +829,8 @@ class SearchService:
         if show_channel:
             name = channel.display_name if channel else item.channel
             tag = f"[{name}] "
-        mark = f"　{AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
-        return [f"{index}. {tag}{title}{meta}　ID：{comic_id}{mark}"]
+        mark = f" · {AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
+        return [f"{index}. {tag}{title}{meta} · ID：{comic_id}{mark}"]
 
     @staticmethod
     def _note_lines(outcomes: list[SearchOutcome]) -> str:
