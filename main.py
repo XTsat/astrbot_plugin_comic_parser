@@ -255,14 +255,20 @@ _RECALL_HISTORY_COUNT = 5
 
 
 def _as_message_id(value: object) -> str:
-    """把候选值收成消息 id 字符串；不像 id（None、bool、空串、非数字）一律当没有。"""
+    """把候选值收成消息 id 字符串；不像 id（None、bool、空串、非数字）一律当没有。
+
+    负数也是合法 id：NapCat / LLOneBot 这类协议端会给自己发出的消息分配负的
+    message_id，delete_msg 照样认。按正负号筛会把这些消息全判成「没有 id」，
+    撤回就永远不生效。
+    """
     if isinstance(value, bool):
         return ""
     if isinstance(value, int):
-        return str(value) if value >= 0 else ""
+        return str(value)
     if isinstance(value, str):
         text = value.strip()
-        return text if text.isdigit() else ""
+        digits = text[1:] if text.startswith("-") else text
+        return text if digits.isdigit() else ""
     return ""
 
 
@@ -345,6 +351,9 @@ async def find_latest_self_message(
         sender_id = (
             _as_message_id(sender.get("user_id")) if isinstance(sender, dict) else ""
         )
+        if not sender_id:
+            # 有的协议端不带 sender，只把发送者放在消息顶层的 user_id
+            sender_id = _as_message_id(item.get("user_id"))
         if sender_id and sender_id == self_id:
             return _as_message_id(item.get("message_id"))
     return ""
@@ -2366,10 +2375,12 @@ class ComicParserPlugin(Star):
             # 同一个原因只提示一次：每条封面都刷一行只会把真正的问题淹掉
             if not self._recall_skip_logged:
                 self._recall_skip_logged = True
-                logger.warning(
-                    f"[{PLUGIN_NAME}] ⚠️ 拿不到封面消息 ID 或协议端不支持撤回，"
-                    "「封面自动撤回」本次不生效（需要 OneBot / aiocqhttp 协议端）"
+                reason = (
+                    "协议端不提供撤回能力（需要 OneBot / aiocqhttp 的 delete_msg）"
+                    if call_action is None
+                    else "认不出这条封面消息的 ID（发送返回里没有，历史里也没找到）"
                 )
+                logger.warning(f"[{PLUGIN_NAME}] ⚠️ {reason}，「封面自动撤回」本次不生效")
             return
         self.auto_recall.schedule(call_action, message_id, delay)
         logger.debug(f"[{PLUGIN_NAME}] 封面 {delay} 秒后自动撤回（消息 {message_id}）")
