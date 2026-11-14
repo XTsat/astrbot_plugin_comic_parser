@@ -507,7 +507,9 @@ class DownloadTask:
             shutil.move(str(downloaded.source_dir), str(target))
         except OSError as exc:
             logger.error(f"[{PLUGIN_NAME}] 移动到保存目录失败: {exc}")
-            raise PackError(f"保存到本地失败：{exc}") from exc
+            raise PackError(
+                "保存到本地失败：检查「仅本地保存目录」是否可写，或先改用压缩包发送"
+            ) from exc
         return PackResult(success=True, output_path=target, fmt="none", encrypted=False)
 
     def cleanup(self, outcome: DownloadOutcome) -> None:

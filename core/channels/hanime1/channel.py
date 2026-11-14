@@ -185,9 +185,7 @@ class Hanime1Channel(BaseChannel):
         image_base = await self._resolve_image_base(parsed)
         urls = build_image_urls(image_base, parsed.media_id, parsed.extensions)
         if not urls:
-            raise DownloadError(
-                "没有解析到任何图片地址，站点结构可能已变化；请在插件日志里确认抓取是否成功"
-            )
+            raise DownloadError("没有解析到图片地址：站点结构可能变了，稍后再试")
 
         session = DownloadSession(comic_id=comic_id, total=len(urls), cancel=cancel)
         register_session(session)
@@ -375,8 +373,8 @@ class Hanime1Channel(BaseChannel):
                 last_error = exc
                 logger.warning(f"[{PLUGIN_NAME}] 抓取 {url} 失败，换下一个域名：{exc}")
 
-        detail = f"：{last_error}" if last_error is not None else ""
-        raise ChannelError(f"{what} 抓取失败{detail}")
+        logger.warning(f"[{PLUGIN_NAME}] {what} 抓取失败：{last_error}")
+        raise ChannelError(f"{what} 打不开：稍后重试，或在该渠道配置里换域名/开代理")
 
     # ---- 域名测速择优 ----
     async def _site_domains(self, path: str) -> list[str]:
@@ -527,7 +525,8 @@ class Hanime1Channel(BaseChannel):
                 note=fallback_note(query),
             )
         if last_error is not None:
-            raise ChannelError(f"Hanime1 搜索失败：{last_error}") from last_error
+            logger.warning(f"[{PLUGIN_NAME}] Hanime1 搜索失败：{last_error}")
+            raise ChannelError("搜索这会儿打不开：稍后重试或换一个域名") from last_error
         return SearchPage(
             channel=self.name,
             keyword=query.raw,
@@ -593,7 +592,8 @@ class Hanime1Channel(BaseChannel):
                 exhausted=exhausted,
             )
         if last_error is not None:
-            raise ChannelError(f"Hanime1 排行榜获取失败：{last_error}") from last_error
+            logger.warning(f"[{PLUGIN_NAME}] Hanime1 排行榜获取失败：{last_error}")
+            raise ChannelError("排行榜这会儿打不开：稍后重试或换一个域名") from last_error
         return RankingPage(channel=self.name, board=board)
 
     def _detail_cache(self) -> dict[str, tuple[float, int, str]]:
@@ -707,5 +707,6 @@ class Hanime1Channel(BaseChannel):
         """取清单里的第一个域名（图床/Referer 只需要一个）。"""
         values = self.opt_list(key) or split_option_list(default)
         if not values:
-            raise ChannelError(f"渠道配置项 {key} 为空，请填写至少一个域名")
+            logger.warning(f"[{PLUGIN_NAME}] 渠道配置项 {key} 为空")
+            raise ChannelError("这个渠道没配置域名：请在渠道配置里填写至少一个后重试")
         return values[0]

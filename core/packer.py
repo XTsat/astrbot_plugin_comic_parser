@@ -74,6 +74,13 @@ def collect_images(source_dir: Path) -> list[Path]:
     return files
 
 
+# 设置了密码却没装加密组件：失败关闭（绝不产出未加密文件），并说清两条出路
+_NEED_CRYPTO = (
+    "已设置打包密码，但服务器缺少加密组件，这次不出文件："
+    "请联系管理员安装依赖，或先清空密码再发一次"
+)
+
+
 class Packer:
     """把下载目录打包成用户可收的单文件产物。"""
 
@@ -83,9 +90,11 @@ class Packer:
 
     def pack(self, source_dir: Path, base_name: str, output_dir: Path) -> PackResult:
         if not source_dir.exists():
-            return self._fail(f"下载目录不存在：{source_dir}")
+            # 服务器路径对用户没有意义：这只是「这次没东西可打包」的一个分支
+            logger.warning(f"[{PLUGIN_NAME}] 下载目录不存在：{source_dir}")
+            return self._fail("这次没找到要打包的图片，重发一次命令再试")
         if not collect_images(source_dir):
-            return self._fail("没有可打包的图片，可能全部下载失败")
+            return self._fail("这次一张图都没下下来，重发一次命令再试")
 
         if self.fmt == "none":
             # 仅保留本地目录，调用方不发送
@@ -117,10 +126,7 @@ class Packer:
 
         if self.password:
             if not PYZIPPER_AVAILABLE:
-                return self._fail(
-                    "已设置打包密码，但未安装 pyzipper，无法生成加密压缩包；"
-                    "请安装 pyzipper 后重试，或清空密码"
-                )
+                return self._fail(_NEED_CRYPTO)
             with pyzipper.AESZipFile(
                 out_path,
                 "w",
@@ -139,7 +145,9 @@ class Packer:
 
     def _pack_pdf(self, source_dir: Path, base_name: str, output_dir: Path) -> PackResult:
         if not FITZ_AVAILABLE:
-            return self._fail("PDF 打包需要 pymupdf，请安装后重试，或改用 zip 格式")
+            return self._fail(
+                "PDF 打包组件没装好：这次不出文件，请联系管理员安装依赖，或改用 zip 格式"
+            )
 
         images = collect_images(source_dir)
         out_path = output_dir / f"{base_name}.pdf"
@@ -175,16 +183,22 @@ class Packer:
                 f"{type(exc).__name__}: {exc}",
                 exc_info=True,
             )
-            return self._fail(f"PDF 打包失败：{type(exc).__name__}: {exc}")
+            return self._fail(
+                "PDF 打包失败：这次打不出来，重发一次试试（连续失败请找管理员看日志）"
+            )
         finally:
             doc.close()
             self._drop_partial(part_path)
 
         note = ""
         if skipped:
-            shown = "、".join(skipped[:3])
-            tail = f" 等 {len(skipped)} 页" if len(skipped) > 3 else ""
-            note = f"{len(skipped)} 页图片无法解码已跳过（{shown}{tail}），PDF 缺这几页"
+            # 总数只说一遍，文件名给两个够了：这张备注是给「要不要重新下」用的判断依据
+            shown = "、".join(skipped[:2])
+            more = "…" if len(skipped) > 2 else ""
+            note = (
+                f"{len(skipped)} 页图片解码失败，PDF 里缺这几页（{shown}{more}）；"
+                "要完整整本就改用 zip"
+            )
         return PackResult(True, out_path, "pdf", bool(self.password), note=note)
 
     def _save_pdf(self, doc: fitz.Document, path: Path) -> None:
@@ -250,21 +264,20 @@ class Packer:
         self, source_dir: Path, base_name: str, output_dir: Path
     ) -> PackResult:
         if not PIL_AVAILABLE:
-            return self._fail("长图打包需要 Pillow，请安装后重试，或改用 zip 格式")
+            return self._fail(
+                "长图打包组件没装好：这次不出文件，请联系管理员安装依赖，或改用 zip 格式"
+            )
 
         strips = self._render_long_strips(collect_images(source_dir), output_dir, base_name)
         if not strips:
-            return self._fail("长图渲染失败：没有生成任何图片")
+            return self._fail("这次一张图都没下下来，重发一次命令再试")
 
         # 单张长图且不加密码：直接发这张图，不必再套一层压缩包
         if len(strips) == 1 and not self.password:
             return PackResult(True, strips[0], "long_img", False)
 
         if self.password and not PYZIPPER_AVAILABLE:
-            return self._fail(
-                "已设置打包密码，但未安装 pyzipper，无法生成加密压缩包；"
-                "请安装 pyzipper 后重试，或清空密码"
-            )
+            return self._fail(_NEED_CRYPTO)
 
         out_path = output_dir / f"{base_name}_long.zip"
         if self.password:

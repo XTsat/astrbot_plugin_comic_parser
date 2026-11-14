@@ -317,13 +317,16 @@ async def fetch_gdata(
             return metadata[0]
         failures.append(f"{host}：响应里没有 gmetadata")
     if rejected:
-        raise ChannelError(f"E-Hentai 接口拒绝请求：{rejected}")
+        logger.warning(f"[{PLUGIN_NAME}] E-Hentai 接口拒绝请求：{rejected}")
+        raise ChannelError("E-Hentai 拒绝了这次请求：作品可能不可见，或参数不对")
     detail = "；".join(failures) or "所有入口都没有返回作品数据"
+    logger.warning(f"[{PLUGIN_NAME}] E-Hentai 接口不可用：{detail}")
     unreachable = any(
         keyword in failure
         for failure in failures
         for keyword in _DIRECT_HINT_KEYWORDS
     )
     raise ChannelError(
-        f"E-Hentai 接口不可用：{detail}{client.direct_hint if unreachable else ''}"
+        "E-Hentai 接口这会儿连不上，稍后再试"
+        f"{client.direct_hint if unreachable else ''}"
     )

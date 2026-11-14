@@ -73,7 +73,7 @@ class GroupFileUploader:
         只有「文件已不存在」和「上传本身失败」算失败；文件夹相关的任何问题都降级为传根目录。
         """
         if not path.is_file():
-            return GroupFileResult(False, error="文件已不存在，无法上传")
+            return GroupFileResult(False, error="要上传的文件已经不在了，重发一次命令即可")
 
         wanted = (folder_name or "").strip()
         folder_id, folder_label, created = "", "", False
@@ -236,12 +236,16 @@ class GroupFileUploader:
                 False,
                 folder=folder_label,
                 created=created,
-                error=f"上传超过 {int(GROUP_FILE_UPLOAD_TIMEOUT)}s 未完成",
+                error=f"上传超过 {int(GROUP_FILE_UPLOAD_TIMEOUT)} 秒没完成",
             )
         except Exception as exc:  # 协议端拒绝、路径读不到、权限不足都在这里
-            logger.warning(f"[{PLUGIN_NAME}] 上传群文件失败: {exc}")
+            # 原始异常（英文、可能带路径）只进日志，用户侧统一给一句能行动的话
+            logger.warning(f"[{PLUGIN_NAME}] 上传群文件失败: {_describe(exc)}")
             return GroupFileResult(
-                False, folder=folder_label, created=created, error=_describe(exc)
+                False,
+                folder=folder_label,
+                created=created,
+                error="协议端拒绝了这次上传",
             )
 
         failure = _failure_text(resp)
@@ -287,7 +291,8 @@ def _failure_text(resp: Any) -> str:
     wording = resp.get("wording") or resp.get("msg") or resp.get("message")
     if isinstance(wording, str) and wording.strip():
         return wording.strip()
-    return f"协议端返回失败（retcode={retcode}）"
+    logger.warning(f"[{PLUGIN_NAME}] 上传群文件被协议端拒绝（retcode={retcode}）")
+    return "协议端拒绝了这次上传"
 
 
 def _as_group_id(group_id: str) -> Any:

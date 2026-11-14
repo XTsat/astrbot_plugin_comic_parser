@@ -509,15 +509,21 @@ class PageScraper:
         target = self._via_fetch_proxy(url) if via_fetch_proxy else url
         response = self._get(target)
         if response.status_code == 404:
-            raise ChannelError(f"作品不存在或已下架：{url}")
+            logger.warning(f"[{PLUGIN_NAME}] Hanime1 页面 404：{url}")
+            raise ChannelError("页面不存在：作品可能已下架，或这个域名下看不到")
         if response.status_code in {403, 429, 503} or looks_like_challenge(response.text):
+            logger.warning(
+                f"[{PLUGIN_NAME}] Hanime1 被 Cloudflare 拦住（HTTP {response.status_code}）：{url}"
+            )
             raise ChannelError(
-                f"站点返回 HTTP {response.status_code}，被 Cloudflare 拦截了：{url}"
-                "（在渠道配置里填「读取代理地址」（例如 https://r.jina.ai/）代取页面，"
-                "或换一个能过站点的代理出口）"
+                "站点要求人机验证：在渠道配置里填「读取代理地址」（如 https://r.jina.ai/）"
+                "代取页面，或换一个能过站点的代理"
             )
         if response.status_code != 200:
-            raise ChannelError(f"站点返回 HTTP {response.status_code}：{url}")
+            logger.warning(
+                f"[{PLUGIN_NAME}] Hanime1 返回 HTTP {response.status_code}：{url}"
+            )
+            raise ChannelError(f"站点返回 HTTP {response.status_code}：稍后重试或换一个域名")
         return response.text
 
     def fetch_bytes(self, url: str) -> bytes | None:
@@ -546,7 +552,8 @@ class PageScraper:
             try:
                 return session.get(url, timeout=(self._connect_timeout, read_timeout))
             except _network_error_types() as exc:
-                raise ChannelError(f"请求 {url} 失败：{exc}") from exc
+                logger.warning(f"[{PLUGIN_NAME}] Hanime1 请求 {url} 失败：{exc}")
+                raise ChannelError("请求没发出去：稍后重试或换一个域名") from exc
 
     def _session_or_raise(self) -> _ScraperSession:
         if self._session is not None:

@@ -18,7 +18,10 @@ import re
 from urllib.parse import quote
 from dataclasses import dataclass, field
 
+from astrbot.api import logger
+
 from ....domain import ChannelError
+from ....domain.constants import PLUGIN_NAME
 from .api import EHQuotaExceeded
 
 # 缩略图链接：`/s/<pagehash>/<gid>-<index>`，主机名可能省略
@@ -78,9 +81,10 @@ def parse_gallery_meta(item: dict[str, object]) -> GalleryMeta:
     """把 `gdata` 的单条 gmetadata 收敛成 `GalleryMeta`；不可见/已删除直接报错。"""
     error = item.get("error")
     if error:
-        raise ChannelError(f"E-Hentai 作品不可用：{error}")
+        logger.warning(f"[{PLUGIN_NAME}] E-Hentai 作品不可用：{error}")
+        raise ChannelError("E-Hentai 说这本作品不可用：可能已下架，或当前账号看不到")
     if _as_bool(item.get("expunged")):
-        raise ChannelError("该作品已被站点删除（expunged），无法下载")
+        raise ChannelError("这本作品已被站点删除，无法下载")
 
     filecount = _as_int(item.get("filecount"))
     if filecount <= 0:

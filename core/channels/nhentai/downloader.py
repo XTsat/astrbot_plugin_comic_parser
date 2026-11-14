@@ -128,7 +128,7 @@ class ImageDownloader:
         on_progress: ImageProgressCallback | None = None,
     ) -> DownloadStats:
         if aiohttp is None:
-            raise RuntimeError("缺少 aiohttp 依赖，无法下载图片")
+            raise ChannelError("缺少运行依赖，暂时下不了，请联系管理员安装后重载插件")
 
         work_dir.mkdir(parents=True, exist_ok=True)
         stats = DownloadStats(total=len(urls))

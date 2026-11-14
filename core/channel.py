@@ -319,13 +319,16 @@ class BaseChannel(ABC):
     def ensure_available(self) -> None:
         """命令入口的第一道闸：未启用或依赖缺失时，用面向用户的文案拒绝。"""
         if not self.enabled:
+            # 内置渠道默认就在配置里，说「添加」会让人去找一个不存在的入口
             raise ChannelUnavailableError(
-                f"{self.display_name} 渠道未启用，请在插件配置里添加并启用该渠道"
+                f"{self.display_name} 渠道还没启用：让管理员在插件配置里打开它"
             )
         missing = self.missing_requirement()
         if missing is not None:
+            # 缺哪个库只有管理员能修，用户侧不必看到模块名
+            logger.warning(f"[{PLUGIN_NAME}] {self.display_name} 缺少依赖：{missing}")
             raise ChannelUnavailableError(
-                f"{self.display_name} 依赖 {missing} 未安装，请先安装后重载插件"
+                f"{self.display_name} 缺少运行依赖，暂时用不了，请联系管理员安装后重载插件"
             )
 
     # ---- 搜索：可选能力，默认不支持 ----
@@ -442,5 +445,13 @@ class BaseChannel(ABC):
         return True
 
     def wrap_failure(self, exc: Exception) -> DownloadError:
-        """把渠道内部异常翻译成面向用户的下载失败文案。"""
-        return DownloadError(f"{self.display_name} 下载失败：{exc}")
+        """把渠道内部异常翻译成面向用户的下载失败文案。
+
+        原始异常（英文、带域名与状态码）只进日志：群成员读到它也做不了什么，
+        真正能行动的是「换代理 / 换域名 / 过一会儿再试」这三句。
+        """
+        logger.warning(f"[{PLUGIN_NAME}] {self.display_name} 下载失败：{exc}")
+        return DownloadError(
+            f"{self.display_name} 下载失败：多半是图床限流或网络不通，"
+            "开启该渠道的代理后重发一次命令；一直失败请检查站点域名是否还有效"
+        )

@@ -137,9 +137,12 @@ class EHentaiDownloader:
                         raise ChannelError("图片地址返回了网页而不是图片，可能触发了站点风控")
                     suffix = sniff_image_suffix(content_type, payload)
                     if suffix is None:
-                        raise ChannelError(
-                            f"返回的内容不是可识别的图片（{content_type or '未知类型'}）"
+                        # Content-Type 之类的协议细节只进日志：用户只需要知道「不是图」
+                        logger.warning(
+                            f"[{PLUGIN_NAME}] E-Hentai 返回的内容不是图片："
+                            f"{content_type or '未知类型'}"
                         )
+                        raise ChannelError("站点返回的不是图片，可能触发了风控，稍后再试")
                     return payload, suffix
 
                 if status in _RETRYABLE_STATUS and attempt < self._retry_times:

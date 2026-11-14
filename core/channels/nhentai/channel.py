@@ -374,7 +374,8 @@ class NhentaiChannel(BaseChannel):
             except ChannelError as exc:
                 last_error = exc
                 logger.warning(f"[{PLUGIN_NAME}] 抓取 {url} 失败，换下一个域名：{exc}")
-        raise ChannelError(f"nhentai 作品 {comic_id} 取元信息失败：{last_error}")
+        logger.warning(f"[{PLUGIN_NAME}] nhentai {comic_id} 取元信息失败：{last_error}")
+        raise ChannelError("取不到这本作品的信息：可能已下架，或站点暂时连不上")
 
     # ---- 域名测速择优 ----
     async def _site_domains(self) -> list[str]:

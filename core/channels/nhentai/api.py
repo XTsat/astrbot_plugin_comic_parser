@@ -126,7 +126,7 @@ class NhentaiApi:
 
     async def _get_json(self, path: str, *, not_found: ChannelError) -> object:
         if aiohttp is None:
-            raise ChannelError("缺少 aiohttp 依赖，无法访问 nhentai 接口")
+            raise ChannelError("缺少运行依赖，暂时用不了，请联系管理员安装后重载插件")
         if not self._domains:
             raise ChannelError("未配置任何 nhentai 站点域名，请在渠道配置里填写")
 
@@ -141,12 +141,13 @@ class NhentaiApi:
             except ChannelError as exc:
                 failures.append(f"{domain}：{exc}")
 
-        raise ChannelError(f"nhentai 接口不可用：{'；'.join(failures)}")
+        logger.warning(f"[{PLUGIN_NAME}] nhentai 接口不可用：{'；'.join(failures)}")
+        raise ChannelError("nhentai 接口这会儿连不上：稍后再试；一直不行请在该渠道配置里开代理")
 
     async def _request(self, url: str, *, not_found: ChannelError) -> object:
         """单次请求；非 200 一律翻译成带原因的 ChannelError，由调用方决定换域名还是报错。"""
         if aiohttp is None:
-            raise ChannelError("缺少 aiohttp 依赖，无法访问 nhentai 接口")
+            raise ChannelError("缺少运行依赖，暂时用不了，请联系管理员安装后重载插件")
 
         headers = {"User-Agent": self._user_agent, "Accept": "application/json"}
         try:
@@ -161,7 +162,10 @@ class NhentaiApi:
                 if response.status == 429:
                     raise ChannelError("触发限流（HTTP 429），稍后再试")
                 if response.status != 200:
-                    raise ChannelError(f"返回 HTTP {response.status}")
+                    raise ChannelError(
+                        f"接口返回 HTTP {response.status}，稍后再试"
+                    )
                 return await response.json(content_type=None)
         except (asyncio.TimeoutError, OSError, aiohttp.ClientError) as exc:
-            raise ChannelError(f"请求失败：{exc}") from exc
+            logger.warning(f"[{PLUGIN_NAME}] nhentai 请求失败：{url} · {exc}")
+            raise ChannelError("连不上 nhentai：稍后再试；一直失败请在该渠道配置里开代理") from exc

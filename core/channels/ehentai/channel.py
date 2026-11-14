@@ -288,8 +288,12 @@ class EHentaiChannel(BaseChannel):
                 continue
             if pages:
                 return host, pages[0]
-        detail = f"：{last_error}" if last_error is not None else ""
-        raise ChannelError(f"作品页里没有解析到缩略图（可能已删除或需要登录）{detail}")
+        logger.warning(
+            f"[{PLUGIN_NAME}] E-Hentai 作品页没解析到缩略图：{last_error}"
+        )
+        raise ChannelError(
+            "作品页里没有图片：可能已删除、需要登录，或站点改版了"
+        )
 
     # ---- 排行榜 ----
     # 站点只有一个「当前热门」页，没有日/周/月/总的分档；四档都接受，但非日榜会注明
@@ -317,7 +321,10 @@ class EHentaiChannel(BaseChannel):
                         ehentai_popular_url(host)
                     )
                 except (EHQuotaExceeded, EHLoginRequired, EHBanned) as exc:
-                    raise ChannelError(f"E-Hentai 排行榜获取失败：{exc}") from exc
+                    logger.warning(f"[{PLUGIN_NAME}] E-Hentai 排行榜不可用：{exc}")
+                    raise ChannelError(
+                        "排行榜这会儿看不了：站点要求登录或配额用尽，过几小时再试"
+                    ) from exc
                 except ChannelError as exc:
                     last_error = exc
                     logger.warning(
@@ -355,7 +362,10 @@ class EHentaiChannel(BaseChannel):
                 last_error = ChannelError("热门页没有解析到结果")
 
         if last_error is not None:
-            raise ChannelError(f"E-Hentai 排行榜获取失败：{last_error}") from last_error
+            logger.warning(f"[{PLUGIN_NAME}] E-Hentai 排行榜获取失败：{last_error}")
+            raise ChannelError(
+                "排行榜这会儿打不开：换个域名或过几小时再试"
+            ) from last_error
         return RankingPage(channel=self.name, board=board, note=note)
 
     # ---- 搜索 ----
@@ -380,7 +390,10 @@ class EHentaiChannel(BaseChannel):
                 try:
                     document, final_url = await client.get_text(url)
                 except (EHQuotaExceeded, EHLoginRequired, EHBanned) as exc:
-                    raise ChannelError(f"E-Hentai 搜索失败：{exc}") from exc
+                    logger.warning(f"[{PLUGIN_NAME}] E-Hentai 搜索不可用：{exc}")
+                    raise ChannelError(
+                        "搜索这会儿用不了：站点要求登录或配额用尽，过几小时再试"
+                    ) from exc
                 except ChannelError as exc:
                     last_error = exc
                     logger.warning(
@@ -415,7 +428,10 @@ class EHentaiChannel(BaseChannel):
                 last_error = ChannelError("搜索页没有解析到结果")
 
         if last_error is not None:
-            raise ChannelError(f"E-Hentai 搜索失败：{last_error}") from last_error
+            logger.warning(f"[{PLUGIN_NAME}] E-Hentai 搜索失败：{last_error}")
+            raise ChannelError(
+                "搜索页这会儿打不开：换个域名或过几小时再试"
+            ) from last_error
         return SearchPage(channel=self.name, keyword=query.raw)
 
     @staticmethod
@@ -554,7 +570,10 @@ class EHentaiChannel(BaseChannel):
                 ) from fatal
             if isinstance(fatal, EHLoginRequired):
                 raise self._need_login(fatal) from fatal
-            raise DownloadError(f"E-Hentai 下载失败：{fatal}") from fatal
+            logger.warning(f"[{PLUGIN_NAME}] E-Hentai 下载失败：{fatal}")
+            raise DownloadError(
+                "E-Hentai 下载失败：多半是站点风控或网络不通，开代理后重发一次命令"
+            ) from fatal
 
         if session.done <= 0:
             raise DownloadError(
@@ -747,7 +766,10 @@ class EHentaiChannel(BaseChannel):
                     work_dir, gid, token, host, filecount, pages
                 )
             return host, pages
-        raise ChannelError(f"E-Hentai 作品页打不开：{last_error}")
+        logger.warning(f"[{PLUGIN_NAME}] E-Hentai 作品页打不开：{last_error}")
+        raise ChannelError(
+            "作品页打不开：多半是出口被风控或需要登录，换代理线路或过几小时再试"
+        )
 
     async def _enumerate_pages(
         self,
@@ -995,7 +1017,11 @@ def _quote_search_value(value: str) -> str:
 def _split_comic_id(comic_id: str) -> tuple[str, str]:
     gid, sep, token = (comic_id or "").partition("-")
     if not sep or not gid.isdigit() or not re.fullmatch(r"[0-9a-fA-F]{10}", token):
-        raise ChannelError(f"E-Hentai 作品 ID 格式不对：{comic_id}")
+        # 只说「格式不对」没用：把该长什么样、从哪儿抄写在同一句里
+        raise ChannelError(
+            "E-Hentai 要的是 <gid>-<token> 形式的 ID（如 1234567-1a2b3c4d5e）："
+            "贴作品页链接最省事，打开作品页地址栏里就有"
+        )
     return gid, token.lower()
 
 

@@ -191,7 +191,7 @@ class JMComicChannel(BaseChannel):
     async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:
         jmcomic = import_jmcomic()
         if jmcomic is None:
-            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+            raise ChannelError("缺少运行依赖，暂时用不了，请联系管理员安装后重载插件")
 
         domains = await self._ranked_domains(jmcomic, comic_id, work_dir)
         option = await asyncio.to_thread(
@@ -268,7 +268,7 @@ class JMComicChannel(BaseChannel):
     ) -> DownloadedComic:
         jmcomic = import_jmcomic()
         if jmcomic is None:
-            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+            raise ChannelError("缺少运行依赖，暂时用不了，请联系管理员安装后重载插件")
 
         domains = await self._ranked_domains(jmcomic, comic_id, work_dir)
         option = await asyncio.to_thread(
@@ -323,7 +323,7 @@ class JMComicChannel(BaseChannel):
         self.cover_error = ""
         jmcomic = import_jmcomic()
         if jmcomic is None:
-            self.cover_error = "jmcomic 没装上，装好依赖再重载插件"
+            self.cover_error = "这个渠道缺少运行依赖，暂时取不到封面，请联系管理员安装后重载插件"
             logger.warning(
                 f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：jmcomic 未安装"
             )
@@ -343,10 +343,12 @@ class JMComicChannel(BaseChannel):
             return payload
 
         detail = "；".join(errors[:6]) if errors else "没有可用的图床域名"
-        self.cover_error = f"{len(urls)} 个候选图床都没取到图：{detail}"
         logger.warning(
-            f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}：{self.cover_error}"
+            f"[{PLUGIN_NAME}] ⚠️ 取封面失败 {self.display_name} {comic_id}："
+            f"{len(urls)} 个候选图床都没取到图：{detail}"
         )
+        # 逐域名错误只进日志：群成员要的是一句能行动的结论，不是六个图床的报错
+        self.cover_error = f"{len(urls)} 个候选图床都没取到图，站点可能被限流或图床换了，稍后再试"
         return None
 
     def _cover_urls(self, jmcomic: Any, album_id: int) -> list[str]:
@@ -464,7 +466,7 @@ class JMComicChannel(BaseChannel):
         """
         jmcomic = import_jmcomic()
         if jmcomic is None:
-            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+            raise ChannelError("缺少运行依赖，暂时用不了，请联系管理员安装后重载插件")
 
         keyword, method, note = self._build_search(query)
         # 开了自动代理时，直连只给一次短请求：外层超时后 to_thread 里的请求仍会跑完，
@@ -551,7 +553,7 @@ class JMComicChannel(BaseChannel):
             raise RankingUnsupportedError(f"JM 没有「{board}」这一档榜单")
         jmcomic = import_jmcomic()
         if jmcomic is None:
-            raise ChannelError("jmcomic 未安装，请先安装依赖后重载插件")
+            raise ChannelError("缺少运行依赖，暂时用不了，请联系管理员安装后重载插件")
 
         option = await asyncio.to_thread(
             build_option,
@@ -687,7 +689,10 @@ class JMComicChannel(BaseChannel):
                 order_by=_RANKING_ORDER,
             )
         except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，统一转 ChannelError
-            raise ChannelError(f"JM 排行榜获取失败：{exc}") from exc
+            logger.warning(f"[{PLUGIN_NAME}] JM 排行榜获取失败：{exc}")
+            raise ChannelError(
+                "排行榜这会儿打不开：稍后重试，或在该渠道配置里开代理"
+            ) from exc
 
     @staticmethod
     def _build_search(query: SearchQuery) -> tuple[str, str, str]:
@@ -735,7 +740,10 @@ class JMComicChannel(BaseChannel):
             search = getattr(client, method, None) or client.search_site
             return search(keyword, page=max(1, int(page)))
         except Exception as exc:  # noqa: BLE001 - 第三方库异常类型不稳定，统一转 ChannelError
-            raise ChannelError(f"JM 搜索失败：{exc}") from exc
+            logger.warning(f"[{PLUGIN_NAME}] JM 搜索失败：{exc}")
+            raise ChannelError(
+                "搜索这会儿打不开：稍后重试，或在该渠道配置里开代理"
+            ) from exc
 
     def cancel_downloads(self) -> list[str]:
         """插件卸载时调用：取消本渠道正在跑的下载并返回其状态（供上层写日志）。"""

@@ -18,7 +18,10 @@ from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Protocol
 
+from astrbot.api import logger
+
 from ....domain import ChannelError
+from ....domain.constants import PLUGIN_NAME
 from .constants import DEFAULT_IMAGE_DOMAIN, DEFAULT_SITE_DOMAINS, USER_AGENT
 
 # 页面 JSON 里 pages[].t 是单字符类型标记，对应原图扩展名（HTML 兜底才会用到）
@@ -80,7 +83,8 @@ def parse_api_gallery(comic_id: str, payload: dict[str, object]) -> ParsedGaller
     """把 `/api/v2/galleries/<id>` 的 JSON 收敛成 `ParsedGallery`。"""
     media_id = str(payload.get("media_id") or "").strip()
     if not media_id:
-        raise ChannelError(f"nhentai 接口没有返回作品 {comic_id} 的 media_id")
+        logger.warning(f"[{PLUGIN_NAME}] nhentai 接口没有返回作品 {comic_id} 的 media_id")
+        raise ChannelError("nhentai 没有返回这本作品的图片信息：可能已下架，稍后再试")
 
     raw_pages = payload.get("pages")
     page_paths: list[str] = []
@@ -97,7 +101,8 @@ def parse_api_gallery(comic_id: str, payload: dict[str, object]) -> ParsedGaller
             f"galleries/{media_id}/{index}.jpg" for index in range(1, count + 1)
         ]
     if not page_paths:
-        raise ChannelError(f"nhentai 接口没有返回作品 {comic_id} 的任何页面")
+        logger.warning(f"[{PLUGIN_NAME}] nhentai 接口没有返回作品 {comic_id} 的任何页面")
+        raise ChannelError("nhentai 没有返回这本作品的任何页面：可能已下架，稍后再试")
 
     author, tags = _tags_from_response(payload.get("tags"))
     return ParsedGallery(
@@ -315,10 +320,14 @@ class PageScraper:
         """抓页面 HTML；非 200 一律翻译成面向用户的 ChannelError。"""
         response = self._get(url)
         if response.status_code == 404:
-            raise ChannelError(f"作品不存在或已下架：{url}")
+            logger.warning(f"[{PLUGIN_NAME}] nhentai 页面 404：{url}")
+            raise ChannelError("作品不存在或已下架，确认一下 ID 或链接")
         if response.status_code != 200:
+            logger.warning(
+                f"[{PLUGIN_NAME}] nhentai 页面 HTTP {response.status_code}：{url}"
+            )
             raise ChannelError(
-                f"页面返回 HTTP {response.status_code}（多半是 Cloudflare 挑战）：{url}"
+                f"页面返回 HTTP {response.status_code}：多半是站点风控，稍后重试或开代理"
             )
         return response.text
 
@@ -335,7 +344,8 @@ class PageScraper:
             try:
                 return session.get(url, timeout=self._timeout)
             except _network_error_types() as exc:
-                raise ChannelError(f"请求 {url} 失败：{exc}") from exc
+                logger.warning(f"[{PLUGIN_NAME}] nhentai 请求 {url} 失败：{exc}")
+                raise ChannelError("请求没发出去：稍后再试；一直失败请开代理") from exc
 
     def _session_or_raise(self) -> _ScraperSession:
         if self._session is not None:

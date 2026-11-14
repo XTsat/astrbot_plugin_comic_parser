@@ -232,9 +232,13 @@ class PicaClient:
             if code == 401:
                 self.token = ""
                 raise ChannelError("哔咔登录态已失效，请重新发送下载命令")
-            raise ChannelError(f"哔咔接口返回错误：{last_error}")
+            logger.warning(f"[{PLUGIN_NAME}] 哔咔接口返回错误：{endpoint} · {last_error}")
+            if response.status_code in (401, 403):
+                raise ChannelError("哔咔拒绝了这次请求：账号可能没有权限或需要付费")
+            raise ChannelError("哔咔接口返回了错误：稍后重试；一直失败请检查签名密钥")
 
-        raise ChannelError(f"哔咔请求多次失败：{endpoint} · {last_error}")
+        logger.warning(f"[{PLUGIN_NAME}] 哔咔请求多次失败：{endpoint} · {last_error}")
+        raise ChannelError("哔咔这会儿连不上：稍后重试；一直失败请在该渠道配置里开代理")
 
     # ---- 业务接口 ----
     async def login(self, account: str, password: str) -> str:
@@ -251,7 +255,8 @@ class PicaClient:
         )
         token = str((payload.get("data") or {}).get("token") or "")
         if not token:
-            raise ChannelError("哔咔登录失败：接口没有返回 token，请检查账号密码")
+            logger.warning(f"[{PLUGIN_NAME}] 哔咔登录失败：登录接口没有返回 token")
+            raise ChannelError("哔咔登录失败：请检查渠道配置里的账号与密码")
         self.token = token
         return token
 
@@ -360,7 +365,8 @@ class PicaClient:
             if response.status_code == 200 and len(content) >= MIN_IMAGE_BYTES:
                 return content
             last_error = f"HTTP {response.status_code} / {len(content)} 字节"
-        raise ChannelError(f"图片下载失败：{last_error} · {url}")
+        logger.warning(f"[{PLUGIN_NAME}] 哔咔图片下载失败：{url} · {last_error}")
+        raise ChannelError("这张图没下下来：稍后再试，或在该渠道配置里开代理")
 
 
 def _as_payload(response: Any) -> dict[str, Any]:

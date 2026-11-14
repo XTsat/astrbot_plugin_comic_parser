@@ -1224,7 +1224,7 @@ class ComicParserPlugin(Star):
 
         channel = self._commands.get(command)
         if channel is None:
-            yield event.plain_result("❌ 该下载渠道未启用，请先在插件配置里添加")
+            yield event.plain_result("❌ 这个下载渠道没启用：让管理员在插件配置里打开它")
             return
 
         if head_lower in SEARCH_WORDS:
@@ -2010,7 +2010,8 @@ class ComicParserPlugin(Star):
             if use_reaction:
                 await self._react(event, "fail")
             logger.warning(f"[{PLUGIN_NAME}] 取元信息异常 {channel.name} {comic_id}: {exc}")
-            yield event.plain_result(f"❌ 取信息失败：{type(exc).__name__}: {exc}")
+            # 异常类型与原文只进日志：群成员看到 ClientConnectorError 之类也做不了什么
+            yield event.plain_result("❌ 取信息失败：这个渠道暂时取不到作品信息，稍后再试")
             return
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
