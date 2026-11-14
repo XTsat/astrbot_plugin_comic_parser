@@ -38,6 +38,7 @@ from ..domain.constants import (
     SEARCH_RESULT_TTL,
     SEARCH_UPSTREAM_FETCH_LIMIT,
 )
+from ..utils import truncate_keep_tail
 from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
 from .search_query import parse_search_query
@@ -867,7 +868,7 @@ class SearchService:
 
     @staticmethod
     def _bounded(text: str) -> str:
-        """聊天消息过长会被平台截断；超限时截掉尾部并补一句说明。"""
-        if len(text) <= SEARCH_MAX_TEXT_CHARS:
-            return text
-        return text[: SEARCH_MAX_TEXT_CHARS - 20].rstrip() + "\n…（结果过长，已截断）"
+        """超长时截掉中间的结果行，保住标题与结尾的下载/翻页提示。"""
+        return truncate_keep_tail(
+            text, SEARCH_MAX_TEXT_CHARS, "…（结果过长，已截断）"
+        )

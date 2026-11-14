@@ -36,6 +36,7 @@ from ..domain.constants import (
     RANKING_RESULT_TTL,
     RANKING_RESULT_MAX_SESSIONS,
 )
+from ..utils import truncate_keep_tail
 from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
 
@@ -954,7 +955,7 @@ class RankingService:
 
     @staticmethod
     def _bounded(text: str) -> str:
-        """聊天消息过长会被平台截断；超限时截掉尾部并补一句说明。"""
-        if len(text) <= RANKING_MAX_TEXT_CHARS:
-            return text
-        return text[: RANKING_MAX_TEXT_CHARS - 20].rstrip() + "\n…（榜单过长，已截断）"
+        """超长时截掉中间的名次行，保住标题与结尾的下载/翻页提示。"""
+        return truncate_keep_tail(
+            text, RANKING_MAX_TEXT_CHARS, "…（榜单过长，已截断）"
+        )
