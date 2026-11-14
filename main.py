@@ -1841,6 +1841,9 @@ class ComicParserPlugin(Star):
         # 而卡片按 0 基偏移画（画的时候 +1），所以第一张的偏移是 start_index - 1
         start_offset = max(0, result.start_index - 1)
 
+        # 最后一页不该再画「看后面的名次」：卡片上的提示与文字版要同一套判断
+        more_hint = "看后面的名次：/comic 下一页"
+
         if result.aggregate and len(result.pages) > 1:
             # 聚合榜：各渠道拼进同一张图（超长时按渠道拆成几张），序号接着往下排
             first = result.start_index
@@ -1849,7 +1852,12 @@ class ComicParserPlugin(Star):
                 board_label=label,
                 page_number=result.page,
                 start_index=start_offset,
-                download_hint=f"下载：/comic {first}（把 {first} 换成上面的序号）",
+                download_hint=f"下载：回序号，如 /comic {first}",
+                nav_hint=(
+                    more_hint
+                    if any(page.has_more for _, page in result.pages)
+                    else ""
+                ),
             )
             for note in dict.fromkeys(card.note for card in cards if card.note):
                 yield event.plain_result(f"ℹ️ {note}")
@@ -1868,7 +1876,8 @@ class ComicParserPlugin(Star):
                 board_label=label,
                 page_number=result.page,
                 start_index=start_offset + offset,
-                download_hint=f"下载：{command} {first}（把 {first} 换成上面的序号）",
+                download_hint=f"下载：回序号，如 {command} {first}",
+                nav_hint=more_hint if page.has_more else "",
             )
             offset += len(page.items)
             if card is None:

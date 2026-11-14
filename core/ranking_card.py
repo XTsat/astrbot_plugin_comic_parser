@@ -208,11 +208,13 @@ class RankingCardRenderer:
         page_number: int = 1,
         start_index: int = 0,
         download_hint: str = "",
+        nav_hint: str = "",
     ) -> CardResult | None:
         """渲染单个渠道的一页榜单；没有可画的条目时返回 None。
 
-        ``start_index`` 是这张卡片第一条之前的条数（0 基偏移），``download_hint`` 是脚注里
-        那句「怎么下载」——两处都由命令层给，卡片只负责画。
+        ``start_index`` 是这张卡片第一条之前的条数（0 基偏移），``download_hint`` 与
+        ``nav_hint`` 是脚注里的「怎么下载」「怎么看后面」两句——都由命令层给（只有它知道
+        这一页之后还有没有内容），卡片只负责画。
         """
         cards = await self._render_pages(
             [(channel, page)],
@@ -220,6 +222,7 @@ class RankingCardRenderer:
             page_number=page_number,
             start_index=start_index,
             download_hint=download_hint,
+            nav_hint=nav_hint,
             combined=False,
         )
         return cards[0] if cards else None
@@ -232,6 +235,7 @@ class RankingCardRenderer:
         page_number: int = 1,
         start_index: int = 0,
         download_hint: str = "",
+        nav_hint: str = "",
     ) -> list[CardResult]:
         """把多个渠道的一页榜单拼进同一张图（聚合模式）；放不下时按渠道拆成几张。
 
@@ -244,6 +248,7 @@ class RankingCardRenderer:
             page_number=page_number,
             start_index=start_index,
             download_hint=download_hint,
+            nav_hint=nav_hint,
             combined=True,
         )
 
@@ -255,6 +260,7 @@ class RankingCardRenderer:
         page_number: int,
         start_index: int,
         download_hint: str,
+        nav_hint: str,
         combined: bool,
     ) -> list[CardResult]:
         """取封面 → 逐张打码 → 排版出图；聚合时可能产出多张。
@@ -289,7 +295,7 @@ class RankingCardRenderer:
             f"全渠道{board_label}" if combined else f"{board_label} · {specs[0].channel.display_name}"
         )
         cache_key = self._cache_key(
-            specs, head_title, page_number, download_hint, show_heads
+            specs, head_title, page_number, download_hint, nav_hint, show_heads
         )
         cache_ttl = self._cache_seconds(specs[0].page.board) if cache_key else 0
         if cache_key and cache_ttl:
@@ -356,6 +362,7 @@ class RankingCardRenderer:
                 head_title,
                 page_number,
                 download_hint,
+                nav_hint,
                 show_heads,
             )
             outputs.append(out_path)
@@ -399,6 +406,7 @@ class RankingCardRenderer:
         head_title: str,
         page_number: int,
         download_hint: str,
+        nav_hint: str,
         show_heads: bool,
     ) -> str:
         """键 = 这批榜单的全部可见内容 + 所有影响像素的参数；返回空串表示不缓存。"""
@@ -409,6 +417,7 @@ class RankingCardRenderer:
             "head": head_title,
             "page": page_number,
             "hint": download_hint,
+            "nav": nav_hint,
             "heads": show_heads,
             "grid": [self.columns, self.page_size, self.show_author, self.show_id],
             "censor": [
@@ -796,6 +805,7 @@ class RankingCardRenderer:
         head_title: str,
         page_number: int,
         download_hint: str,
+        nav_hint: str,
         show_heads: bool,
     ) -> tuple[int, int]:
         """把一组段落画成一张图，返回（画进去的张数, 缺图的张数）。"""
@@ -874,7 +884,8 @@ class RankingCardRenderer:
             top += self._section_height(layout, section) - layout.section_head_h
 
         # 脚注
-        hints = [hint for hint in (download_hint, "看后面的名次：/comic 下一页") if hint]
+        # 「看后面的名次」只在真有下一页时才画：最后一页还教人翻页，用户白翻一次
+        hints = [hint for hint in (download_hint, nav_hint) if hint]
         footer_y = height - pad - layout.foot_font.size * len(hints) - 6
         for offset, text in enumerate(hints):
             layout.foot_font.draw(

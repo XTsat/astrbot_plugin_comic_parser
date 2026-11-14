@@ -271,7 +271,7 @@ class RankingService:
             if isinstance(error, asyncio.TimeoutError):
                 return RankingOutcome(
                     channel=channel,
-                    error=f"超时（{timeout} 秒）",
+                    error=f"{timeout} 秒没响应",
                     timed_out=True,
                     elapsed=elapsed,
                 )
@@ -281,7 +281,9 @@ class RankingService:
                 f"[{PLUGIN_NAME}] {channel.display_name} 榜单出现未预期异常: {error}"
             )
             return RankingOutcome(
-                channel=channel, error=f"未预期错误：{error}", elapsed=elapsed
+                channel=channel,
+                error="榜单暂时取不到，稍后再试",
+                elapsed=elapsed,
             )
 
         if not dry_run:
@@ -611,9 +613,10 @@ class RankingService:
             last = session.start_index + len(session.entries) - 1
             if session.start_index <= index <= last:
                 return None
+            # 只说「这一页有哪些序号」+ 翻页命令，不承诺后面一定还有：最后一页也在的
             return (
                 f"❌ 这一页的序号是 {session.start_index}–{last}："
-                "翻页看后面的名次，或按作品 ID 直接下载"
+                f"回上面的序号下载，翻页用 /{command} 下一页"
             )
         if session_id in self._sessions:
             self._sessions.pop(session_id, None)
@@ -664,7 +667,6 @@ class RankingService:
             board=board,
             page=page,
             aggregate=aggregate,
-            elapsed=elapsed,
             extra=extra,
             start_index=self._page_start(session_id, page),
         )
@@ -683,7 +685,6 @@ class RankingService:
                 page=page,
                 aggregate=aggregate,
                 pages=pages,
-                elapsed=elapsed,
                 extra=extra,
                 per_channel=per_channel,
                 start_index=start_index,
@@ -726,7 +727,6 @@ class RankingService:
         board: str,
         page: int,
         aggregate: bool,
-        elapsed: float,
         extra: str,
         start_index: int = 1,
     ) -> tuple[list[tuple[BaseChannel, RankingPage]], int | None]:
@@ -759,7 +759,6 @@ class RankingService:
                 page=page,
                 aggregate=aggregate,
                 pages=trial,
-                elapsed=elapsed,
                 extra=extra,
                 per_channel=per,
                 start_index=start_index,
@@ -832,7 +831,6 @@ class RankingService:
         page: int,
         aggregate: bool,
         pages: list[tuple[BaseChannel, RankingPage]],
-        elapsed: float,
         extra: str,
         per_channel: int | None = None,
         start_index: int = 1,
@@ -860,31 +858,28 @@ class RankingService:
             if aggregate:
                 body.append("")
 
-        footer = f"第 {page} 页"
-        if elapsed and page == 1:
-            footer += f" · 用时 {elapsed:.1f}s"
+        # 页码只写在标题里：页脚再写一遍「第 N 页」、再加一句「用时 0.8s」，
+        # 都是在替用户回答他已经知道的事
         tail: list[str] = []
         if extra:
             tail.extend([extra, ""])
-        tail.append(footer)
+        command = self._nav_command(aggregate, pages)
         if total:
             # 与搜索同一句式：序号要带命令发，插件不监听裸数字
-            command = self._nav_command(aggregate, pages)
-            tail.append(
-                f"下载：{command} {start_index}（把 {start_index} 换成上面的序号）"
-            )
+            tail.append(f"下载：回序号，如 {command} {start_index}")
         else:
             tail.append("这次没有拿到榜单内容，换个时间窗或稍后再试")
-        nav = self._nav_hint(page, any(channel_page.has_more for _, channel_page in pages))
+        nav = self._nav_hint(
+            page,
+            any(channel_page.has_more for _, channel_page in pages),
+            command,
+        )
         if nav:
             tail.append(nav)
 
         head = [title, ""]
         if per_channel is not None:
-            body.append(
-                f"（受单条消息长度限制，每家只列前 {per_channel} 名；"
-                "想看完整名次就只查一个渠道）"
-            )
+            body.append(f"（消息长度有限，每家只列前 {per_channel} 名；只看一个渠道可看全）")
             body.append("")
         lines = head + body + tail
         return "\n".join(lines)
@@ -898,20 +893,20 @@ class RankingService:
             return f"/{pages[0][0].display_command}"
         return "/comic"
 
-    def _nav_hint(self, page: int, has_more: bool) -> str:
+    def _nav_hint(self, page: int, has_more: bool, command: str = "/comic") -> str:
         """翻页提示：没有下一页时不提「下一页」，免得用户白翻一次。"""
         parts: list[str] = []
         if page > 1:
-            parts.append("上一页：/comic 上一页")
+            parts.append(f"{command} 上一页")
         if has_more:
-            parts.append("下一页：/comic 下一页")
+            parts.append(f"{command} 下一页")
         if parts:
-            return "　".join(parts)
+            return f"翻页：{' · '.join(parts)}"
         return "最后一页了：想看别的档位可以换时间窗" if page > 1 else ""
 
     def _format_item(self, index: int, item: RankingItem) -> str:
         raw_title = item.title or item.display_title
-        title = self._clip(raw_title, _TITLE_LIMIT) or f"{item.channel} 作品"
+        title = self._clip(raw_title, _TITLE_LIMIT) or "（无标题作品）"
         meta_parts: list[str] = []
         author = self._clip(item.author, _AUTHOR_LIMIT)
         if author:
@@ -919,8 +914,8 @@ class RankingService:
         if item.page_count > 0:
             meta_parts.append(f"{item.page_count}P")
         meta = f"（{' · '.join(meta_parts)}）" if meta_parts else ""
-        mark = f"　{AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
-        return f"{index}. {title}{meta}　ID：{item.comic_id}{mark}"
+        mark = f" · {AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
+        return f"{index}. {title}{meta} · ID：{item.comic_id}{mark}"
 
     @staticmethod
     def _note_lines(outcomes: list[RankingOutcome], skip: set[str] | None = None) -> str:
