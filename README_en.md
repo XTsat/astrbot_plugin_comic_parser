@@ -22,7 +22,7 @@
 - **Queueing and limits**: a global concurrency limit plus per-comic timeout and retry, so several users cannot overload the host
 - **Session control**: whitelist / blacklist decide who may download, and debounce stops the same comic being requested twice
 - **Fastest domain first**: with several site domains or image hosts, the plugin picks the fastest one before downloading
-- **Cover image after each download** (off by default): every finished download sends one cover image; turn on "Censor the cover" if you want the explicit parts blurred. With censoring on, a cover rejected by the platform (invisible in the group, a send failure in the log) is re-censored across the whole image and sent once more
+- **Cover image after each download** (off by default): every finished download sends one cover image; turn on "Censor the cover" if you want the explicit parts blurred. With censoring on, a cover rejected by the platform (invisible in the group, a send failure in the log) is re-censored across the whole image and sent once more; set `recall_seconds` to have every cover image deleted a few seconds after it is sent
 - **Comic downloader panel** (plugin details page → "Comic Downloader Panel"): five tabs in one page — "Censoring test" to drop an image (or pull a cover from a channel) and see the explicitness score and boxes, then try masking styles, block size, padding and the whole-image threshold on the spot; "Model downloads" splitting the weights into anime detection / anime segmentation / realist families with their classes, size, upstream, licence, install state and whether it is the active preset, plus a per-download "route" picker (auto / mirror only / origin only / custom), progress, delete and manual `.onnx` upload; "Channel check" to look up metadata and a cover by ID or work link; "Status" for the runtime, installed weights and enabled channels; "Settings" turning the plugin config into a form you can edit in place (channel templates stay in AstrBot's own settings page)
 - **Automatic cleanup**: temporary files are deleted right after sending
 
@@ -247,7 +247,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Cover and model
 
 <details>
-<summary>Cover and model (2 + 6 + 5 options)</summary>
+<summary>Cover and model (3 + 6 + 5 options)</summary>
 
 **Cover**
 
@@ -255,6 +255,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 |--------|------|---------|-------------|
 | Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download |
 | Send cover caption separately (`caption`) | bool | false | Send one extra message after the cover image with this run's detection results only (explicitness and share covered, plus the threshold when nothing was detected; whole-cover censoring / re-censored after the platform rejected it); title, author and pages are already in the download summary. Independent of "Send download summary" |
+| Recall the cover after (`recall_seconds`) | int | 0 | Seconds to wait before each cover image is recalled automatically; 0 keeps it. Only the image is recalled — the caption and the packed file stay. Uses the protocol's `delete_msg`, so it needs a OneBot (aiocqhttp) endpoint; deployments that return no message ID simply do not recall, and say so in the log |
 
 **Censoring**
 

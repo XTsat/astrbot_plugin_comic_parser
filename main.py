@@ -246,6 +246,158 @@ async def set_progress_reaction(event: AstrMessageEvent, status: str) -> bool:
     return True
 
 
+# ---- 定时撤回 ----
+
+# 协议调用的等待上限：协议端掉线时 call_action 会一直挂着，撤回任务只会越积越多
+_RECALL_TIMEOUT = 10.0
+# 认「刚发出的那条消息」时往回看几条：末尾几条够用，又不会翻出一堆历史
+_RECALL_HISTORY_COUNT = 5
+
+
+def _as_message_id(value: object) -> str:
+    """把候选值收成消息 id 字符串；不像 id（None、bool、空串、非数字）一律当没有。"""
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        return str(value) if value >= 0 else ""
+    if isinstance(value, str):
+        text = value.strip()
+        return text if text.isdigit() else ""
+    return ""
+
+
+def _recall_payload(resp: object) -> dict[str, Any]:
+    """取协议端返回里真正装数据的那层：OneBot 统一套在 ``data`` 里。"""
+    if not isinstance(resp, dict):
+        return {}
+    data = resp.get("data")
+    return data if isinstance(data, dict) else resp
+
+
+def extract_message_id(resp: object) -> str:
+    """从 ``event.send`` / ``call_action`` 的返回里抠出消息 id；抠不到返回空串。
+
+    形状并不统一：OneBot 是 ``{"message_id": 123}``，有的实现再套一层 ``data``，AstrBot
+    也可能把平台对象原样交回来。撤回只认这一个 id，所以逐个形状都试一遍。
+    """
+    # 只往下找两层就收手：写成「再递归一层」会在没有消息 id 的对象上死循环
+    # （没有 data 的对象 → None，再看 None 的 data 又是 None，栈就这么被撑爆）
+    for _ in range(3):
+        if isinstance(resp, dict):
+            for holder in (resp, resp.get("data")):
+                if isinstance(holder, dict):
+                    for key in ("message_id", "msg_id"):
+                        found = _as_message_id(holder.get(key))
+                        if found:
+                            return found
+            resp = resp.get("data")
+            continue
+        for attr in ("message_id", "msg_id"):
+            found = _as_message_id(getattr(resp, attr, None))
+            if found:
+                return found
+        resp = getattr(resp, "data", None)
+    return ""
+
+
+async def find_latest_self_message(
+    call_action: Callable[..., Awaitable[Any]], *, group_id: str, user_id: str
+) -> str:
+    """从会话历史里认出「刚发的那一条」，返回它的消息 id。
+
+    ``event.send`` 不一定会把消息 id 交回来，而撤回只认 id，所以退一步问协议端要最近几条
+    消息。只认发送者是机器人自己的那几条：宁可这一张不撤回，也绝不能把用户刚发的消息删掉。
+    """
+    try:
+        login = await asyncio.wait_for(
+            call_action("get_login_info"), timeout=_RECALL_TIMEOUT
+        )
+    except Exception as exc:
+        logger.debug(f"[{PLUGIN_NAME}] 定时撤回：取不到机器人账号，跳过: {exc}")
+        return ""
+    self_id = _as_message_id(_recall_payload(login).get("user_id"))
+    if not self_id:
+        return ""
+
+    if group_id.isdigit():
+        action, target = "get_group_msg_history", {"group_id": int(group_id)}
+    elif user_id.isdigit():
+        action, target = "get_friend_msg_history", {"user_id": int(user_id)}
+    else:
+        return ""
+
+    try:
+        resp = await asyncio.wait_for(
+            call_action(action, count=_RECALL_HISTORY_COUNT, **target),
+            timeout=_RECALL_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.debug(f"[{PLUGIN_NAME}] 定时撤回：协议端不支持 {action}，跳过: {exc}")
+        return ""
+
+    messages = _recall_payload(resp).get("messages")
+    if not isinstance(messages, list):
+        return ""
+    for item in reversed(messages):
+        if not isinstance(item, dict):
+            continue
+        sender = item.get("sender")
+        sender_id = (
+            _as_message_id(sender.get("user_id")) if isinstance(sender, dict) else ""
+        )
+        if sender_id and sender_id == self_id:
+            return _as_message_id(item.get("message_id"))
+    return ""
+
+
+class AutoRecall:
+    """定时撤回自己发出的消息：一条消息一个定时任务，插件重载时统一取消。"""
+
+    def __init__(self) -> None:
+        self._tasks: set[asyncio.Task[None]] = set()
+
+    def schedule(
+        self, call_action: Callable[..., Awaitable[Any]], message_id: str, delay: int
+    ) -> bool:
+        """在 ``delay`` 秒后撤回这条消息；没 id 或没时长时返回 False。"""
+        target = _as_message_id(message_id)
+        if delay <= 0 or not target:
+            return False
+        task = asyncio.create_task(self._recall_later(call_action, target, int(delay)))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return True
+
+    async def _recall_later(
+        self,
+        call_action: Callable[..., Awaitable[Any]],
+        message_id: str,
+        delay: int,
+    ) -> None:
+        try:
+            await asyncio.sleep(delay)
+            await asyncio.wait_for(
+                call_action("delete_msg", message_id=int(message_id)),
+                timeout=_RECALL_TIMEOUT,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # 撤回失败（超时、已被手动删掉、权限不足）只值一条告警：图早就发出去了
+            logger.warning(f"[{PLUGIN_NAME}] 定时撤回失败（消息 {message_id}）: {exc}")
+
+    async def close(self) -> None:
+        """插件重载/卸载：取消所有还没到点的定时器（连接已随重载失效）。"""
+        if not self._tasks:
+            return
+        pending = list(self._tasks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._tasks.clear()
+        logger.info(f"[{PLUGIN_NAME}] 已取消 {len(pending)} 个未到点的封面撤回任务")
+
+
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION, PLUGIN_REPO)
 class ComicParserPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None) -> None:
@@ -257,6 +409,9 @@ class ComicParserPlugin(Star):
         self.temp_root = self._resolve_temp_dir()
         self.guard = AccessGuard(self.settings)
         self.group_files = GroupFileUploader()
+        # 定时撤回：发出去的封面到点自己删（见 _recall_cover_later）
+        self.auto_recall = AutoRecall()
+        self._recall_skip_logged = False
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
         self.search_service = SearchService(self.channels, self.settings)
@@ -436,6 +591,8 @@ class ComicParserPlugin(Star):
 
         self._running.clear()
         self.panel.close()
+        # 到点才撤的定时器不能跟着旧实例留着：协议端连接已随重载失效
+        await self.auto_recall.close()
 
         if not self.temp_root.exists():
             return
@@ -2083,19 +2240,27 @@ class ComicParserPlugin(Star):
                 await self._react(event, "fail")
             yield event.plain_result("❌ 取不到封面：渠道返回的图片打不开")
             return
-        sent = await self._send_cover(event, result)
+        sent_id = await self._send_cover(event, result)
+        if sent_id is not None:
+            self._recall_cover_later(event, sent_id)
         # 只有开了打码才敢自动加糊：用户主动关掉打码时，不能再擅自把图糊掉
-        if not sent and self.settings.cover_censor and self.settings.cover_retry_strong:
+        if (
+            sent_id is None
+            and self.settings.cover_censor
+            and self.settings.cover_retry_strong
+        ):
             try:
                 strong = await self.cover_service.reinforce(result)
             except Exception as exc:  # noqa: BLE001 - 补救失败只影响这一次
                 logger.warning(f"[{PLUGIN_NAME}] 封面加强打码失败: {exc}")
                 strong = None
             if strong is not None:
-                sent = await self._send_cover(event, strong)
+                sent_id = await self._send_cover(event, strong)
+                if sent_id is not None:
+                    self._recall_cover_later(event, sent_id)
         if use_reaction:
-            await self._react(event, "done" if sent else "fail")
-        if not sent:
+            await self._react(event, "done" if sent_id is not None else "fail")
+        if sent_id is None:
             yield event.plain_result(
                 "❌ 封面发送失败：平台把这张图拦下了（图片审核收下但不投递），可打开「给封面打码」后再试"
             )
@@ -2127,7 +2292,9 @@ class ComicParserPlugin(Star):
         if result is None:
             return
 
-        if await self._send_cover(event, result):
+        message_id = await self._send_cover(event, result)
+        if message_id is not None:
+            self._recall_cover_later(event, message_id)
             await self._send_cover_caption(event, outcome, result)
             return
 
@@ -2143,27 +2310,69 @@ class ComicParserPlugin(Star):
             logger.warning(f"[{PLUGIN_NAME}] 封面加强打码失败（本次跳过）: {exc}")
             return
         # 重发的是降级版：说明要按新的打码结论重算，否则仍写着「局部打码」
-        if await self._send_cover(event, strong):
-            await self._send_cover_caption(event, outcome, strong)
-        else:
+        retry_id = await self._send_cover(event, strong)
+        if retry_id is None:
             logger.warning(f"[{PLUGIN_NAME}] 封面整张打码后仍未被平台接受，本次跳过")
+            return
+        self._recall_cover_later(event, retry_id)
+        await self._send_cover_caption(event, outcome, strong)
 
     async def _send_cover(
         self, event: AstrMessageEvent, result: CoverResult
-    ) -> bool:
-        """直接发一张封面（只有图），返回是否发送成功。
+    ) -> str | None:
+        """直接发一张封面（只有图），返回这条消息的 id。
 
         走 ``event.send`` 而不是 ``yield``：只有自己发才拿得到失败（QQ 的图片审核
         会「收下但不投递」，AstrBot 只在 respond 阶段记一条 ERROR，插件侧无从补救）。
+
+        Returns:
+            str | None: 消息 id（协议端没给 id 时是空串，撤回据此跳过）；发送失败为 None。
         """
         chain: list[Any] = [Comp.Image.fromFileSystem(str(result.path))]
         try:
-            await event.send(MessageChain(chain))
+            resp = await event.send(MessageChain(chain))
         except Exception as exc:
             # 平台侧的拦截/网络失败都走这里：拿不到更精确的类型，交给调用方决定重发
             logger.warning(f"[{PLUGIN_NAME}] 封面发送失败: {exc}")
-            return False
-        return True
+            return None
+
+        message_id = extract_message_id(resp)
+        # 撤回是唯一需要消息 id 的地方：关着就别为一个用不上的 id 多问协议端一次
+        if not message_id and self.settings.cover_recall_seconds > 0:
+            message_id = await self._lookup_cover_message_id(event)
+        return message_id
+
+    async def _lookup_cover_message_id(self, event: AstrMessageEvent) -> str:
+        """退路：``event.send`` 没把消息 id 交回来时，问协议端要最近几条消息认出这一条。"""
+        call_action = _event_call_action(event)
+        if call_action is None:
+            return ""
+        try:
+            sender_id = str(event.get_sender_id() or "")
+        except Exception as exc:  # 协议端没有 sender 时认不出来，就当这次撤回放弃
+            logger.debug(f"[{PLUGIN_NAME}] 取发送者失败，跳过撤回消息定位: {exc}")
+            return ""
+        return await find_latest_self_message(
+            call_action, group_id=_event_group_id(event), user_id=sender_id
+        )
+
+    def _recall_cover_later(self, event: AstrMessageEvent, message_id: str) -> None:
+        """给刚发出的封面排一次撤回；没开、没 id、协议端不支持时安静跳过。"""
+        delay = self.settings.cover_recall_seconds
+        if delay <= 0:
+            return
+        call_action = _event_call_action(event)
+        if not message_id or call_action is None:
+            # 同一个原因只提示一次：每条封面都刷一行只会把真正的问题淹掉
+            if not self._recall_skip_logged:
+                self._recall_skip_logged = True
+                logger.warning(
+                    f"[{PLUGIN_NAME}] ⚠️ 拿不到封面消息 ID 或协议端不支持撤回，"
+                    "「封面自动撤回」本次不生效（需要 OneBot / aiocqhttp 协议端）"
+                )
+            return
+        self.auto_recall.schedule(call_action, message_id, delay)
+        logger.debug(f"[{PLUGIN_NAME}] 封面 {delay} 秒后自动撤回（消息 {message_id}）")
 
     async def _send_cover_caption(
         self, event: AstrMessageEvent, outcome: DownloadOutcome, result: CoverResult

@@ -18,6 +18,7 @@ from .constants import (
     DEFAULT_COVER_CENSOR_PADDING,
     DEFAULT_COVER_CENSOR_STYLE,
     DEFAULT_COVER_FULL_CENSOR_AREA,
+    DEFAULT_COVER_RECALL_SECONDS,
     DEFAULT_COVER_RETRY_STRONG,
     DEFAULT_COVER_SEND,
     DEFAULT_DOWNLOAD_TIMEOUT,
@@ -208,6 +209,7 @@ class PluginSettings:
     # 封面说明跟随「发送下载完成摘要」，不另设开关
     cover_send: bool = DEFAULT_COVER_SEND
     cover_caption: bool = DEFAULT_COVER_CAPTION
+    cover_recall_seconds: int = DEFAULT_COVER_RECALL_SECONDS
     cover_censor: bool = DEFAULT_COVER_CENSOR
     cover_censor_style: str = DEFAULT_COVER_CENSOR_STYLE
     cover_censor_padding: int = DEFAULT_COVER_CENSOR_PADDING
@@ -521,6 +523,9 @@ class PluginSettings:
             ),
             cover_send=_as_bool(cover.get("send"), DEFAULT_COVER_SEND),
             cover_caption=_as_bool(cover.get("caption"), DEFAULT_COVER_CAPTION),
+            cover_recall_seconds=_as_int(
+                cover.get("recall_seconds"), DEFAULT_COVER_RECALL_SECONDS, minimum=0
+            ),
             cover_censor=_as_bool(censor.get("enable"), DEFAULT_COVER_CENSOR),
             cover_censor_style=censor_style,
             cover_censor_padding=_as_int(
