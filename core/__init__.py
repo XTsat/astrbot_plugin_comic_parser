@@ -21,7 +21,6 @@ from .registry import (
     build_channels,
     command_map,
     describe_channels,
-    describe_links,
     describe_websites,
     resolve_link,
 )
@@ -59,7 +58,6 @@ __all__ = [
     "build_channels",
     "command_map",
     "describe_channels",
-    "describe_links",
     "describe_websites",
     "resolve_link",
 ]

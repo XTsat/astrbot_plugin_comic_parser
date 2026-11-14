@@ -58,23 +58,33 @@ def command_map(channels: dict[str, BaseChannel]) -> dict[str, BaseChannel]:
     return mapping
 
 
-def describe_channels(channels: dict[str, BaseChannel]) -> str:
-    """帮助文案里的渠道列表：一行一个，「命令 — 站点名（网络与其它别名）」。
+_NO_CHANNEL_TIP = "（还没有启用任何渠道，让管理员在插件配置里添加）"
 
-    用法在帮助的「下载」段落里统一讲过，这里不再逐个重复 `<ID 或链接>`。
+
+def describe_channels(channels: dict[str, BaseChannel]) -> str:
+    """帮助文案里的渠道列表：一行一个「命令 — 站点名」。
+
+    用法在帮助的「下载」段落里统一讲过，这里不再逐个重复 `<ID 或链接>`；代理走法只有在
+    各渠道不一致时才逐行标注——六行一模一样的「网络：直连」只是噪音。
     """
     if not channels:
-        return "（当前没有任何渠道，请先在插件配置里添加下载渠道）"
+        return _NO_CHANNEL_TIP
 
+    enabled = [channel for channel in channels.values() if channel.enabled]
+    proxies = {channel.proxy_summary() for channel in enabled}
+    per_line_proxy = len(proxies) > 1
     lines = []
     for channel in channels.values():
         state = "" if channel.enabled else "（未启用）"
         others = [name for name in channel.command_names if name != channel.display_command]
-        also = f"；也可用 {'、'.join(f'/{name}' for name in others)}" if others else ""
+        also = f"（也可用 {'、'.join(f'/{name}' for name in others)}）" if others else ""
+        proxy = f"· {channel.proxy_summary()}" if per_line_proxy else ""
         lines.append(
             f"/{channel.display_command} — {channel.display_name}{state}"
-            f"（网络：{channel.proxy_summary()}{also}）"
+            f"{also}{proxy}"
         )
+    if len(proxies) == 1:
+        lines.append(f"网络：全部{next(iter(proxies))}")
     return "\n".join(lines)
 
 
@@ -93,21 +103,6 @@ def resolve_link(
     return None
 
 
-def describe_links(channels: dict[str, BaseChannel]) -> str:
-    """帮助文案里的站点说明：真实官网 + 作品页链接示意（`<ID>` 占位）。
-
-    示意链接把具体数字换成 `<ID>` 占位：能看出作品 ID 落在链接的哪一段，
-    又不会拼出点不开的假作品链接。
-    """
-    lines = [
-        f"{channel.display_name}：{channel.link_template}"
-        f"（{channel.link_hint or '<ID> 处替换成作品 ID'}）"
-        for channel in channels.values()
-        if channel.link_template
-    ]
-    return "\n".join(lines) if lines else "（当前没有支持链接直下的渠道）"
-
-
 def describe_websites(channels: dict[str, BaseChannel]) -> str:
     """网站速查：每个渠道的官网 + 作品页链接示意，用户据此去站内搜作品、认 ID。
 
@@ -115,7 +110,7 @@ def describe_websites(channels: dict[str, BaseChannel]) -> str:
     也不会让用户拿到一个点不开的假链接。
     """
     if not channels:
-        return "（当前没有任何渠道，请先在插件配置里添加下载渠道）"
+        return _NO_CHANNEL_TIP
 
     entries: list[str] = []
     for channel in channels.values():

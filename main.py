@@ -49,7 +49,6 @@ from .core import (
     build_channels,
     command_map,
     describe_channels,
-    describe_links,
     describe_websites,
     resolve_link,
 )
@@ -920,16 +919,22 @@ class ComicParserPlugin(Star):
             if channel.enabled and channel.supports_search
         ]
         if not self.settings.search_enabled:
-            search_lines = "未启用（在插件配置的「搜索」里打开）\n"
+            search_lines = "关键词搜索：未启用（在插件配置的「搜索」里打开）\n"
         elif searchable:
             search_lines = (
                 f"/comic sou <关键词> — 一次搜 {len(searchable)} 个渠道；"
                 "/<渠道命令> sou <关键词> 只搜一个\n"
                 "筛选：tag: author: actor: work: parody: group: language:"
-                "（前缀前加 - 排除，值含空格用引号；各站点支持程度不同）\n"
+                "（前缀加 - 排除，值含空格加引号）\n"
             )
         else:
             search_lines = "当前没有支持搜索的渠道\n"
+        # 搜图是独立开关：与关键词搜索分开列，用户才知道截图这条路存在
+        search_lines += (
+            "搜图：/comic 搜图 [严格] + 截图（也认 图搜 / img / 以图搜）\n"
+            if self.settings.image_search_enabled
+            else "搜图：未启用（在插件配置的「搜图」里打开）\n"
+        )
         cover_desc = "关闭"
         if self.settings.cover_send:
             cover_desc = "发一张（已打码）" if self.settings.cover_censor else "发一张"
@@ -945,16 +950,18 @@ class ComicParserPlugin(Star):
         else:
             windows = "|".join(board_label(item) for item in RANKING_BOARDS)
             output_labels = {"text": "文字版", "image": "图片版", "both": "文字 + 图片"}
-            ranking_lines = (
-                f"/comic 排行 [{windows}] — 一次聚合 {len(rankable)} 个渠道；"
-                "/<渠道命令> 排行 只看一个\n"
-                f"默认{board_label(self.settings.ranking_default_board)}，"
-                "渠道缺这一档时自动改看最近的一档并注明；"
-                f"输出 {output_labels.get(self.settings.ranking_output, '文字版')}\n"
-            )
+            ranking_tail = [
+                f"默认{board_label(self.settings.ranking_default_board)}，缺档自动改看最近一档",
+                f"输出 {output_labels.get(self.settings.ranking_output, '文字版')}",
+            ]
             cap_label = self.settings.ranking_cap_label
             if cap_label:
-                ranking_lines += f"超过 {cap_label} 的作品不进榜（0 表示不限）\n"
+                ranking_tail.append(f"超 {cap_label} 的不进榜")
+            ranking_lines = (
+                f"/comic 排行 [{windows}] — 聚合 {len(rankable)} 个渠道；"
+                "/<渠道命令> 排行 只看一个\n"
+                f"{' · '.join(ranking_tail)}\n"
+            )
         index_minutes = max(1, SEARCH_RESULT_TTL // 60)
         lists_available = (self.settings.ranking_enabled and bool(rankable)) or (
             self.settings.search_enabled and bool(searchable)
@@ -970,6 +977,7 @@ class ComicParserPlugin(Star):
             f"📥 下载\n"
             f"/comic <作品链接> [格式] — 自动识别站点\n"
             f"/<渠道命令> <ID 或链接> [格式] — 只走该渠道\n"
+            f"末尾加词：封面（只发封面图）、简介（只看作品信息）\n"
             f"格式：默认 {self.settings.pack_format}，可选 {packs}，写在末尾只改这一次\n\n"
             f"🔍 搜索\n"
             f"{search_lines}\n"
@@ -987,8 +995,8 @@ class ComicParserPlugin(Star):
             f"封面 {cover_desc}\n"
             f"进度 {progress_labels.get(self.settings.progress_style, '关闭')} · "
             f"分段 {resume_desc} · {group_file_text}\n\n"
-            f"本说明 /comic help（也认 /漫画帮助） · 站点与链接速查 /comic site\n"
-            f"渠道命令后面贴别的站点的作品链接也按链接走，不会下错"
+            f"站点与链接速查：/comic site　·　"
+            f"渠道命令后面贴别站的作品链接也按链接走，不会下错"
         )
         return text
 
@@ -1001,8 +1009,11 @@ class ComicParserPlugin(Star):
 
     def _render_sites_text(self) -> str:
         """拼出站点速查正文。"""
+        enabled = sum(1 for channel in self.channels.values() if channel.enabled)
+        total = len(self.channels)
+        # 只说「共几个渠道」会把没启用的也算进去：用户照着列表敲命令才发现渠道没开
         return (
-            f"🌐 支持的漫画网站（共 {len(self.channels)} 个渠道）\n\n"
+            f"🌐 支持的漫画网站（{enabled}/{total} 个渠道已启用）\n\n"
             f"{describe_websites(self.channels)}\n\n"
             f"到站内搜到作品后打开作品页，把 <ID> 替换成链接里的 ID，\n"
             f"再发给 /comic 就能下载；也可以直接发完整作品页链接\n"
@@ -1031,17 +1042,12 @@ class ComicParserPlugin(Star):
                 yield result
             return
         if not text:
+            # 空参只给最短的起步路径：完整命令表在 /comic help，站点链接在 /comic site，
+            # 把它们都塞进这条消息只会让「我该发什么」淹没在九行说明里
             yield event.plain_result(
-                "用法：/comic <作品链接> [格式]、/comic <序号> [格式]，"
-                "或 /comic sou <关键词>（全渠道搜索）、/comic 排行 [日榜|周榜|月榜|总榜]\n"
-                "格式可选 zip / pdf / long_img / none，写在最后只对这一次生效\n"
-                "搜图：/comic 搜图 [严格] + 截图（也认 图搜、img、以图搜），结果直接给下载命令\n"
-                "末尾加词：封面（只发封面图）、简介（只看作品信息）\n"
-                "（也认中文 压缩包 / 文档 / 长图 / 本地）\n"
-                "接着下：/comic retry（最近一本）、/comic retry 全部（本会话记录过的全下）\n"
-                "查看排队：/comic status（管理员可加 全部 看所有会话）\n"
-                "完整说明：/comic help；站点速查：/comic site\n"
-                f"{describe_links(self.channels)}"
+                "用法：/comic <作品链接> [格式]，或回列表里的序号\n"
+                "搜索 /comic sou <关键词> · 排行 /comic 排行 · 搜图 /comic 搜图 + 截图\n"
+                "完整说明：/comic help　站点与链接：/comic site"
             )
             return
 
@@ -1154,10 +1160,15 @@ class ComicParserPlugin(Star):
                     )
                 )
             else:
+                sites = "、".join(
+                    channel.display_name
+                    for channel in self.channels.values()
+                    if channel.enabled and channel.link_template
+                )
                 yield event.plain_result(
                     "❌ 认不出这条链接属于哪个站点：请贴作品页的完整链接，"
-                    "或直接用对应渠道的命令（见 /comic help）\n"
-                    f"{describe_links(self.channels)}"
+                    "或用对应渠道命令按 ID 下载\n"
+                    f"支持链接直下的站点：{sites or '（暂无）'}；链接格式见 /comic site"
                 )
             return
 
