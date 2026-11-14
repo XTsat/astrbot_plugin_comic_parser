@@ -1470,7 +1470,7 @@ class ComicParserPlugin(Star):
         if indexed:
             numbers = "、".join(f"/comic {i}" for i in range(1, min(indexed, 3) + 1))
             tail = "…" if indexed > 3 else ""
-            report += f"\n也可以直接回序号：{numbers}{tail}"
+            report += f"\n也可以回序号下：{numbers}{tail}"
         yield event.plain_result(report)
 
     def _remember_image_hits(

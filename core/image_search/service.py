@@ -52,13 +52,16 @@ class ImageSearchHit:
         title = " ".join(self.title.split())
         if len(title) > TITLE_LIMIT:
             title = title[: TITLE_LIMIT - 1] + "…"
-        return title or f"{SOURCE_LABELS.get(self.source, self.source)} {self.comic_id}"
+        if title:
+            return title
+        source = SOURCE_LABELS.get(self.source, "")
+        return f"{source} {self.comic_id}".strip() or f"未命名作品 {self.comic_id}"
 
     @property
     def language_label(self) -> str:
-        """语言码翻成中文名；认不出来就原样大写。"""
+        """语言码翻成中文名；认不出来时说「其他语言」，不回显上游枚举。"""
         code = (self.language or "").strip().lower()
-        return LANG_LABELS.get(code, code.upper() or "未知")
+        return LANG_LABELS.get(code, "其他语言")
 
     @property
     def is_chinese(self) -> bool:
@@ -217,32 +220,35 @@ def render_report(
         dropped: 因阈值/条数被截掉的条数，用于提示用户「还有更多」。
     """
     mode = "严格模式" if strict else "普通模式"
-    head = f"🔍 搜图结果 · {mode}"
-    if elapsed:
-        head += f" · 耗时 {elapsed:.2f}s"
+    head = f"🔍 搜图结果 · {mode}（🟢 很像　🟡 一般）"
+    if elapsed >= 0.05:
+        head += f" · 耗时 {elapsed:.1f}s"
     if not hits:
+        if strict:
+            return (
+                f"{head}\n❌ 严格模式下没有相似度足够的作品。"
+                "换一张更完整、更清晰的截图，或用 /comic 搜图 普通 放宽再试一次。"
+            )
         return (
-            f"{head}\n❎ 没有找到相似度足够的作品。"
+            f"{head}\n❌ 没有找到相似度足够的作品。"
             "换一张更完整、更清晰的截图再试；裁得太碎或整页缩放过度都会搜不到。"
         )
     lines = [head, ""]
     for index, hit in enumerate(hits, 1):
         flag = "🟢" if hit.score >= HIGH_CONFIDENCE else "🟡"
-        lines.append(f"{index}. {flag} {hit.display_title}")
-        detail = [f"相似度 {hit.score:.2f}%", hit.language_label]
-        if hit.page:
-            detail.append(f"第 {hit.page} 页")
-        detail.append(SOURCE_LABELS.get(hit.source, hit.source))
-        lines.append("   " + " · ".join(detail))
+        # 相似度与语言并进标题行：命中页与来源名对「要不要下」没用，一个只说明截图截自第几页，
+        # 另一个早就由下载命令里的 /nh、/eh 说过了
+        detail = f" · 相似度 {hit.score:.0f}% · {hit.language_label}"
+        lines.append(f"{index}. {flag} {hit.display_title}{detail}")
         command = command_for(hit)
         if command:
-            lines.append(f"   下载：{command}")
+            lines.append(f"　 下载：{command}")
         else:
-            lines.append("   （该来源本插件没有对应下载渠道，仅作参考）")
+            lines.append("　 （这个来源本插件下不了，仅作参考）")
         lines.append("")
     if lines[-1] == "":
         lines.pop()
     if dropped:
         lines.append("")
-        lines.append(f"另有 {dropped} 本相似度较低或超出展示条数，未列出。")
+        lines.append(f"另有 {dropped} 本没列出来（相似度不够或超出展示条数）。")
     return "\n".join(lines)

@@ -93,7 +93,7 @@ class ImageSearchClient:
             ImageSearchError: 重试用尽仍失败，或响应不是合法 JSON。
         """
         if not self.base_url:
-            raise ImageSearchError("未配置搜图服务地址，请在插件配置的「搜图」里填写")
+            raise ImageSearchError("搜图还没配好服务地址，请联系管理员在插件配置的「搜图」里填写")
         payload = self._compress(image)
         factor = STRICT_FACTOR if strict else NORMAL_FACTOR
         cache_key = hashlib.sha256(payload + factor.encode()).hexdigest()
@@ -137,8 +137,9 @@ class ImageSearchClient:
                         data={"factor": factor},
                     )
             except (httpx.HTTPError, OSError) as exc:
+                # 异常类型只进日志：群成员看到 ConnectError 也做不了什么
                 last_error = ImageSearchError(
-                    f"搜图失败：连不上搜图服务（{type(exc).__name__}）"
+                    "搜图失败：暂时连不上搜图服务，稍后再试"
                 )
                 continue
             if resp.status_code in RETRY_STATUSES and attempt < MAX_ATTEMPTS - 1:
@@ -149,17 +150,17 @@ class ImageSearchClient:
             try:
                 data = resp.json()
             except ValueError as exc:
-                raise ImageSearchError("搜图失败：图搜服务返回的不是合法数据") from exc
+                raise ImageSearchError("搜图失败：搜图服务返回的不是合法数据") from exc
             if not isinstance(data, dict):
-                raise ImageSearchError("搜图失败：图搜服务返回的不是合法数据")
+                raise ImageSearchError("搜图失败：搜图服务返回的不是合法数据")
             return data
-        raise last_error or ImageSearchError("搜图失败：未知原因")
+        raise last_error or ImageSearchError("搜图失败：暂时连不上搜图服务，稍后再试")
 
     @staticmethod
     def _explain(status: int) -> str:
         """把上游状态码翻成用户能行动的一句话，不要把挑战页 HTML 甩进聊天。"""
         if status == 403:
-            return "搜图失败：上游站点暂时拦住了这个出口（浏览器校验），等几分钟再试；连着搜太频繁最容易触发"
+            return "搜图失败：上游站点暂时拦住了请求（浏览器校验），等几分钟再试；连着搜太频繁最容易触发"
         if status == 429:
             return "搜图失败：请求太频繁了，等一会儿再试"
         if status >= 500:
