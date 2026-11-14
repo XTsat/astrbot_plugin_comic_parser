@@ -257,16 +257,17 @@ class DownloadTask:
         return count, size
 
     def _resume_tail(self) -> str:
-        """「怎么接着下」这半句：断点留不留，取决于保留时长与启动清理。"""
+        """「怎么接着下」这半句：只说断点在不在、怎么继续。
+
+        配置项名字不进这句话：群里没人能改配置，读起来只会变成一句需要解读的括注；
+        「重载会清掉断点」这种不确定的前提留给 ``_reload_interrupted`` 那一条去说。
+        """
         if self.settings.resume_ttl <= 0:
-            return "发 /comic retry 会从头下载（「断点保留时长」配成了 0）"
-        tail = (
-            "发 /comic retry 会从断点接着下，断点保留 "
+            return "发 /comic retry 会从头下载"
+        return (
+            "发 /comic retry 接着下，断点最多留 "
             f"{_human_span(self.settings.resume_ttl)}"
         )
-        if self.settings.clean_temp_on_start:
-            tail += "（「启动时清理临时目录」开着，插件一重载断点就没了）"
-        return tail
 
     def _halted_text(
         self, work_dir: Path, tap: _ProgressTap, *, prefix: str
@@ -316,16 +317,16 @@ class DownloadTask:
         kept = not self.settings.clean_temp_on_start and self.settings.resume_ttl > 0
         if kept:
             tail = (
-                "发 /comic retry 会从断点接着下，断点保留 "
+                "发 /comic retry 接着下，断点最多留 "
                 f"{_human_span(self.settings.resume_ttl)}"
             )
         else:
-            why = (
-                "「启动时清理临时目录」开着"
-                if self.settings.clean_temp_on_start
-                else "「断点保留时长」配成了 0"
+            # 为什么没留住是配置问题，写进日志给管理员；群成员只需要知道结果
+            logger.info(
+                f"[{PLUGIN_NAME}] 断点未保留（启动清理={self.settings.clean_temp_on_start}，"
+                f"保留时长={self.settings.resume_ttl}）"
             )
-            tail = f"{why}，这些图片没能保留，发 /comic retry 会从头下载"
+            tail = "这些图片没能保留，发 /comic retry 会从头下载"
         logger.info(
             f"[{PLUGIN_NAME}] {comic_id} 因插件重载中断：{done_text} · "
             f"{format_size(done_size)}，断点{'保留' if kept else '未保留'}"

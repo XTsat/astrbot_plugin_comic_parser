@@ -457,7 +457,7 @@ class _Progress:
         """进度快照：心跳与聊天进度共用，缺了它「一分钟没动静」就没人汇报。"""
         return ProgressState(
             comic_id="",  # 命令层不靠这个字段认本子，排队提示用的是自己的登记表
-            unit="图片",
+            unit="张",
             done=self.done,
             total=self.total,
             bytes_downloaded=self.bytes_total,

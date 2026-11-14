@@ -42,7 +42,7 @@ class DownloadSession:
         if self.chapters_total > 1:
             return ProgressState(
                 comic_id=self.album_id,
-                unit="章节",
+                unit="章",
                 done=self.chapters_done,
                 total=self.chapters_total,
                 image_total=self.pages_total,
@@ -57,7 +57,7 @@ class DownloadSession:
             )
         return ProgressState(
             comic_id=self.album_id,
-            unit="图片",
+            unit="张",
             done=self.pages_done,
             total=self.pages_total,
             image_total=self.pages_total,

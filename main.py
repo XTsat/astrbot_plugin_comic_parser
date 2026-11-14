@@ -1197,8 +1197,7 @@ class ComicParserPlugin(Star):
         if head_lower in RETRY_WORDS:
             # 重试只认 `/comic retry`：它要知道「上一条」是哪个渠道的，渠道命令无从判断
             yield event.plain_result(
-                "ℹ️ 重试请用 /comic retry（默认最近一本，加 全部 重放本会话每一本）；"
-                f"要下新的就发 /{command} <ID 或链接>"
+                "ℹ️ 重试用 /comic retry（默认最近一本，加 全部 重放本会话每一本）"
             )
             return
         if head_lower in STATUS_WORDS:
@@ -1334,8 +1333,9 @@ class ComicParserPlugin(Star):
                     running.started = True
                 # 贴表情先贴「开始」；贴不上（私聊、协议端不支持）就本次退回文本进度
                 use_reaction, use_text_progress = await self._begin_progress(event)
-                if not use_reaction:
-                    # 贴上了表情就等于「已开始」，不必再多一条消息
+                if use_text_progress:
+                    # 只有这次走文本进度才补开始消息：贴上了表情等于「已开始」，
+                    # 进度设成「关闭」时更不该再多一条用户没要的提示
                     fmt_note = (
                         f"（{describe_pack_format(pack_format)}）"
                         if pack_format
@@ -1372,7 +1372,9 @@ class ComicParserPlugin(Star):
                 except Exception as exc:  # 兜底：任何未预期异常都不该让插件静默失联
                     self.guard.forget(session_id, debounce_key)
                     logger.error(f"[{PLUGIN_NAME}] 下载失败: {exc}")
-                    yield event.plain_result("❌ 下载出现未预期错误，详情见日志")
+                    yield event.plain_result(
+                        "❌ 下载出错了：这次没能完成，重发一次命令再试"
+                    )
                     return
 
                 try:
@@ -2437,10 +2439,11 @@ class ComicParserPlugin(Star):
         if not targets:
             others = sum(1 for task in self._running.values() if task.started)
             if others:
+                # 「管理员可用…」只对管理员有意义：其他人照着这半句去发，只会收到拒绝
+                tip = "（可用 /comic status 全部 看所有会话）" if is_admin else ""
                 yield event.plain_result(
                     "ℹ️ 你这里没有在跑或排队的下载；"
-                    f"另有 {others} 个其他会话的下载正在进行"
-                    "（管理员可用 /comic status 全部）"
+                    f"另有 {others} 个其他会话的下载正在进行{tip}"
                 )
             else:
                 yield event.plain_result("ℹ️ 现在没有下载在跑，也没有排队的请求")
@@ -2557,9 +2560,14 @@ class ComicParserPlugin(Star):
         if not targets:
             others = len(self._running)
             if others:
+                # 非管理员没有「全部」这一手，提它只会让人发出去再被拒一次
+                tip = (
+                    "（可用 /comic stop 全部 一起取消）"
+                    if is_admin
+                    else "（/comic stop 只管自己的）"
+                )
                 yield event.plain_result(
-                    f"ℹ️ 你这里没有在跑的下载；另有 {others} 个其他会话的下载正在进行"
-                    "（/comic stop 只管自己的，管理员可用 /comic stop 全部）"
+                    f"ℹ️ 你这里没有在跑的下载；另有 {others} 个其他会话的下载正在进行{tip}"
                 )
             else:
                 yield event.plain_result("ℹ️ 现在没有下载在跑")
@@ -2578,7 +2586,7 @@ class ComicParserPlugin(Star):
                     f" · {format_size(state.bytes_downloaded)}"
                     f" · 已用 {state.elapsed:.0f}s"
                 )
-        lines.append("已下好的图片会保留，停稳后会再回一条；发 /comic retry 可以接着下")
+        lines.append("已下好的图片会保留，发 /comic retry 可以接着下")
         yield event.plain_result("\n".join(lines))
 
     def _task_line(self, task: _RunningTask, *, queue_index: int | None = None) -> str:
@@ -2620,8 +2628,10 @@ class ComicParserPlugin(Star):
         if others:
             lines.append(f" · 另有 {others} 个其他会话的下载正在进行")
         minutes = max(1, round(self.settings.download_timeout / 60))
-        lines.append(f"⏱ 单本上限 {minutes} 分钟，前一个任务结束后自动开始")
-        lines.append("📊 看排队情况：/comic status　⏹ 取消：/comic stop")
+        lines.append(
+            f"⏱ 单本上限 {minutes} 分钟，前面的结束后自动开始"
+            "　📊 /comic status 看排队　⏹ /comic stop 取消"
+        )
         return "\n".join(lines)
 
     def _format_outcome(self, outcome: DownloadOutcome) -> str:

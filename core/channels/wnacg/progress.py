@@ -23,7 +23,7 @@ class DownloadSession:
 
     comic_id: str
     total: int = 0
-    unit: str = "图片"
+    unit: str = "张"
     done: int = 0
     bytes_downloaded: int = 0
     # 插件重载时 terminate() 置位；cancel 是本次任务自己的取消信号（到点暂停/放弃）

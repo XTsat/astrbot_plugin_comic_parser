@@ -26,7 +26,7 @@ class ProgressState:
     """一次下载在某一刻的进度快照。"""
 
     comic_id: str
-    unit: str = "图片"
+    unit: str = "张"
     done: int = 0
     total: int = 0
     # 整本一共多少张图，0 表示渠道没给。多章节本的主计数是章节，`total` 就不是张数，
