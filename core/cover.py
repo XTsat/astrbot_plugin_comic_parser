@@ -158,10 +158,10 @@ class CoverService:
         """把一张封面图变成待发送结果：判模型 → 检测 → 打码 → 落到临时目录。"""
         # 先判模型是否就位，避免为一个注定发不出去的封面白复制文件
         if self.censor and self.detector.model_path is None:
+            # 三条修复路径一次说完就够，别在群里展开成一段安装手册
             raise CoverCensorError(
-                "已开启「给封面打码」，但检测还跑不起来，本次不发送封面"
-                "（缺 onnxruntime 时插件会自行安装、装好后重载插件；缺权重可把对应 .onnx 放进插件目录的 models/，"
-                "或在「封面与模型 → 模型与检测」里开启「缺失时自动下载权重」）"
+                "开了封面打码，但检测没跑起来，这次不发封面："
+                "去「模型与检测」打开「缺失时自动下载权重」，装好后重载插件"
             )
 
         await asyncio.to_thread(self._cleanup_old_files)
@@ -177,7 +177,7 @@ class CoverService:
                 # 检测没跑成 ≠ 图是干净的，不能当作「无需打码」放行
                 target.unlink(missing_ok=True)
                 raise CoverCensorError(
-                    "封面 NSFW 检测执行失败，本次不发送封面（详情见日志）"
+                    "封面检测没跑成，这次不发封面：可在「模型与检测」检查权重后重试"
                 )
             detections = list(analysis.detections)
             score = analysis
@@ -284,14 +284,14 @@ class CoverService:
         )
         if result.detected and result.score.value > 0:
             labels = "、".join(result.score.labels) or "露骨部位"
+            # 露骨度与覆盖都指向「这张图有多露」，一行的信息量已经够了；阈值是每张都一样的
+            # 参数，只在「一处都没检出」时才需要它来解释「是干净还是没检出来」
             lines.append(
-                f"🖼️ 封面露骨度 {result.score.value:.1f}%（{labels}）"
-                f" · 检出 {len(result.score.detections)} 处"
+                f"🖼️ 封面露骨度 {result.score.value:.0f}%（{labels}）"
                 f" · 覆盖 {result.coverage:.0%}"
-                f" · 阈值 {threshold_text}"
             )
         elif result.detected:
-            lines.append(f"🖼️ 封面未检出露骨部位（阈值 {threshold_text}，覆盖 0%）")
+            lines.append(f"🖼️ 封面未检出露骨部位（阈值 {threshold_text}）")
         if result.reinforced:
             lines.append("🔒 平台把封面当露骨图拦下，已整张重糊后重发")
         elif result.censored:

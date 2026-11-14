@@ -2040,7 +2040,7 @@ class ComicParserPlugin(Star):
             if use_reaction:
                 await self._react(event, "fail")
             logger.warning(f"[{PLUGIN_NAME}] 取封面异常 {channel.name} {comic_id}: {exc}")
-            yield event.plain_result(f"❌ 取封面失败：{type(exc).__name__}: {exc}")
+            yield event.plain_result("❌ 取封面失败：这个渠道暂时取不到封面，稍后再试")
             return
         if not data:
             if use_reaction:
@@ -2062,7 +2062,9 @@ class ComicParserPlugin(Star):
             if use_reaction:
                 await self._react(event, "fail")
             logger.warning(f"[{PLUGIN_NAME}] 封面生成失败 {channel.name} {comic_id}: {exc}")
-            yield event.plain_result(f"❌ 生成封面失败：{exc}")
+            yield event.plain_result(
+                "❌ 生成封面失败：这张封面图处理不了，整本下载不受影响"
+            )
             return
         if result is None:
             if use_reaction:
