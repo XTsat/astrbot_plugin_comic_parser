@@ -136,7 +136,7 @@ class ImageSearchClient:
                         files={"file": ("image.jpg", payload, "image/jpeg")},
                         data={"factor": factor},
                     )
-            except (httpx.HTTPError, OSError) as exc:
+            except (httpx.HTTPError, OSError):
                 # 异常类型只进日志：群成员看到 ConnectError 也做不了什么
                 last_error = ImageSearchError(
                     "搜图失败：暂时连不上搜图服务，稍后再试"

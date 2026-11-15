@@ -272,7 +272,6 @@ class ModelWeights:
 
     async def _fetch(self, url: str, part_path: Path) -> int:
         """流式下载到 .part，返回写入的字节数。"""
-        total = 0
         reported: set[float] = set()
         last_percent = -1
         timeout = aiohttp.ClientTimeout(
@@ -292,7 +291,6 @@ class ModelWeights:
                     async for chunk in response.content.iter_chunked(256 * 1024):
                         fp.write(chunk)
                         written += len(chunk)
-                        total = expected or written
                         if not expected:
                             continue
                         ratio = written / expected
