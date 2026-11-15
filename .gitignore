@@ -20,3 +20,6 @@ ANALYSIS_*.md
 # NSFW 模型权重（几十 MB 的 .onnx，由配置开关自动下载，不进仓库）
 models/*.onnx
 models/*.part
+
+# DSH 视觉工具的临时产物目录（截图/裁剪/热力图），纯本地产物
+.dsh-vision-router/

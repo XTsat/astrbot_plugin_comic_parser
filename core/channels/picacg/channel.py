@@ -59,6 +59,13 @@ def _as_int(raw: Any, default: int) -> int:
         return default
 
 
+def _tag_list(raw: object) -> list[str]:
+    """取作品详情里的标签；哔咔没给标签数组时当作没有，摘要里就少一行。"""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [str(tag).strip() for tag in raw if str(tag).strip()]
+
+
 def _image_suffix(url: str) -> str:
     """从图片直链取后缀；取不到或不像后缀时按 jpg 落盘，上层只按后缀识别图片。"""
     suffix = Path(url.split("?", 1)[0]).suffix.lower()
@@ -319,6 +326,7 @@ class PicacgChannel(BaseChannel):
             title=str(comic.get("title") or ""),
             author=author,
             page_count=_as_int(comic.get("epsCount"), 0),
+            tags=_tag_list(comic.get("tags")),
         )
 
     # ---- 下载 ----

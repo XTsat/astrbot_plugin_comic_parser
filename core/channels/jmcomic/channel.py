@@ -208,6 +208,7 @@ class JMComicChannel(BaseChannel):
             title=str(getattr(album, "title", "") or ""),
             author=str(getattr(album, "author", "") or ""),
             page_count=len(album) if hasattr(album, "__len__") else 0,
+            tags=_album_tags(album),
         )
 
     # ---- 域名测速择优 ----
@@ -849,6 +850,7 @@ class JMComicChannel(BaseChannel):
             title=str(getattr(album, "title", "") or ""),
             author=str(getattr(album, "author", "") or ""),
             page_count=len(album) if hasattr(album, "__len__") else 0,
+            tags=_album_tags(album),
         )
         return DownloadedComic(
             meta=meta,
@@ -857,6 +859,14 @@ class JMComicChannel(BaseChannel):
             # 章节级失败意味着该章图片一张都没拿到，同样计入「失败」让用户知道产物不完整
             failed_images=failed_images + failed_photos,
         )
+
+
+def _album_tags(album: Any) -> list[str]:
+    """取作品详情里的标签；拿不到就当没有——少一行标签不影响下载与打包。"""
+    raw = getattr(album, "tags", None)
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [str(tag).strip() for tag in raw if str(tag).strip()]
 
 
 def _author_text(raw: object) -> str:

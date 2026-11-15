@@ -97,6 +97,9 @@ DEFAULT_IMAGE_SEARCH_STRICT: Final = False
 COVER_WORDS: Final = frozenset({"封面", "cover"})
 # 命令末尾的「只看信息」词：`/jm 123456 简介` 只回标题作者页数标签，不下载
 INFO_WORDS: Final = frozenset({"简介", "信息", "详情", "info"})
+# 标签行最多显示几条：「简介」与下载完成摘要共用，本站标签动辄几十个，
+# 全塞进去会把结论行（耗时、保存路径）挤出平台的消息长度上限
+INFO_TAG_LIMIT: Final = 8
 # 搜图默认直连：上游对家用出口是放行的，反而经代理（机房/共享出口）更容易被 Cloudflare 弹挑战页
 DEFAULT_IMAGE_SEARCH_USE_PROXY: Final = False
 DEFAULT_IMAGE_SEARCH_PROXY: Final = ""

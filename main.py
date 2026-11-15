@@ -106,6 +106,7 @@ from .domain.constants import (
     RESUME_DIRNAME,
     RETRY_WORDS,
     HELP_WORDS,
+    INFO_TAG_LIMIT,
     SITE_WORDS,
     STATUS_WORDS,
     SEARCH_MAX_KEYWORD_LENGTH,
@@ -2159,8 +2160,8 @@ class ComicParserPlugin(Star):
     ) -> AsyncGenerator[MessageEventResult, None]:
         """只看信息：取作品元信息并回一段文字，不下载、不打包。
 
-        与「只取封面」并列：都是「先看一眼再决定要不要下」。页数与标签有多少条就写多少，
-        超长的标签列表截断并标省略号，避免一屏放不下。
+        与「只取封面」并列：都是「先看一眼再决定要不要下」。页数有多少写多少，
+        标签只列前几条并标省略号，避免一屏放不下。
         """
         use_reaction, _ = await self._begin_progress(event)
         work_dir = self.temp_root / "info" / f"{channel.name}-{comic_id}"
@@ -2188,9 +2189,7 @@ class ComicParserPlugin(Star):
         if meta.page_count:
             lines.append(f"页数：{meta.page_count}")
         if meta.tags:
-            shown = meta.tags[:8]
-            suffix = "…" if len(meta.tags) > len(shown) else ""
-            lines.append(f"标签：{'、'.join(shown)}{suffix}")
+            lines.append(self._tag_line(meta.tags))
         lines.append(f"ID：{comic_id}")
         lines.append(f"下载：/{channel.display_command} {comic_id}")
         if use_reaction:
@@ -2868,6 +2867,17 @@ class ComicParserPlugin(Star):
         )
         return "\n".join(lines)
 
+    @staticmethod
+    def _tag_line(tags: list[str]) -> str:
+        """标签行：只列前几条，超出上限标省略号。
+
+        「简介」与下载完成摘要共用这一套写法：标签多的本站动辄几十个，
+        全写出来会把消息挤过平台长度上限，反而看不到结论行。
+        """
+        shown = tags[:INFO_TAG_LIMIT]
+        suffix = "…" if len(tags) > len(shown) else ""
+        return f"标签：{'、'.join(shown)}{suffix}"
+
     def _format_outcome(self, outcome: DownloadOutcome) -> str:
         # 摘要里写明实际走的渠道：命令名只是入口，贴别的站点链接会把它带到对应站点
         channel = self.channels.get(outcome.meta.channel)
@@ -2875,6 +2885,8 @@ class ComicParserPlugin(Star):
         lines = [f"✅ {label} · {outcome.meta.display_title}"]
         if outcome.meta.author:
             lines.append(f"作者：{outcome.meta.author}")
+        if outcome.meta.tags:
+            lines.append(self._tag_line(outcome.meta.tags))
         count_line = f"图片：{outcome.image_count} 张"
         if outcome.failed_images:
             count_line += f"（{outcome.failed_images} 张失败）"

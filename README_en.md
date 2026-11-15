@@ -214,7 +214,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 |--------|------|---------|-------------|
 | Proxy (`proxy`) | string | empty | Used by any channel that enables "use proxy", and by the pre-download probe; empty falls back to AstrBot's own `http_proxy`, else direct |
 | Progress style (`progress_style`) | string | emoji | Reaction / text / off; falls back to text when the backend cannot react |
-| Send download summary (`show_result_summary`) | bool | true | Turn off to send the file only, without the title / author / image count / elapsed block |
+| Send download summary (`show_result_summary`) | bool | true | Turn off to send the file only, without the title / author / tags / image count / elapsed block |
 | Concurrent downloads (`max_concurrent_tasks`) | int | 1 | Global limit; extra requests queue and show the running comic's progress |
 | Per-comic timeout (`timeout`) | int | 1800 | Seconds per download attempt before it fails and retries |
 | Retry times (`retry_times`) | int | 2 | Retries after a failed download; 0 disables |
