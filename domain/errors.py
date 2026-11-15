@@ -41,6 +41,10 @@ class RankingUnsupportedError(RankingError):
     """渠道没有实现排行榜能力（或没有该时间窗的榜）。"""
 
 
+class ChapterError(PluginError):
+    """章节范围不合法或越界：message 直接展示给用户，说明这本有多少章、该怎么写。"""
+
+
 class DownloadError(PluginError):
     """下载过程失败，或下载不完整到无法继续打包。"""
 

@@ -635,6 +635,23 @@
           "max": 86400,
           "step": 600
         }
+      },
+      "chapter_default_range": {
+        "type": "string",
+        "description": "默认下载章节",
+        "hint": "不写「章节」范围时按这里下，例如 1-20 只下前 20 章、最新5 只下最后 5 章；留空表示整本。写法：3 / 1-20 / -20 / 100- / 最新5 / 全部",
+        "default": ""
+      },
+      "chapter_list_limit": {
+        "type": "int",
+        "description": "章节清单显示上限",
+        "hint": "命令里只写「章节」时列出的章节目录最多显示多少章，0 表示全部列出",
+        "default": 30,
+        "slider": {
+          "min": 0,
+          "max": 200,
+          "step": 10
+        }
       }
     }
   },

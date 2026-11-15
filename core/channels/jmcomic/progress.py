@@ -35,6 +35,8 @@ class DownloadSession:
     bytes_downloaded: int = 0
     failed: int = 0
     stop: threading.Event = field(default_factory=threading.Event)
+    # 只下这几章（1 基序号）；None 表示整本。由渠道在下载前算好，下载器按它过滤章节
+    chapter_indexes: frozenset[int] | None = None
 
     def state(self) -> ProgressState:
         """两个计数一起给：多章节本主计数是章节、次计数是页；单章本主计数就是页。"""
@@ -141,6 +143,33 @@ def progress_downloader_class(jmcomic: Any) -> type:
                 f"[{PLUGIN_NAME}] 开始下载 {getattr(album, 'id', '?')}："
                 f"{chapter_count} 章节 / {self._session.pages_total} 页"
             )
+
+        def do_filter(self, detail: Any) -> Any:
+            """只下挑中的章节：在逐章调度前把相册裁成选中的那几章。
+
+            整本下载（``chapter_indexes`` 为空）直接原样返回，行为与父类一致。
+            图片级的过滤不受影响——本渠道不按页筛。
+            """
+            wanted = self._session.chapter_indexes
+            album_cls = getattr(jmcomic, "JmAlbumDetail", None)
+            if wanted is None or album_cls is None or not isinstance(detail, album_cls):
+                return detail
+            # 按下标取，而不是遍历整本章节：没选中的章不必连 JmPhotoDetail 对象都建出来
+            photos = [
+                detail[position - 1]
+                for position in sorted(wanted)
+                if 0 < position <= len(detail)
+            ]
+            # 主计数与总页数都按「实际要下的这几章」重算，否则进度会显示整本的分母
+            self._session.chapters_total = len(photos)
+            pages = 0
+            for photo in photos:
+                try:
+                    pages += len(photo)
+                except TypeError:  # 章节对象异常不影响下载本身
+                    continue
+            self._session.pages_total = pages
+            return photos
 
         def before_photo(self, photo: Any) -> None:
             self._check_stop()

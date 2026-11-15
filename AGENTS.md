@@ -19,6 +19,7 @@
 
 核心能力：
 
+- **分章节下载（可选能力）**：多章节作品可以只下其中几章——命令末尾写「章节」先列目录，写「章节 1-20」只下这几章；渠道用类属性 `chapter_unit` 声明自己有章节，再实现 `fetch_chapters()` 与 `download(chapters=...)`，不实现也不影响整本下载
 - **按 ID / 链接下载整本**：一个渠道一条命令（`/jm <ID 或链接>`、`/nh <ID 或链接>`…），另有 `/comic <作品链接>` 按链接自动路由到渠道；**命令名只是入口别名**，命令后面贴的作品链接指向别的渠道时按链接走（`/jm` + nhentai 链接下的是 nhentai 那本）；渠道只负责取元信息与下载图片
 - **上层统一打包，按需加密**：任何渠道下载完都走同一套产物流程——`zip` / `pdf` / `long_img` / `none`；设置全局密码才加密（ZIP 用 AES、PDF 用 AES-256），设置了密码却缺少加密依赖时**失败关闭**，绝不静默产出未加密文件
 - **准入与调度**：会话白/黑名单、同会话防抖、全局并发上限、整本超时与重试
@@ -65,6 +66,7 @@ astrbot_plugin_comic_parser/
 │   ├── constants.py             # 常量与默认值
 │   ├── config.py                # 配置 → 强类型 PluginSettings（脏值兜底）
 │   ├── models.py                # ComicMeta / DownloadedComic / PackResult / SearchItem / SearchPage
+│   ├── chapters.py              # 章节范围解析（`1-20` / `最新5`）与章节清单数据
 │   └── errors.py                # PluginError 族（消息面向用户）
 ├── utils/                       # 通用工具层
 │   ├── filename.py              # 文件名清洗与打包基名
@@ -329,6 +331,7 @@ class MyPlugin(Star):
 | `delivery.upload_to_group_file` / `delivery.group_file_folder` / `delivery.group_file_create_folder` | bool / string / bool | 群文件交付（`core/group_file.py`） |
 | `download.progress_style` / `download.show_result_summary` | string / bool | 进度与结果提示（`main.py`） |
 | `download.max_concurrent_tasks` / `download.timeout` / `download.retry_times` | int | 调度（`core/task.py`） |
+| `download.chapter_default_range` / `download.chapter_list_limit` | string / int | 分章节：默认范围与目录显示条数（`domain/chapters.py`、`main.py`） |
 | `network.proxy` | string | 渠道共用代理地址（渠道请求、测速、搜索自动代理重试都用它） |
 | `search.enable` / `search.timeout` / `search.page_size` / `search.aggregate_limit` | bool / int / int / int | 搜索开关与节奏（`core/search.py`） |
 | `search.cache_ttl` / `search.cooldown` | int / int | 结果缓存与会话冷却（`core/search.py`） |
@@ -428,6 +431,8 @@ async def on_message(
 | `/comic sou <关键词>` | 全部（受白名单/黑名单约束） | 并发搜索所有支持搜索的渠道；每渠道单独超时，慢渠道跳过 |
 | `/jm sou <关键词>`（渠道命令同理） | 全部（受白名单/黑名单约束） | 只搜该渠道；`sou` 也认 `search`、`搜索`、`搜` |
 | `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本禁漫天堂作品 |
+| `/<渠道命令> <ID 或链接> 章节`（也认 `章`、`chapter`、`ch`） | 全部（受白名单/黑名单约束） | 列出章节目录（序号 + 标题 + 页数）；不分章节的渠道直接说明 |
+| `/<渠道命令> <ID 或链接> 章节 <范围>` | 全部（受白名单/黑名单约束） | 只下指定章节：`3`、`1-20`、`-20`、`100-`、`最新5`、`1-5,9` |
 | `/nh <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
 | `/comic help`（也认 `/漫画帮助`、`/comichelp`） | 全部 | 查看可用渠道、打包格式、密码与进度提示设置 |
 | `/comic site`（也认 `/comic sites`、`/漫画网站`、`/comicsites`） | 全部 | 列出各渠道官网与作品页链接示意（`<ID>` 占位），方便到站内找作品 ID |

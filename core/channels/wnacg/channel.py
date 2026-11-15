@@ -21,6 +21,9 @@ from typing import Any, ClassVar
 from astrbot.api import logger
 
 from ....domain import (
+    ChapterEntry,
+    ChapterError,
+    ChapterSpec,
     ChannelError,
     ComicMeta,
     DownloadedComic,
@@ -32,6 +35,7 @@ from ....domain import (
     SearchItem,
     SearchPage,
     SearchQuery,
+    select_entries,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
@@ -75,6 +79,14 @@ from .site import (
 _BOARD_PERIOD = {"week": "week", "month": "month", "all": "total"}
 
 
+def _chapter_entries(album: AlbumPage) -> list[ChapterEntry]:
+    """把合辑的子相册列表收敛成 1 基序号 + 标题；单本相册返回空清单。"""
+    return [
+        ChapterEntry(index=position, title=title)
+        for position, (_, title) in enumerate(album.chapter_ids, start=1)
+    ]
+
+
 class WnacgChannel(BaseChannel):
     """按作品/相册 ID 下载整本紳士漫畫作品。"""
 
@@ -87,6 +99,8 @@ class WnacgChannel(BaseChannel):
     # 大陆线路实测可直连，默认直连；超时或被墙时由用户自己打开「使用代理」
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("aiohttp",)
+    # 只有「合辑」才分章节（每个章节是一个子相册）；单本相册没有章节，按整本下
+    chapter_unit: ClassVar[str] = "章"
 
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
         super().__init__(options, settings)
@@ -132,6 +146,20 @@ class WnacgChannel(BaseChannel):
         self._albums[comic_id] = album
         return self._build_meta(comic_id, album)
 
+    # ---- 章节 ----
+    async def fetch_chapters(self, comic_id: str) -> list[ChapterEntry]:
+        """列出合辑的章节。单本相册没有章节可分，直接报清楚而不是回一份空清单。"""
+        album = self._albums.get(comic_id)
+        if album is None:
+            async with self._site() as site:
+                album = await self._load_album(site, comic_id)
+        entries = _chapter_entries(album)
+        if not entries:
+            raise ChapterError(
+                "这本是单本相册、本身不分章节；去掉「章节」直接下载整本即可"
+            )
+        return entries
+
     # ---- 下载 ----
     async def download(
         self,
@@ -139,8 +167,10 @@ class WnacgChannel(BaseChannel):
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
         cancel: CancelToken | None = None,
+        chapters: ChapterSpec | None = None,
     ) -> DownloadedComic:
         album = self._albums.pop(comic_id, None)
+        chapters_label = ""
         session = DownloadSession(comic_id=comic_id, cancel=cancel)
         register_session(session)
         totals = DownloadStats()
@@ -155,6 +185,26 @@ class WnacgChannel(BaseChannel):
 
                 # 单本相册：整本的图址都在自己的图址页；合辑：每个章节一个子相册
                 targets = album.chapter_ids or [(comic_id, album.title)]
+                if chapters is not None:
+                    # 章节筛选在取图址页之前完成：越界立刻报错，也不白抓几百章的页面
+                    entries = _chapter_entries(album)
+                    if not entries:
+                        raise ChapterError(
+                            "这本是单本相册、本身不分章节；去掉「章节」直接下载整本即可"
+                        )
+                    wanted = {
+                        entry.index for entry in select_entries(entries, chapters)
+                    }
+                    targets = [
+                        target
+                        for position, target in enumerate(targets, start=1)
+                        if position in wanted
+                    ]
+                    chapters_label = chapters.label(len(entries))
+                    logger.info(
+                        f"[{PLUGIN_NAME}] wnacg 只下 {comic_id} 的 {chapters_label}"
+                        f"（共 {len(entries)} 章）"
+                    )
                 logger.info(
                     f"[{PLUGIN_NAME}] 开始下载 wnacg {comic_id}：{len(targets)} 个相册，"
                     f"网络 {self.proxy_summary()}"
@@ -211,6 +261,7 @@ class WnacgChannel(BaseChannel):
             source_dir=work_dir,
             image_count=totals.success,
             failed_images=totals.failed,
+            chapters_label=chapters_label,
         )
 
     # ---- 封面 ----

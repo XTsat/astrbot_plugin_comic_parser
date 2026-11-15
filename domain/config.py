@@ -9,8 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from .chapters import ChapterSpec
 from .constants import (
     COVER_CENSOR_STYLES,
+    DEFAULT_CHAPTER_LIST_LIMIT,
+    DEFAULT_CHAPTER_RANGE,
     DEFAULT_CLEAN_TEMP_ON_START,
     DEFAULT_COVER_CAPTION,
     DEFAULT_COVER_CENSOR,
@@ -83,6 +86,7 @@ from .constants import (
     RANKING_MAX_PAGES_LIMIT,
     RANKING_OUTPUTS,
 )
+from .errors import ChapterError
 
 # template_list 里每条渠道配置都带这个 key，标记它属于哪个渠道模板
 TEMPLATE_KEY = "__template_key"
@@ -167,6 +171,9 @@ class PluginSettings:
     download_retry_times: int = DEFAULT_RETRY_TIMES
     segment_timeout: int = DEFAULT_SEGMENT_TIMEOUT
     resume_ttl: int = DEFAULT_RESUME_TTL
+    # 章节：不写范围时默认下哪几章（空 = 整本），以及列章节目录时最多显示多少条
+    chapter_default_range: str = DEFAULT_CHAPTER_RANGE
+    chapter_list_limit: int = DEFAULT_CHAPTER_LIST_LIMIT
     # 下载前测速（探测）：独立成一组，四项都可调
     probe_enabled: bool = DEFAULT_PROBE_ENABLED
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
@@ -313,6 +320,17 @@ class PluginSettings:
         if model_preset not in NSFW_MODEL_PRESETS:
             model_preset = DEFAULT_NSFW_MODEL_PRESET
 
+        # 章节默认范围：配错了按「整本」走，不让一处笔误把所有下载卡死；
+        # 写到无法解析时用户还能靠命令里的「章节 1-20」临时指定
+        chapter_default_range = _as_str(
+            download.get("chapter_default_range"), DEFAULT_CHAPTER_RANGE
+        )
+        if chapter_default_range:
+            try:
+                ChapterSpec.parse(chapter_default_range)
+            except ChapterError:
+                chapter_default_range = DEFAULT_CHAPTER_RANGE
+
         filename_template = _as_str(
             packing.get("filename_template"), DEFAULT_FILENAME_TEMPLATE
         )
@@ -380,6 +398,12 @@ class PluginSettings:
             ),
             resume_ttl=_as_int(
                 download.get("resume_ttl"), DEFAULT_RESUME_TTL, minimum=0
+            ),
+            chapter_default_range=chapter_default_range,
+            chapter_list_limit=_as_int(
+                download.get("chapter_list_limit"),
+                DEFAULT_CHAPTER_LIST_LIMIT,
+                minimum=0,
             ),
             # 「下载前测速」搬进 probe 分组；老配置的 download.domain_race 继续认，
             # 否则升级后用户原本关掉的测速会悄悄变回开启

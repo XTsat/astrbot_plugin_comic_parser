@@ -156,6 +156,8 @@ class DownloadedComic:
     source_dir: Path
     image_count: int
     failed_images: int = 0
+    # 实际下到的章节范围（如「第 1–20 章」）；整本下载留空，摘要里据此少写一行
+    chapters_label: str = ""
 
 
 @dataclass(slots=True)

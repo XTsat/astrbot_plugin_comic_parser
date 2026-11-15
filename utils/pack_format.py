@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..domain.constants import (
+    CHAPTER_WORDS,
     COVER_WORDS,
     INFO_WORDS,
     PACK_FORMAT_ALIASES,
@@ -46,6 +47,31 @@ def split_cover_word(text: str) -> tuple[str, bool]:
 def split_info_word(text: str) -> tuple[str, bool]:
     """切出末尾的「简介 / 信息」词，表示这次只要作品信息、不下载。"""
     return _split_trailing_word(text, INFO_WORDS)
+
+
+def split_chapter_directive(text: str) -> tuple[str, str | None, bool]:
+    """切出末尾的章节指令，返回 `(剩余参数, 范围写法或 None, 是否只要清单)`。
+
+    两种写法：
+
+    - `/jm 123456 章节 1-20` → 只下第 1-20 章，返回范围写法交给 `ChapterSpec.parse`
+    - `/jm 123456 章节` → 只列出章节目录，``want_list`` 为真
+
+    与格式词同一套「末尾优先」规则：只在「有前文」时才切，单独一个 `/jm 章节` 里没有 ID，
+    切掉只会让用户看到「没给 ID」，所以原样留给 ID 解析去报错。
+    """
+    body, sep, tail = text.rpartition(" ")
+    if not sep:
+        return text, None, False
+    if tail.strip().lower() in CHAPTER_WORDS:
+        return body.strip(), None, True
+
+    # 末词是范围时，再看它前面那个词是不是「章节」——范围本身不再允许带空格（`1 - 20` 里的
+    # 空格已在解析阶段抹掉），所以只回看一个词。
+    head, sep, keyword = body.rpartition(" ")
+    if not sep or keyword.strip().lower() not in CHAPTER_WORDS:
+        return text, None, False
+    return head.strip(), tail.strip(), False
 
 
 def describe_pack_format(fmt: str) -> str:

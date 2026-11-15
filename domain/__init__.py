@@ -1,8 +1,10 @@
 """数据定义层：常量、配置、模型与错误。本层不依赖插件内其它模块。"""
 
+from .chapters import ChapterEntry, ChapterSpec, select_entries
 from .config import PluginSettings
 from .constants import PACK_FORMATS, PLUGIN_NAME
 from .errors import (
+    ChapterError,
     ChannelError,
     CoverCensorError,
     ChannelUnavailableError,
@@ -32,6 +34,9 @@ from .models import (
 )
 
 __all__ = [
+    "ChapterEntry",
+    "ChapterError",
+    "ChapterSpec",
     "ChannelError",
     "CoverCensorError",
     "ChannelUnavailableError",
@@ -59,4 +64,5 @@ __all__ = [
     "SearchQueryError",
     "SearchTimeoutError",
     "SearchUnsupportedError",
+    "select_entries",
 ]

@@ -97,6 +97,16 @@ DEFAULT_IMAGE_SEARCH_STRICT: Final = False
 COVER_WORDS: Final = frozenset({"封面", "cover"})
 # 命令末尾的「只看信息」词：`/jm 123456 简介` 只回标题作者页数标签，不下载
 INFO_WORDS: Final = frozenset({"简介", "信息", "详情", "info"})
+# 命令末尾的「章节」词：`/jm 123456 章节 1-20` 只下这几章，单独一个「章节」则列出章节目录。
+# 与格式词同一套「末尾优先」切法，所以 `章节` 与范围写在一个尾巴里也认
+CHAPTER_WORDS: Final = frozenset({"章节", "章", "chapter", "chapters", "ch"})
+# 不写章节范围时的默认范围（配置项 chapter_default_range）：空串 = 整本
+DEFAULT_CHAPTER_RANGE: Final = ""
+# 列章节目录时最多显示多少章（配置项 chapter_list_limit），0 = 全列
+DEFAULT_CHAPTER_LIST_LIMIT: Final = 30
+# 章节目录里单条标题的字数上限：章节名常常是「第12话 某个特别长的副标题…」，
+# 不截断会把一条目录撑成两行，几十章下来超过平台消息长度上限
+CHAPTER_TITLE_LIMIT: Final = 30
 # 标签行最多显示几条：「简介」与下载完成摘要共用，本站标签动辄几十个，
 # 全塞进去会把结论行（耗时、保存路径）挤出平台的消息长度上限
 INFO_TAG_LIMIT: Final = 8

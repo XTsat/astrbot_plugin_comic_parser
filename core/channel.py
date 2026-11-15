@@ -23,6 +23,9 @@ from astrbot.api import logger
 
 from ..domain import (
     PLUGIN_NAME,
+    ChapterEntry,
+    ChapterError,
+    ChapterSpec,
     ChannelUnavailableError,
     ComicMeta,
     DownloadError,
@@ -145,6 +148,9 @@ class BaseChannel(ABC):
     search_timeout_hint: ClassVar[str] = ""
     # 支持的榜单窗口（见 domain/constants.py 的 RANKING_BOARDS）；空元组表示本渠道没有榜单
     ranking_boards: ClassVar[tuple[str, ...]] = ()
+    # 章节单位（如「章」）；空串 = 本渠道的作品不分章节，整本就是一份图。
+    # 连载站（JM / 哔咔 / 绅士漫画合辑）填上它并实现 fetch_chapters，才能按章节下载
+    chapter_unit: ClassVar[str] = ""
 
     def __init__(self, options: Mapping[str, Any], settings: PluginSettings) -> None:
         self.options: dict[str, Any] = dict(options)
@@ -394,6 +400,26 @@ class BaseChannel(ABC):
         """
         raise RankingUnsupportedError(f"{self.display_name} 暂不支持排行榜")
 
+    # ---- 章节：可选能力，默认不支持 ----
+    @property
+    def supports_chapters(self) -> bool:
+        """能不能按章节下载。
+
+        与搜索一样用「是否覆盖了基类方法」判定：只声明 ``chapter_unit`` 而不实现
+        ``fetch_chapters`` 的渠道拿不到章节清单，等于没法按章节选，直接算不支持。
+        """
+        if not self.chapter_unit:
+            return False
+        return type(self).fetch_chapters is not BaseChannel.fetch_chapters
+
+    async def fetch_chapters(self, comic_id: str) -> list[ChapterEntry]:
+        """列出这本作品的章节清单（1 基序号 + 标题 + 页数），供「章节」命令展示与选择。
+
+        ``ChapterEntry.index`` 必须从 1 连续编号：用户写「章节 3」时指的就是清单里的第 3 条，
+        渠道站点自己的 order 有跳号时由渠道换算。默认抛错，不分章节的渠道不必写 stub。
+        """
+        raise ChapterError(f"{self.display_name} 不分章节，没有章节清单可看")
+
     # ---- 子类必须实现 ----
     @abstractmethod
     def normalize_id(self, raw: str) -> str:
@@ -419,11 +445,17 @@ class BaseChannel(ABC):
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
         cancel: CancelToken | None = None,
+        chapters: ChapterSpec | None = None,
     ) -> DownloadedComic:
-        """下载整本漫画到 work_dir（或它的子目录）并返回落盘结果。
+        """下载漫画到 work_dir（或它的子目录）并返回落盘结果。
 
         ``cancel`` 是本次任务的取消信号：任务超时或被放弃时置位，下载应在下一个检查点
         停手（线程池里的渠道尤其需要，asyncio 取消打不断它们）。
+
+        ``chapters`` 为空表示整本。支持章节的渠道自己用 :func:`domain.select_entries`
+        （或 ``ChapterSpec.indices``）在自己的章节清单上筛，并把实际挑中的范围写进
+        ``DownloadedComic.chapters_label``；不分章节的渠道忽略它即可，越界报错由
+        命令层在调用前挡住。
         """
 
     def cancel_downloads(self) -> list[str]:

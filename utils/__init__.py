@@ -5,7 +5,11 @@ from .files import find_existing_image, write_image_atomically
 from .font import cjk_available, load_font
 from .format import format_size, truncate_keep_tail
 from .link import host_matches, split_link
-from .pack_format import describe_pack_format, split_pack_format
+from .pack_format import (
+    describe_pack_format,
+    split_chapter_directive,
+    split_pack_format,
+)
 from .title import AI_MARK_BADGE, has_ai_mark
 
 __all__ = [
@@ -20,6 +24,7 @@ __all__ = [
     "load_font",
     "resolve_template",
     "sanitize_filename",
+    "split_chapter_directive",
     "split_link",
     "split_pack_format",
     "truncate_keep_tail",

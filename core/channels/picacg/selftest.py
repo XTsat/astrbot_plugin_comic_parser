@@ -68,6 +68,8 @@ ProgressState = progress_module.ProgressState
 
 PicacgChannel = picacg_channel.PicacgChannel
 PluginSettings = domain_module.PluginSettings
+ChapterError = domain_module.ChapterError
+ChapterSpec = domain_module.ChapterSpec
 IMAGE_SUFFIXES = domain_constants.IMAGE_SUFFIXES
 API_KEY = picacg_constants.API_KEY
 DEFAULT_SECRET_KEY = picacg_constants.DEFAULT_SECRET_KEY
@@ -272,6 +274,17 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, b"\xff\xd8\xff\xe0" + b"\x00" * 1024, "image/jpeg")
 
 
+def _raises_chapter_error(raw: str) -> bool:
+    """确认这种写法会被拒绝（空范围、乱写、0 章都会被 `ChapterSpec.parse` 挡下）。"""
+    for bad in (raw, "abc", "0", "最新"):
+        try:
+            ChapterSpec.parse(bad)
+        except ChapterError:
+            continue
+        return False
+    return True
+
+
 def _start_server() -> tuple[ThreadingHTTPServer, int]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     port = server.server_address[1]
@@ -340,6 +353,71 @@ async def _run() -> int:
               len(list(comic.source_dir.iterdir())) == 3,
               str(len(list(comic.source_dir.iterdir()))))
 
+        # ---- 分章节：范围解析 ----
+        check(
+            "章节范围解析：区间/倒序/前N/最新/多段",
+            ChapterSpec.parse("1-2").indices(10) == [1, 2]
+            and ChapterSpec.parse("2-1").indices(10) == [1, 2]
+            and ChapterSpec.parse("-3").indices(10) == [1, 2, 3]
+            and ChapterSpec.parse("最新2").indices(10) == [9, 10]
+            and ChapterSpec.parse("1,3、5-6").indices(10) == [1, 3, 5, 6],
+            "",
+        )
+        check(
+            "章节范围写坏了给出可读提示",
+            _raises_chapter_error(""),
+            "",
+        )
+
+        # ---- 分章节：渠道真的只下挑中的章 ----
+        entries = await channel.fetch_chapters(COMIC_ID)
+        check(
+            "章节目录按 1 基序号给出标题",
+            [(entry.index, entry.title) for entry in entries]
+            == [(1, "第一话/序章"), (2, "第二话"), (3, "第三话")],
+            str([(entry.index, entry.title) for entry in entries]),
+        )
+        check("渠道声明支持分章节", channel.supports_chapters and channel.chapter_unit == "章")
+
+        partial_root = work_dir / "partial"
+        partial = await channel.download(
+            COMIC_ID, partial_root, chapters=ChapterSpec.parse("2")
+        )
+        partial_dirs = sorted(path.name for path in partial.source_dir.iterdir())
+        partial_images = [
+            path
+            for path in partial.source_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+        ]
+        check(
+            "只下第 2 章：只落这一章的图",
+            partial_dirs == ["002_第二话"]
+            and len(partial_images) == 1
+            and partial_images[0].parent.name == "002_第二话"
+            and partial.image_count == 1
+            and partial.failed_images == 1,
+            f"{partial_dirs} · {[p.name for p in partial_images]} · "
+            f"成功 {partial.image_count} 张 / 失败 {partial.failed_images} 张",
+        )
+        check(
+            "摘要里写明实际下了哪几章",
+            partial.chapters_label == "第 2 章",
+            partial.chapters_label,
+        )
+
+        out_of_range = ""
+        try:
+            await channel.download(
+                COMIC_ID, work_dir / "oob", chapters=ChapterSpec.parse("9-20")
+            )
+        except ChapterError as exc:
+            out_of_range = str(exc)
+        check(
+            "越界章节在下图前就报错，并说清这本有几章",
+            "只有 3 章" in out_of_range,
+            out_of_range,
+        )
+
         # ---- 协议层校验 ----
         check("所有请求签名都被假站点验过", _Handler.stats["bad_signature"] == 0,
               f"signed={_Handler.stats['signed']} bad={_Handler.stats['bad_signature']}")
@@ -365,6 +443,24 @@ async def _run() -> int:
             if outcome.pack.output_path and outcome.pack.output_path.exists()
             else []
         )
+        chapter_task = task_module.DownloadTask(
+            channel, settings, work_dir / "temp2", work_dir / "save2"
+        )
+        chapter_outcome = await chapter_task.run(
+            COMIC_ID, chapters=ChapterSpec.parse("3")
+        )
+        chapter_members = (
+            zipfile.ZipFile(chapter_outcome.pack.output_path).namelist()
+            if chapter_outcome.pack.output_path
+            and chapter_outcome.pack.output_path.exists()
+            else []
+        )
+        check(
+            "任务层把章节范围传到渠道（只打包挑中的那一章）",
+            chapter_outcome.chapters_label == "第 3 章" and len(chapter_members) == 1,
+            f"{chapter_outcome.chapters_label} · {chapter_members}",
+        )
+
         check(
             "端到端打包出可用的 ZIP",
             outcome.pack.success and len(members) == EXPECTED_IMAGES - EXPECTED_FAILED,

@@ -15,6 +15,8 @@ from typing import Any, ClassVar
 from astrbot.api import logger
 
 from ....domain import (
+    ChapterEntry,
+    ChapterSpec,
     ChannelError,
     ComicMeta,
     DownloadCancelled,
@@ -26,6 +28,7 @@ from ....domain import (
     SearchItem,
     SearchPage,
     SearchQuery,
+    select_entries,
 )
 from ....domain.constants import (
     DRAIN_POLL_INTERVAL,
@@ -138,6 +141,22 @@ def _count_downloaded_images(downloader: Any, source_dir: Path) -> int:
     )
 
 
+def _chapter_entries(album: Any) -> list[ChapterEntry]:
+    """把 jmcomic 的相册详情收敛成 1 基序号 + 标题。
+
+    直接读 ``episode_list``（jmcomic 已按 photo_index 升序排好，与逐章下载的顺序一致）：
+    逐条构造 JmPhotoDetail 只会多花一次对象创建，页数又得联网才拿得到。
+    """
+    episodes = getattr(album, "episode_list", ()) or ()
+    entries: list[ChapterEntry] = []
+    for position, episode in enumerate(episodes, start=1):
+        title = str(episode[2]).strip() if len(episode) > 2 else ""
+        entries.append(
+            ChapterEntry(index=position, title=title or f"第{position}话")
+        )
+    return entries
+
+
 class JMComicChannel(BaseChannel):
     name: ClassVar[str] = "jmcomic"
     command: ClassVar[str] = "jmcomic"
@@ -147,6 +166,8 @@ class JMComicChannel(BaseChannel):
     link_template: ClassVar[str] = "https://18comic.vip/album/<ID>"
     default_use_proxy: ClassVar[bool] = False
     requires: ClassVar[tuple[str, ...]] = ("jmcomic",)
+    # 相册由若干「章节」（photo）组成，连载本动辄几百章，因此支持按章节下载
+    chapter_unit: ClassVar[str] = "章"
     # 直连搜索经常被上游限速；提示里直接给出可操作的开关，而不是只说超时
     search_timeout_hint: ClassVar[str] = (
         "JM 直连搜索可能很慢，可在 JM 渠道配置里打开「使用代理」，"
@@ -200,8 +221,9 @@ class JMComicChannel(BaseChannel):
         return await asyncio.to_thread(self._fetch_meta_sync, jmcomic, option, comic_id)
 
     def _fetch_meta_sync(self, jmcomic: Any, option: Any, comic_id: str) -> ComicMeta:
-        client = option.new_jm_client()
-        album = client.get_album_detail(jmcomic.JmcomicText.parse_to_jm_id(comic_id))
+        album = self._fetch_album_sync(jmcomic, option, comic_id)
+        # 章节筛选要用同一份章节清单：留在实例上让 download 直接取，省一次相册详情请求
+        self._album_cache()[comic_id] = album
         return ComicMeta(
             channel=self.name,
             comic_id=str(album.id),
@@ -266,6 +288,7 @@ class JMComicChannel(BaseChannel):
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
         cancel: CancelToken | None = None,
+        chapters: ChapterSpec | None = None,
     ) -> DownloadedComic:
         jmcomic = import_jmcomic()
         if jmcomic is None:
@@ -274,6 +297,9 @@ class JMComicChannel(BaseChannel):
         domains = await self._ranked_domains(jmcomic, comic_id, work_dir)
         option = await asyncio.to_thread(
             build_option, self, jmcomic, work_dir, domains=domains
+        )
+        chapter_indexes, chapters_label = await self._resolve_chapters(
+            jmcomic, option, comic_id, chapters
         )
         loop = asyncio.get_running_loop()
 
@@ -289,6 +315,8 @@ class JMComicChannel(BaseChannel):
                 pass
 
         session = DownloadSession(album_id=comic_id)
+        # 章节筛选交给下载器的 do_filter：它在逐章调度前拿到整份章节清单
+        session.chapter_indexes = chapter_indexes
         if cancel is not None:
             # 任务到点暂停/放弃时靠它叫停线程池里的下载
             session.stop = cancel.event
@@ -299,7 +327,14 @@ class JMComicChannel(BaseChannel):
                 # 取消后上层才能靠 drain() 等它真正停手（to_thread 把 Future 藏起来了）。
                 # shield 让「取消协程」立刻返回，而线程照旧跑完自己这一轮再停。
                 future = asyncio.get_running_loop().run_in_executor(
-                    None, self._download_sync, jmcomic, option, comic_id, report, session
+                    None,
+                    self._download_sync,
+                    jmcomic,
+                    option,
+                    comic_id,
+                    report,
+                    session,
+                    chapters_label,
                 )
                 self._live_downloads()[cancel] = future
                 future.add_done_callback(
@@ -308,6 +343,67 @@ class JMComicChannel(BaseChannel):
                 return await asyncio.shield(future)
         finally:
             unregister_session(session)
+
+    # ---- 章节 ----
+    def _album_cache(self) -> dict[str, Any]:
+        """fetch_meta 解析过的相册详情（按作品 ID 存），download 与章节清单共用。"""
+        cache = getattr(self, "_albums", None)
+        if cache is None:
+            cache = {}
+            self._albums = cache
+        return cache
+
+    def _fetch_album_sync(self, jmcomic: Any, option: Any, comic_id: str) -> Any:
+        """取相册详情（含章节清单）；同步接口，调用方负责丢进线程。"""
+        client = option.new_jm_client()
+        return client.get_album_detail(jmcomic.JmcomicText.parse_to_jm_id(comic_id))
+
+    async def fetch_chapters(self, comic_id: str) -> list[ChapterEntry]:
+        """列出相册的章节，供「章节」命令展示与按章节下载时挑序。
+
+        序号按章节在相册里的自然顺序编号（jmcomic 已按 ``photo_index`` 升序排好），
+        用户写「章节 3」指的就是清单里的第 3 条，与站内的章节号无关。
+        """
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            raise ChannelError("缺少运行依赖，暂时用不了，请联系管理员安装后重载插件")
+        album = self._album_cache().pop(comic_id, None)
+        if album is None:
+            # 只取章节清单、不落盘，base_dir 随便给一个临时目录即可
+            option = await asyncio.to_thread(
+                build_option, self, jmcomic, Path(tempfile.gettempdir())
+            )
+            album = await asyncio.to_thread(
+                self._fetch_album_sync, jmcomic, option, comic_id
+            )
+        return _chapter_entries(album)
+
+    async def _resolve_chapters(
+        self,
+        jmcomic: Any,
+        option: Any,
+        comic_id: str,
+        chapters: ChapterSpec | None,
+    ) -> tuple[frozenset[int] | None, str]:
+        """把用户写的范围换算成本次的章节序号集合；整本下载返回 (None, "")。
+
+        越界在这里就报错（``select_entries``），不会等下载线程跑起来才发现挑不出章节。
+        """
+        if chapters is None:
+            return None, ""
+        album = self._album_cache().pop(comic_id, None)
+        if album is None:
+            album = await asyncio.to_thread(
+                self._fetch_album_sync, jmcomic, option, comic_id
+            )
+        entries = _chapter_entries(album)
+        picked = select_entries(entries, chapters)
+        label = chapters.label(len(entries))
+        logger.info(
+            f"[{PLUGIN_NAME}] {self.display_name} 只下 {comic_id} 的 {label}"
+            f"（共 {len(entries)} 章）"
+        )
+        return frozenset(entry.index for entry in picked), label
 
     # ---- 封面 ----
     async def fetch_cover(self, comic_id: str) -> bytes | None:
@@ -802,6 +898,7 @@ class JMComicChannel(BaseChannel):
         comic_id: str,
         report: Any,
         session: DownloadSession,
+        chapters_label: str = "",
     ) -> DownloadedComic:
         album_id = jmcomic.JmcomicText.parse_to_jm_id(comic_id)
         downloader = progress_downloader_class(jmcomic)(option, report, session)
@@ -858,6 +955,7 @@ class JMComicChannel(BaseChannel):
             image_count=image_count,
             # 章节级失败意味着该章图片一张都没拿到，同样计入「失败」让用户知道产物不完整
             failed_images=failed_images + failed_photos,
+            chapters_label=chapters_label,
         )
 
 

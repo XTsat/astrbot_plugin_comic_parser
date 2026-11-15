@@ -17,6 +17,8 @@ from typing import Any, ClassVar
 from astrbot.api import logger
 
 from ....domain import (
+    ChapterEntry,
+    ChapterSpec,
     ChannelError,
     ComicMeta,
     DownloadError,
@@ -28,6 +30,7 @@ from ....domain import (
     SearchItem,
     SearchPage,
     SearchQuery,
+    select_entries,
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, sanitize_filename, split_link
@@ -74,6 +77,21 @@ def _image_suffix(url: str) -> str:
     return suffix
 
 
+def _chapter_entries(episodes: list[dict[str, Any]]) -> list[ChapterEntry]:
+    """把哔咔的章节列表收敛成 1 基序号 + 标题 + 页数，序号按列表位置重排。"""
+    entries: list[ChapterEntry] = []
+    for position, episode in enumerate(episodes, start=1):
+        order = _as_int(episode.get("order"), position)
+        entries.append(
+            ChapterEntry(
+                index=position,
+                title=str(episode.get("title") or f"第{order}话"),
+                pages=_as_int(episode.get("pagesCount"), 0),
+            )
+        )
+    return entries
+
+
 class PicacgChannel(BaseChannel):
     name: ClassVar[str] = "picacg"
     command: ClassVar[str] = "picacg"
@@ -84,6 +102,8 @@ class PicacgChannel(BaseChannel):
     link_template: ClassVar[str] = "https://manhuapica.com/comic/<ID>"
     default_use_proxy: ClassVar[bool] = True
     requires: ClassVar[tuple[str, ...]] = ("httpx",)
+    # 哔咔按「话」连载：每本漫画由若干章节组成，章节特别多时可以只下其中几话
+    chapter_unit: ClassVar[str] = "章"
 
     @classmethod
     def default_options(cls) -> dict[str, Any]:
@@ -163,6 +183,17 @@ class PicacgChannel(BaseChannel):
         async with self._session() as client:
             comic = await client.fetch_comic(comic_id)
         return self._meta(comic_id, comic)
+
+    # ---- 章节 ----
+    async def fetch_chapters(self, comic_id: str) -> list[ChapterEntry]:
+        """列出这本漫画的章节，供「章节」命令展示与按章节下载时挑序。
+
+        上游的 ``order`` 会跳号（下架/合并的章节留下空位），用户写的「第 3 章」指的是清单里的
+        第 3 条，所以序号一律按列表位置重排成 1..N，原始 order 只用来取图片清单。
+        """
+        async with self._session() as client:
+            episodes = await client.fetch_episodes(comic_id)
+        return _chapter_entries(episodes)
 
     # ---- 搜索 ----
     async def search(
@@ -336,13 +367,32 @@ class PicacgChannel(BaseChannel):
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
         cancel: CancelToken | None = None,
+        chapters: ChapterSpec | None = None,
     ) -> DownloadedComic:
         started = time.monotonic()
+        chapters_label = ""
         async with self._session() as client:
             comic = await client.fetch_comic(comic_id)
             episodes = await client.fetch_episodes(comic_id)
             if not episodes:
                 raise DownloadError("哔咔没有返回任何章节，可能这本漫画已下架或需要付费解锁")
+
+            # 章节筛选在做任何图片请求之前完成：越界能立刻告诉用户，也不白下几百章
+            if chapters is not None:
+                entries = _chapter_entries(episodes)
+                wanted = {
+                    entry.index for entry in select_entries(entries, chapters)
+                }
+                episodes = [
+                    episode
+                    for position, episode in enumerate(episodes, start=1)
+                    if position in wanted
+                ]
+                chapters_label = chapters.label(len(entries))
+                logger.info(
+                    f"[{PLUGIN_NAME}] 哔咔只下 {comic_id} 的 {chapters_label}"
+                    f"（共 {len(entries)} 章）"
+                )
 
             plans = await self._plan_episodes(client, comic_id, episodes)
             total = sum(len(urls) for _, urls in plans)
@@ -374,6 +424,7 @@ class PicacgChannel(BaseChannel):
             source_dir=root,
             image_count=done,
             failed_images=failed,
+            chapters_label=chapters_label,
         )
 
     async def _plan_episodes(

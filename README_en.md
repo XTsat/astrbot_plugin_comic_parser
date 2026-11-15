@@ -14,6 +14,7 @@
 - **Find a work from a screenshot**: `/comic 搜图` (also `图搜`, `img`, `以图搜`; a bare image with no argument works too) turns a screenshot into a work, and every hit comes with a ready-to-send download command (`/nh 512345`, `/eh <gid>-<token>`). When a work exists in several languages only the Chinese version is listed, and hits under 45% similarity are hidden. Hits also enter the session list, so `/comic 1` downloads the first one
 - **Rankings**: `/comic 排行` collects the leaderboards of every channel at once, `/jm 排行` shows one channel only; pick daily / weekly / monthly / all-time, and each channel uses its own window and falls back to the nearest one when that window is missing, saying so in the reply. Hits are downloadable by number and page through the same way as search. Overlong serials are filtered out by default (300 pages and 10 chapters, both configurable, 0 disables either cap); fetched ranks are buffered locally and filtered only when a page is assembled, so dropped entries and the leftover tail of a page stay in the buffer and the next page continues from them (another upstream block is fetched only when a page cannot be filled); the reply says how many were skipped
 - **Rankings as an image** (optional): render one page of a leaderboard as a card (cover grid, rank badges, title/author); the all-channel board (`/comic 排行`) puts every platform into **one image** with ranks continuing across sections, while a single-channel board sends one card per page. The covers follow the "Censor the cover" switch and are censored one by one before the card is composed — with no detection available only those covers are censored whole, so ranks and titles stay readable
+- **Download only some chapters**: serialized works can run to hundreds of chapters. `/jm <ID> 章节` lists the chapter table first, then `/jm <ID> 章节 1-20` downloads just those (also `3`, `100-`, `最新5`, `1-5,9`). Set a default range in "Downloaded chapters by default" to apply it whenever a command does not name chapters
 - **Multiple channels**: JM, nhentai, PicaACG, Hanime1, WNACG and E-Hentai; E-Hentai needs no cookie for the 1280px resampled images, and originals are used once a cookie is added (charged against your site quota)
 - **Unified packing**: every download becomes a ZIP archive, a PDF or a long vertical image, or can simply stay on disk; a format word at the end of the command overrides it for that one download
 - **Encryption**: set one pack password and it applies, ZIP with AES and PDF with AES-256
@@ -40,6 +41,8 @@
 | `<channel command> 排行 [日榜\|周榜\|月榜\|总榜]` | Everyone (subject to whitelist/blacklist) | Show the leaderboard of that channel only; if it lacks that window it falls back to the nearest one (daily falls back to weekly, for example) and says so in the reply |
 | `/<channel command> <ID or link> 封面` (also `cover`) | Everyone (subject to whitelist/blacklist) | Send only this work's cover, no download: censoring follows "censor covers", progress follows "progress style", and a reason is reported when it cannot be fetched |
 | `/<channel command> <ID or link> 简介` (also `信息`, `详情`, `info`) | Everyone (subject to whitelist/blacklist) | Reply with this work's info only (title, author, pages, tags) plus the download command; nothing is downloaded |
+| `/<channel command> <ID or link> 章节` (also `章`, `chapter`, `ch`) | Everyone (subject to whitelist/blacklist) | Lists this work's chapters (number, title, page count) plus the command to download only some of them; channels without chapters say so. JM, PicaACG and WNACG compilations support chapters today |
+| `/<channel command> <ID or link> 章节 <range>` | Everyone (subject to whitelist/blacklist) | Downloads only the given chapters, and the pack plus the summary cover just those. Ranges: `3` (chapter 3), `1-20`, `-20` (first 20), `100-` (chapter 100 onwards), `最新5` (last 5), `1-5,9` (several spans); an out-of-range request tells you how many chapters the work has |
 | `/comic <number>` (same for `/<channel command> <number>`) | Everyone (subject to whitelist/blacklist) | Download the hit with that number from the latest search or leaderboard, from the channel the hit belongs to |
 | `/comic 下一页` (also `/comic next`; go back with `上一页` or `prev`) | Everyone (subject to whitelist/blacklist) | Turn the page of the latest list (search or leaderboard) in this session; search numbers continue across pages, leaderboard numbers restart at 1 on every page |
 | `<download command> <format word>` | Everyone (subject to whitelist/blacklist) | Sets the pack format for this one download, overriding the "Pack format" setting; the values are `zip` / `pdf` / `long_img` / `none` (save locally only), and the Chinese words `压缩包` / `文档` / `长图` / `本地` work too |
@@ -69,6 +72,9 @@ Examples:
 /comic 排行                               # the weekly leaderboard of every channel
 /jm 排行 日榜                              # the daily leaderboard of JM only
 /jm 123456 pdf                            # export this one as PDF; the setting stays unchanged
+/jm 123456 章节                            # list the chapters of this work
+/jm 123456 章节 1-20                       # only the first 20 chapters
+/jm 123456 章节 最新5                      # follow a serial: only the last 5 chapters
 ```
 
 ### Search filters
@@ -208,7 +214,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Download and network
 
 <details>
-<summary>Download and network (8 options)</summary>
+<summary>Download and network (10 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -220,6 +226,8 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Retry times (`retry_times`) | int | 2 | Retries after a failed download; 0 disables |
 | Continuous download per request (`segment_timeout`) | int | 900 | Stops at the deadline and keeps a breakpoint so `/comic retry` resumes; 0 disables segmentation |
 | Breakpoint lifetime (`resume_ttl`) | int | 7200 | How long paused images are kept for resuming with `/comic retry`; 0 keeps none |
+| Downloaded chapters by default (`chapter_default_range`) | string | empty | Applied when a command names no chapters, e.g. `1-20` or `最新5`; empty means the whole work. Only affects channels that have chapters |
+| Chapter list size (`chapter_list_limit`) | int | 30 | How many chapters the `章节` listing shows; 0 lists them all |
 
 </details>
 

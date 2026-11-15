@@ -18,6 +18,7 @@ from pathlib import Path
 from astrbot.api import logger
 
 from ..domain import (
+    ChapterSpec,
     ChannelError,
     ComicMeta,
     DownloadCancelled,
@@ -75,6 +76,8 @@ class DownloadOutcome:
     image_count: int
     failed_images: int
     elapsed: float
+    # 实际下到的章节范围（如「第 1–20 章」）；整本下载留空，摘要里据此少写一行
+    chapters_label: str = ""
 
     @property
     def sendable_path(self) -> Path | None:
@@ -153,6 +156,7 @@ class DownloadTask:
         raw_id: str,
         on_progress: ProgressCallback | None = None,
         cancel: CancelToken | None = None,
+        chapters: ChapterSpec | None = None,
     ) -> DownloadOutcome:
         started = time.monotonic()
         comic_id = self.channel.normalize_id(raw_id)
@@ -162,7 +166,7 @@ class DownloadTask:
         _ACTIVE_WORK_DIRS.add(work_dir)
         try:
             return await self._download_and_pack(
-                comic_id, work_dir, tap, cancel, started
+                comic_id, work_dir, tap, cancel, started, chapters
             )
         finally:
             # 暂停/取消也要注销：目录留在磁盘上，但已经没人写了
@@ -175,11 +179,14 @@ class DownloadTask:
         tap: _ProgressTap,
         cancel: CancelToken | None,
         started: float,
+        chapters: ChapterSpec | None = None,
     ) -> DownloadOutcome:
         """取元信息 → 下载 → 打包；工作目录的登记与注销由 run 负责。"""
         try:
             meta = await self._fetch_meta(comic_id, work_dir)
-            downloaded = await self._download(comic_id, work_dir, tap, meta, cancel)
+            downloaded = await self._download(
+                comic_id, work_dir, tap, meta, cancel, chapters
+            )
         except (DownloadPaused, DownloadCancelled):
             # 到点暂停 / 手动取消：断点要留着给下一次接着下，绝不能清目录
             raise
@@ -206,6 +213,7 @@ class DownloadTask:
             image_count=downloaded.image_count,
             failed_images=downloaded.failed_images,
             elapsed=time.monotonic() - started,
+            chapters_label=downloaded.chapters_label,
         )
 
     # ---- 断点目录 ----
@@ -388,6 +396,7 @@ class DownloadTask:
         tap: _ProgressTap,
         meta: ComicMeta,
         cancel: CancelToken | None = None,
+        chapters: ChapterSpec | None = None,
     ) -> DownloadedComic:
         """按配置重试。整本超时是硬上限，分段到期则是「抓个暂停」，两者都不突破对方。"""
         attempts = max(0, self.settings.download_retry_times) + 1
@@ -397,7 +406,9 @@ class DownloadTask:
 
         for attempt in range(1, attempts + 1):
             download = asyncio.create_task(
-                self.channel.download(comic_id, work_dir, tap, cancel=token)
+                self.channel.download(
+                    comic_id, work_dir, tap, cancel=token, chapters=chapters
+                )
             )
             outcome, error = await self._watch(download, token, timeout)
 

@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from astrbot.api import logger
 
 from ....domain import (
+    ChapterSpec,
     ChannelError,
     ComicMeta,
     DownloadedComic,
@@ -174,6 +175,8 @@ class Hanime1Channel(BaseChannel):
         work_dir: Path,
         on_progress: ProgressCallback | None = None,
         cancel: CancelToken | None = None,
+        # 本渠道的作品是一份连续的图，没有章节可挑；命令层在调用前已挡住章节请求
+        chapters: ChapterSpec | None = None,
     ) -> DownloadedComic:
         parsed = self._parsed.pop(comic_id, None)
         if parsed is None:

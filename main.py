@@ -78,6 +78,8 @@ from .core.image_search.constants import (
 from .core.packer import Packer
 from .core.ranking import RankingResult, board_label, parse_board
 from .domain import (
+    ChapterError,
+    ChapterSpec,
     CoverCensorError,
     DownloadCancelled,
     DownloadPaused,
@@ -88,6 +90,7 @@ from .domain import (
     SearchQueryError,
 )
 from .domain.constants import (
+    CHAPTER_TITLE_LIMIT,
     PACK_FORMAT_ALIASES,
     PACK_FORMATS,
     PLUGIN_AUTHOR,
@@ -121,7 +124,13 @@ from .domain.constants import (
     PANEL_MAX_UPLOAD_BYTES,
     PANEL_MODEL_UPLOAD_MAX_BYTES,
 )
-from .utils import cjk_available, describe_pack_format, format_size, split_pack_format
+from .utils import (
+    cjk_available,
+    describe_pack_format,
+    format_size,
+    split_chapter_directive,
+    split_pack_format,
+)
 from .utils.pack_format import split_cover_word, split_info_word
 
 # 贴表情（set_msg_emoji_like）与群文件上传（upload_group_file）都只有 OneBot(CQHTTP) 协议端提供
@@ -146,6 +155,19 @@ class _RunningTask:
 
 
 @dataclass(slots=True)
+class _TailDirectives:
+    """一条下载命令末尾的「只这一次」选项：格式 / 只看封面 / 只看信息 / 章节范围。"""
+
+    text: str
+    pack_format: str | None = None
+    cover_only: bool = False
+    info_only: bool = False
+    chapters: ChapterSpec | None = None
+    # 只写了「章节」没写范围：意思是「先列出章节目录」
+    want_chapters: bool = False
+
+
+@dataclass(slots=True)
 class _LastRequest:
     """本会话的一条下载记录，`/comic retry` 用它原样重放。
 
@@ -156,6 +178,8 @@ class _LastRequest:
     command: str  # 渠道命令名（不带斜杠）
     comic_id: str
     pack_format: str | None = None
+    # 那次指定的章节范围（如 `1-20`）：重放时要按同样的范围接着下，不能悄悄变成整本
+    chapters: str | None = None
 
 
 def _parse_last_request(item: object) -> _LastRequest | None:
@@ -167,11 +191,71 @@ def _parse_last_request(item: object) -> _LastRequest | None:
     if not isinstance(command, str) or not isinstance(comic_id, str):
         return None
     pack_format = item.get("pack_format")
+    chapters = item.get("chapters")
     return _LastRequest(
         command=command,
         comic_id=comic_id,
         pack_format=pack_format if isinstance(pack_format, str) else None,
+        chapters=chapters if isinstance(chapters, str) else None,
     )
+
+
+def _parse_tail_directives(
+    text: str,
+    *,
+    pack_format: str | None = None,
+    cover_only: bool = False,
+    info_only: bool = False,
+    chapters: ChapterSpec | None = None,
+) -> _TailDirectives:
+    """把命令末尾的格式 / 封面 / 简介 / 章节词一次切干净（顺序随意）。
+
+    这几个词都写在末尾，但用户敲的顺序不固定（`/jm 123 pdf 章节 1-20` 和
+    `/jm 123 章节 1-20 pdf` 都有人写），所以反复切到不再变化为止：
+    每轮只认「末尾且能对上词表」的那一个，切掉后下一轮的末尾又露出来。
+
+    章节范围写坏了抛 `ChapterError`，调用方把消息直接回给用户。
+    """
+    directives = _TailDirectives(
+        text=text,
+        pack_format=pack_format,
+        cover_only=cover_only,
+        info_only=info_only,
+        chapters=chapters,
+    )
+    while True:
+        changed = False
+
+        stripped, spec_text, want_list = split_chapter_directive(directives.text)
+        if want_list:
+            directives.text = stripped
+            directives.want_chapters = True
+            changed = True
+        elif spec_text:
+            directives.text = stripped
+            directives.chapters = ChapterSpec.parse(spec_text)
+            changed = True
+
+        stripped, override = split_pack_format(directives.text)
+        if override is not None:
+            directives.text = stripped
+            directives.pack_format = override
+            changed = True
+
+        stripped, cover = split_cover_word(directives.text)
+        if cover:
+            directives.text = stripped
+            directives.cover_only = True
+            changed = True
+
+        stripped, info = split_info_word(directives.text)
+        if info:
+            directives.text = stripped
+            directives.info_only = True
+            changed = True
+
+        if not changed:
+            return directives
 
 
 def _event_call_action(
@@ -1139,12 +1223,24 @@ class ComicParserPlugin(Star):
             if lists_available
             else ""
         )
+        # 只写「章节」时列目录，写「章节 1-20」时只下这几章；默认范围配过就一并说明，
+        # 否则用户会以为「明明没写章节，怎么只下了前几章」
+        chapter_default = (self.settings.chapter_default_range or "").strip()
+        chapter_lines = (
+            "分章节：/<渠道命令> <ID> 章节 — 列章节目录；"
+            "后面再写范围（1-20 / 最新5 / 100-）只下这几章\n"
+        ) + (
+            f"默认只下 章节 {chapter_default}（在配置的「默认下载章节」里改）\n"
+            if chapter_default
+            else ""
+        )
         text = (
             f"📚 {PLUGIN_DISPLAY_NAME} · 用法速查\n\n"
             f"📥 下载\n"
             f"/comic <作品链接> [格式] — 自动识别站点\n"
             f"/<渠道命令> <ID 或链接> [格式] — 只走该渠道\n"
             f"末尾加词：封面（只发封面图）、简介（只看作品信息）\n"
+            f"{chapter_lines}"
             f"格式：默认 {self.settings.pack_format}，可选 {packs}，写在末尾只改这一次\n\n"
             f"🔍 搜索\n"
             f"{search_lines}\n"
@@ -1292,11 +1388,14 @@ class ComicParserPlugin(Star):
             return
 
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
-        # 末尾的格式词只改这一次的产物形态（`/comic <链接> pdf`）；搜索与翻页已在上面分流，
-        # 因此关键词里的格式词（如 long_img、长图）不会被当成格式
-        text, cover_only = split_cover_word(text)
-        text, info_only = split_info_word(text)
-        text, pack_format = split_pack_format(text)
+        # 末尾的格式/封面/简介/章节词只改这一次的行为（`/comic <链接> pdf`、`/pica <ID> 章节 1-20`）；
+        # 搜索与翻页已在上面分流，因此关键词里的这些词不会被当成末尾选项
+        try:
+            directives = _parse_tail_directives(text)
+        except ChapterError as exc:
+            yield event.plain_result(f"❌ {exc}")
+            return
+        text = directives.text
         indexed = self._resolve_index(session_id, text)
         if indexed is not None:
             channel, comic_id = indexed
@@ -1306,9 +1405,11 @@ class ComicParserPlugin(Star):
                 channel.command,
                 comic_id,
                 allow_index=False,
-                pack_format=pack_format,
-                cover_only=cover_only,
-                info_only=info_only,
+                pack_format=directives.pack_format,
+                cover_only=directives.cover_only,
+                info_only=directives.info_only,
+                chapters=directives.chapters,
+                chapter_list_only=directives.want_chapters,
             ):
                 yield result
             return
@@ -1344,9 +1445,11 @@ class ComicParserPlugin(Star):
             event,
             channel.command,
             text,
-            pack_format=pack_format,
-            cover_only=cover_only,
-            info_only=info_only,
+            pack_format=directives.pack_format,
+            cover_only=directives.cover_only,
+            info_only=directives.info_only,
+            chapters=directives.chapters,
+            chapter_list_only=directives.want_chapters,
         ):
             yield result
 
@@ -1359,6 +1462,8 @@ class ComicParserPlugin(Star):
         pack_format: str | None = None,
         cover_only: bool = False,
         info_only: bool = False,
+        chapters: ChapterSpec | None = None,
+        chapter_list_only: bool = False,
     ) -> AsyncGenerator[MessageEventResult, None]:
         text = " ".join((raw_id or "").split())
         head, _, rest = text.partition(" ")
@@ -1423,17 +1528,24 @@ class ComicParserPlugin(Star):
             )
             return
 
-        # 末尾的格式词只改这一次的产物形态（`/jm 123456 pdf`）：搜索与停止已在上面分流，
-        # 所以 `/jm sou 长图` 里的「长图」仍是关键词（格式词放在最后才会被切走）
-        text, cover_word = split_cover_word(text)
-        if cover_word:
-            cover_only = True
-        text, info_word = split_info_word(text)
-        if info_word:
-            info_only = True
-        text, override = split_pack_format(text)
-        if override is not None:
-            pack_format = override
+        # 末尾的格式/封面/简介/章节词只改这一次的行为（`/jm 123456 pdf`、`/jm 123456 章节 1-20`）：
+        # 搜索与停止已在上面分流，所以 `/jm sou 长图` 里的「长图」仍是关键词
+        try:
+            directives = _parse_tail_directives(
+                text,
+                pack_format=pack_format,
+                cover_only=cover_only,
+                info_only=info_only,
+                chapters=chapters,
+            )
+        except ChapterError as exc:
+            yield event.plain_result(f"❌ {exc}")
+            return
+        text = directives.text
+        pack_format = directives.pack_format
+        cover_only = directives.cover_only
+        info_only = directives.info_only
+        chapters = directives.chapters
 
         session_id = str(getattr(event, "unified_msg_origin", "") or "")
         denied = self.guard.check_session(session_id)
@@ -1468,6 +1580,23 @@ class ComicParserPlugin(Star):
             yield event.plain_result(f"❌ {exc}")
             return
 
+        # 章节：不写范围就用配置里的默认范围；不分章节的渠道只忽略「默认范围」，
+        # 但用户在命令里明确写了「章节」时必须说清为什么用不了，别静默按整本下
+        chapter_spec = chapters or self._default_chapter_spec()
+        if chapter_spec is not None and not channel.supports_chapters:
+            if chapters is not None:
+                yield event.plain_result(
+                    f"❌ {channel.display_name} 不分章节：去掉「章节」再发一次就能下整本"
+                )
+                return
+            chapter_spec = None
+
+        # 只写「章节」不写范围 = 先看一眼章节目录，再决定下哪几章
+        if directives.want_chapters or chapter_list_only:
+            async for result in self._handle_chapter_list(event, channel, comic_id):
+                yield result
+            return
+
         # 「只取封面」不进任务链路：不占并发、不打包，也就不该被 retry 重放
         if cover_only:
             async for result in self._handle_cover_only(event, channel, comic_id):
@@ -1482,7 +1611,13 @@ class ComicParserPlugin(Star):
 
         # 记下这次要下的东西：之后不管是暂停、重载还是失败，`/comic retry` 都能原样重放
         self._remember_request(
-            session_id, _LastRequest(channel.command, comic_id, pack_format)
+            session_id,
+            _LastRequest(
+                channel.command,
+                comic_id,
+                pack_format,
+                chapter_spec.text if chapter_spec is not None else None,
+            ),
         )
 
         debounce_key = f"{channel.name}:{comic_id}"
@@ -1490,9 +1625,12 @@ class ComicParserPlugin(Star):
             yield event.plain_result("⏳ 这个本子刚刚请求过，请稍后再试")
             return
 
+        chapter_note = (
+            f"（章节 {chapter_spec.text}）" if chapter_spec is not None else ""
+        )
         # 先登记再抢锁：排队期间也要能被 /comic stop 取消
         slot, cancel_token = self._begin_running(
-            session_id, f"{channel.display_name} {comic_id}"
+            session_id, f"{channel.display_name} {comic_id}{chapter_note}"
         )
         # ok / fail / paused：暂停与取消都不是失败，表情就停在「下载中」，别贴个锤子吓人
         result_state = "fail"
@@ -1520,7 +1658,8 @@ class ComicParserPlugin(Star):
                         else ""
                     )
                     yield event.plain_result(
-                        f"⏳ 开始下载 {channel.display_name} {comic_id}{fmt_note}…"
+                        f"⏳ 开始下载 {channel.display_name} {comic_id}{fmt_note}"
+                        f"{chapter_note}…"
                     )
                 task = DownloadTask(
                     channel,
@@ -1536,6 +1675,7 @@ class ComicParserPlugin(Star):
                         comic_id,
                         self._progress_callback(event, use_text_progress, slot),
                         cancel_token,
+                        chapters=chapter_spec,
                     )
                 except (DownloadPaused, DownloadCancelled) as exc:
                     # 到点暂停 / 手动取消：断点留着，允许马上再发一次接着下
@@ -2155,6 +2295,96 @@ class ComicParserPlugin(Star):
             "看后面的名次：/comic 下一页；下载：直接回序号"
         )
 
+    def _chapter_spec(self, raw: str | None) -> ChapterSpec | None:
+        """把配置/重试记录里的章节范围还原成可用的范围；空或看不懂都按整本。
+
+        配置层对「默认下载章节」已经校验过一遍，这里兜的是运行期被改坏、以及旧记录里
+        留着旧写法这两种情况：宁可按整本下，也不要让一次笔误把所有下载挡死。
+        """
+        text = (raw or "").strip()
+        if not text:
+            return None
+        try:
+            return ChapterSpec.parse(text)
+        except ChapterError:
+            logger.warning(
+                f"[{PLUGIN_NAME}] 章节范围「{text}」无法解析，本次按整本下载"
+            )
+            return None
+
+    def _default_chapter_spec(self) -> ChapterSpec | None:
+        """配置里的「默认下载章节」；留空表示整本。"""
+        return self._chapter_spec(self.settings.chapter_default_range)
+
+    async def _handle_chapter_list(
+        self, event: AstrMessageEvent, channel: BaseChannel, comic_id: str
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """只列章节目录：让用户先看清有哪几章，再决定下哪几章。
+
+        连载本动辄几百章，整本下既慢又占盘；目录本身只有几十行文字，所以这条路径
+        不进任务链路、不占并发，也不记进 `/comic retry`。
+        """
+        if not channel.supports_chapters:
+            yield event.plain_result(
+                f"ℹ️ {channel.display_name} 的作品不分章节，直接 "
+                f"/{channel.display_command} {comic_id} 下整本就好"
+            )
+            return
+
+        use_reaction, _ = await self._begin_progress(event)
+        try:
+            entries = await channel.fetch_chapters(comic_id)
+        except PluginError as exc:
+            if use_reaction:
+                await self._react(event, "fail")
+            yield event.plain_result(f"❌ 取章节目录失败：{exc}")
+            return
+        except Exception as exc:  # noqa: BLE001 - 渠道实现各异，统一转成一句话
+            if use_reaction:
+                await self._react(event, "fail")
+            logger.warning(
+                f"[{PLUGIN_NAME}] 取章节目录异常 {channel.name} {comic_id}: {exc}"
+            )
+            yield event.plain_result(
+                "❌ 取章节目录失败：这个渠道暂时取不到章节清单，稍后再试"
+            )
+            return
+
+        if not entries:
+            yield event.plain_result("❌ 这本没有章节清单，直接下整本就好")
+            return
+
+        limit = max(0, self.settings.chapter_list_limit)
+        shown = entries if limit <= 0 else entries[:limit]
+        width = len(str(len(entries)))
+        header = (
+            f"📖 {channel.display_name} · {comic_id} · "
+            f"共 {len(entries)} {channel.chapter_unit}"
+        )
+        lines = [header]
+        for entry in shown:
+            title = entry.title.strip()
+            if len(title) > CHAPTER_TITLE_LIMIT:
+                title = f"{title[:CHAPTER_TITLE_LIMIT]}…"
+            pages = f"（{entry.pages}P）" if entry.pages else ""
+            lines.append(f"{entry.index:0{width}d} {title}{pages}")
+        if len(shown) < len(entries):
+            lines.append(
+                f"… 还有 {len(entries) - len(shown)} {channel.chapter_unit}没显示"
+                "（管理员可在「章节清单显示上限」里调）"
+            )
+        lines.append("")
+        lines.append(
+            f"只下其中几章：/{channel.display_command} {comic_id} 章节 1-20"
+            "（也认 3、100-、最新5、全部）"
+        )
+        lines.append(
+            f"整本：/{channel.display_command} {comic_id}（不写「章节」）"
+        )
+        if use_reaction:
+            await self._react(event, "done")
+        yield event.plain_result("\n".join(lines))
+
     async def _handle_info_only(
         self, event: AstrMessageEvent, channel: BaseChannel, comic_id: str
     ) -> AsyncGenerator[MessageEventResult, None]:
@@ -2635,6 +2865,7 @@ class ComicParserPlugin(Star):
                     "command": item.command,
                     "comic_id": item.comic_id,
                     "pack_format": item.pack_format,
+                    "chapters": item.chapters,
                 }
                 for item in records
             ]
@@ -2769,6 +3000,8 @@ class ComicParserPlugin(Star):
                 allow_index=False,
                 # 命令里临时指定的格式优先，其次沿用那次记录里的格式
                 pack_format=pack_format or record.pack_format,
+                # 章节范围也照原样重放：否则「接着下第 1-20 章」会变成悄悄下整本
+                chapters=self._chapter_spec(record.chapters),
             ):
                 yield result
 
@@ -2887,6 +3120,8 @@ class ComicParserPlugin(Star):
             lines.append(f"作者：{outcome.meta.author}")
         if outcome.meta.tags:
             lines.append(self._tag_line(outcome.meta.tags))
+        if outcome.chapters_label:
+            lines.append(f"章节：{outcome.chapters_label}")
         count_line = f"图片：{outcome.image_count} 张"
         if outcome.failed_images:
             count_line += f"（{outcome.failed_images} 张失败）"
