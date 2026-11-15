@@ -63,6 +63,7 @@ picacg_channel = importlib.import_module(f"{PACKAGE}.core.channels.picacg.channe
 picacg_constants = importlib.import_module(f"{PACKAGE}.core.channels.picacg.constants")
 domain_module = importlib.import_module(f"{PACKAGE}.domain")
 domain_constants = importlib.import_module(f"{PACKAGE}.domain.constants")
+pack_format_module = importlib.import_module(f"{PACKAGE}.utils.pack_format")
 progress_module = importlib.import_module(f"{PACKAGE}.core.progress")
 ProgressState = progress_module.ProgressState
 
@@ -361,6 +362,17 @@ async def _run() -> int:
             and ChapterSpec.parse("-3").indices(10) == [1, 2, 3]
             and ChapterSpec.parse("最新2").indices(10) == [9, 10]
             and ChapterSpec.parse("1,3、5-6").indices(10) == [1, 3, 5, 6],
+            "",
+        )
+        check(
+            "命令末尾的「章节」指令切成（剩余参数, 范围, 只要清单）",
+            pack_format_module.split_chapter_directive("123456 章节 1-20")
+            == ("123456", "1-20", False)
+            and pack_format_module.split_chapter_directive("123456 章节")
+            == ("123456", None, True)
+            # 没有前文时不切：`/jm 章节` 里没有 ID，硬切只会让人看到「没给 ID」
+            and pack_format_module.split_chapter_directive("章节")
+            == ("章节", None, False),
             "",
         )
         check(
