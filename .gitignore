@@ -23,3 +23,7 @@ models/*.part
 
 # DSH 视觉工具的临时产物目录（截图/裁剪/热力图），纯本地产物
 .dsh-vision-router/
+
+# 无人值守运行的过程稿：本地留存、不入库
+RUN_LOG.md
+RUN_REPORT.md
