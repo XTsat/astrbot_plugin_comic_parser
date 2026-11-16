@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 
 from astrbot.api import logger
 
-from ....domain import ChannelError
+from ....domain import ChannelError, ChannelUnreachable
 from ....domain.constants import PLUGIN_NAME
 from ...channel import PROXY_SOURCE_DIRECT
 from .constants import API_HOSTS, API_PATH, USER_AGENT
@@ -215,6 +215,9 @@ class EHentaiClient:
                 "（常见于出口 IP 被风控，换代理线路或过一阵再试）"
             )
         if status != 200:
+            # 5xx 这类瞬时失败标成「值得重试」，让取元信息的统一重试生效
+            if status >= 500:
+                raise ChannelUnreachable(f"E-Hentai 接口返回 HTTP {status}")
             raise ChannelError(f"E-Hentai 接口返回 HTTP {status}")
         try:
             return json.loads(body.decode("utf-8", "replace"))
@@ -247,7 +250,7 @@ class EHentaiClient:
                 )
         except (asyncio.TimeoutError, OSError, ValueError, aiohttp.ClientError) as exc:
             reason = describe_request_error(exc, self._timeout)
-            raise ChannelError(f"请求失败：{reason}") from exc
+            raise ChannelUnreachable(f"请求失败：{reason}") from exc
 
     @property
     def direct_hint(self) -> str:
@@ -326,7 +329,7 @@ async def fetch_gdata(
         for failure in failures
         for keyword in _DIRECT_HINT_KEYWORDS
     )
-    raise ChannelError(
+    raise ChannelUnreachable(
         "E-Hentai 接口这会儿连不上，稍后再试"
         f"{client.direct_hint if unreachable else ''}"
     )

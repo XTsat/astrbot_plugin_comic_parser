@@ -20,6 +20,7 @@ from astrbot.api import logger
 from ..domain import (
     ChapterSpec,
     ChannelError,
+    ChannelUnreachable,
     ComicMeta,
     DownloadCancelled,
     DownloadError,
@@ -51,6 +52,9 @@ from .packer import Packer
 # 正在使用中的工作目录：清理过期断点时要跳过它们。
 # 目录自身的 mtime 只在直接子项增删时更新，光看时间会把还在下的那本当成过期断点删掉。
 _ACTIVE_WORK_DIRS: set[Path] = set()
+
+# 取元信息网络瞬断后的重试间隔（秒）：代理线路上「一次没连上」多为瞬断，2 秒后重试一次
+META_RETRY_DELAY: float = 2.0
 
 
 def _newest_mtime(path: Path) -> float:
@@ -364,18 +368,37 @@ class DownloadTask:
     # ---- 元信息与下载 ----
 
     async def _fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:
-        try:
-            return await asyncio.wait_for(
-                self.channel.fetch_meta(comic_id, work_dir),
-                timeout=min(self.settings.download_timeout, 120),
-            )
-        except asyncio.TimeoutError as exc:
-            raise DownloadError("获取漫画信息超时，请稍后重试") from exc
-        except ChannelError:
-            raise
-        except Exception as exc:  # 渠道内部异常统一翻译
-            logger.error(f"[{PLUGIN_NAME}] 获取元信息失败: {exc}")
-            raise self.channel.wrap_failure(exc) from exc
+        """取元信息；网络/代理瞬断（`ChannelUnreachable`）自动重试一次。
+
+        所有渠道共用这一处重试：代理线路上「一次没连上、几十秒后又好了」是最常见的失败，
+        让用户为此重发一条命令不值得。确定结论（下架、ID 错、配置缺）仍是普通
+        `ChannelError`，原样抛出——404 重试只会白等。
+        """
+        timeout = min(self.settings.download_timeout, 120)
+        last_error: PluginError | None = None
+        for attempt in range(2):
+            try:
+                return await asyncio.wait_for(
+                    self.channel.fetch_meta(comic_id, work_dir), timeout=timeout
+                )
+            except asyncio.TimeoutError as exc:
+                raise DownloadError("获取漫画信息超时，请稍后重试") from exc
+            except ChannelUnreachable as exc:
+                last_error = exc
+                if attempt == 0:
+                    logger.warning(
+                        f"[{PLUGIN_NAME}] {self.channel.display_name} 取元信息没连上，"
+                        f"{int(META_RETRY_DELAY)} 秒后重试一次：{exc}"
+                    )
+                    await asyncio.sleep(META_RETRY_DELAY)
+            except ChannelError:
+                raise
+            except Exception as exc:  # 渠道内部异常统一翻译
+                logger.error(f"[{PLUGIN_NAME}] 获取元信息失败: {exc}")
+                raise self.channel.wrap_failure(exc) from exc
+
+        assert last_error is not None  # 循环除抛异常外不会走到这里
+        raise last_error
 
     def _time_budget(self) -> tuple[float, bool]:
         """一次请求最多下多久，以及「到点」是暂停留断点还是判失败。

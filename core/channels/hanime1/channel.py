@@ -19,6 +19,7 @@ from astrbot.api import logger
 from ....domain import (
     ChapterSpec,
     ChannelError,
+    ChannelUnreachable,
     ComicMeta,
     DownloadedComic,
     DownloadError,
@@ -377,7 +378,7 @@ class Hanime1Channel(BaseChannel):
                 logger.warning(f"[{PLUGIN_NAME}] 抓取 {url} 失败，换下一个域名：{exc}")
 
         logger.warning(f"[{PLUGIN_NAME}] {what} 抓取失败：{last_error}")
-        raise ChannelError(f"{what} 打不开：稍后重试，或在该渠道配置里换域名/开代理")
+        raise ChannelUnreachable(f"{what} 打不开：稍后重试，或在该渠道配置里换域名/开代理")
 
     # ---- 域名测速择优 ----
     async def _site_domains(self, path: str) -> list[str]:

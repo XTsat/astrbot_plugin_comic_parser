@@ -13,6 +13,14 @@ class ChannelError(PluginError):
     """渠道层面失败：ID 无法识别、上游返回异常等。"""
 
 
+class ChannelUnreachable(ChannelError):
+    """网络/代理/风控这类「不是这本作品的问题」的临时失败。
+
+    任务层看到它会自动重试一次；「作品不存在 / 已下架 / 配置不对」等确定结论仍是普通
+    `ChannelError`，不重试——404 重试只会白等，还会让用户晚几秒才知道真相。
+    """
+
+
 class ChannelUnavailableError(ChannelError):
     """渠道当前不可用：未启用、依赖缺失或配置不全。"""
 

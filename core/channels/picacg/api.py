@@ -19,7 +19,7 @@ from typing import Any
 
 from astrbot.api import logger
 
-from ....domain import ChannelError
+from ....domain import ChannelError, ChannelUnreachable
 from ....domain.constants import PLUGIN_NAME
 from .constants import (
     ACCEPT,
@@ -238,7 +238,9 @@ class PicaClient:
             raise ChannelError("哔咔接口返回了错误：稍后重试；一直失败请检查签名密钥")
 
         logger.warning(f"[{PLUGIN_NAME}] 哔咔请求多次失败：{endpoint} · {last_error}")
-        raise ChannelError("哔咔这会儿连不上：稍后重试；一直失败请在该渠道配置里开代理")
+        raise ChannelUnreachable(
+            "哔咔这会儿连不上：稍后重试；一直失败请在该渠道配置里开代理"
+        )
 
     # ---- 业务接口 ----
     async def login(self, account: str, password: str) -> str:

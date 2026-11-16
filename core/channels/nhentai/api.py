@@ -22,10 +22,7 @@ from .constants import (
     SEARCH_API_PATH,
     USER_AGENT,
 )
-
-
-class GalleryNotFound(ChannelError):
-    """作品不存在或已下架：这是确定结论，不该再退回页面抓取重试一遍。"""
+from .errors import GalleryNotFound, NhentaiUnreachable
 
 
 if TYPE_CHECKING:  # 只为类型标注；运行时按下面的惰性分支处理依赖缺失
@@ -142,7 +139,9 @@ class NhentaiApi:
                 failures.append(f"{domain}：{exc}")
 
         logger.warning(f"[{PLUGIN_NAME}] nhentai 接口不可用：{'；'.join(failures)}")
-        raise ChannelError("nhentai 接口这会儿连不上：稍后再试；一直不行请在该渠道配置里开代理")
+        raise NhentaiUnreachable(
+            "nhentai 接口这会儿连不上：稍后再试；一直不行请在该渠道配置里开代理"
+        )
 
     async def _request(self, url: str, *, not_found: ChannelError) -> object:
         """单次请求；非 200 一律翻译成带原因的 ChannelError，由调用方决定换域名还是报错。"""

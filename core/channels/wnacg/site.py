@@ -25,7 +25,7 @@ from urllib.parse import quote
 
 from astrbot.api import logger
 
-from ....domain import ChannelError
+from ....domain import ChannelError, ChannelUnreachable
 from ....domain.constants import PLUGIN_NAME
 from .constants import (
     PAGE_REQUESTS_PER_MINUTE,
@@ -330,7 +330,7 @@ class WnacgSite:
                     f"[{PLUGIN_NAME}] wnacg 抓取 {url} 失败，换下一个域名：{exc}"
                 )
         logger.warning(f"[{PLUGIN_NAME}] wnacg 页面抓取全部域名失败：{last_error}")
-        raise ChannelError("页面打不开：稍后重试；一直失败请检查站点域名或开代理")
+        raise ChannelUnreachable("页面打不开：稍后重试；一直失败请检查站点域名或开代理")
 
     # ---- 对外抓取：图床绝对地址（图片风控时由下载器调用） ----
     async def fetch_bytes(self, url: str) -> bytes | None:
@@ -351,7 +351,7 @@ class WnacgSite:
         if text.strip():
             return text
         logger.warning(f"[{PLUGIN_NAME}] wnacg 页面返回空内容（HTTP {status}）：{url}")
-        raise ChannelError("页面返回了空内容：稍后重试或换一个域名")
+        raise ChannelUnreachable("页面返回了空内容：稍后重试或换一个域名")
 
     async def _get_bytes(self, url: str) -> bytes:
         status, payload = await self._request(url, binary=True)
@@ -391,7 +391,7 @@ class WnacgSite:
                 "内容不存在或需要登录 wnacg（游客访问部分图集与分类会返回 404）"
             )
         logger.warning(f"[{PLUGIN_NAME}] wnacg 页面返回 HTTP {status}：{url}")
-        raise ChannelError(f"页面返回 HTTP {status}：稍后重试或换一个域名")
+        raise ChannelUnreachable(f"页面返回 HTTP {status}：稍后重试或换一个域名")
 
     async def _throttle(self) -> None:
         """滑动窗口限速：超过配额就等到窗口里最老的那次请求过期。"""

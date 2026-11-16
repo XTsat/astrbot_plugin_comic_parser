@@ -6,8 +6,9 @@ from .constants import PACK_FORMATS, PLUGIN_NAME
 from .errors import (
     ChapterError,
     ChannelError,
-    CoverCensorError,
+    ChannelUnreachable,
     ChannelUnavailableError,
+    CoverCensorError,
     DownloadCancelled,
     DownloadError,
     DownloadPaused,
@@ -38,6 +39,7 @@ __all__ = [
     "ChapterError",
     "ChapterSpec",
     "ChannelError",
+    "ChannelUnreachable",
     "CoverCensorError",
     "ChannelUnavailableError",
     "ComicMeta",

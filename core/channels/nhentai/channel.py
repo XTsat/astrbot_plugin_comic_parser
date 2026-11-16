@@ -35,7 +35,7 @@ from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_
 from ...progress import ProgressHeartbeat
 from ...search_query import fallback_note, plain_search_text
 from ...domain_race import ProbeFn, http_probe
-from .api import GalleryNotFound, NhentaiApi
+from .api import NhentaiApi
 from .constants import (
     CDN_API_PATH,
     DEFAULT_IMAGE_CONCURRENCY,
@@ -45,6 +45,7 @@ from .constants import (
     USER_AGENT,
 )
 from .downloader import ImageDownloader, fetch_image_bytes
+from .errors import GalleryNotFound, NhentaiUnreachable
 from .progress import (
     DownloadSession,
     cancel_active_downloads,
@@ -348,7 +349,11 @@ class NhentaiChannel(BaseChannel):
         )
 
     async def _load_gallery(self, comic_id: str) -> ParsedGallery:
-        """先走官方 API；接口不可用时才退回页面抓取（要过 Cloudflare，成功率和网络有关）。"""
+        """先走官方 API；接口不可用时才退回页面抓取（要过 Cloudflare，成功率和网络有关）。
+
+        这一层不自己重试：网络/代理瞬断按 `ChannelUnreachable` 交给任务层统一重试一次，
+        免得「接口重试 × 任务重试」叠起来把一次失败拖成几十秒。
+        """
         domains = await self._site_domains()
         try:
             payload = await self._api(domains).fetch_gallery(comic_id)
@@ -374,11 +379,18 @@ class NhentaiChannel(BaseChannel):
             try:
                 page = await asyncio.to_thread(scraper.fetch_text, url)
                 return parse_html_gallery(comic_id, page)
+            except GalleryNotFound:
+                # 页面明确说这本没了：确定结论，换域名抓也不会变
+                raise
             except ChannelError as exc:
                 last_error = exc
                 logger.warning(f"[{PLUGIN_NAME}] 抓取 {url} 失败，换下一个域名：{exc}")
         logger.warning(f"[{PLUGIN_NAME}] nhentai {comic_id} 取元信息失败：{last_error}")
-        raise ChannelError("取不到这本作品的信息：可能已下架，或站点暂时连不上")
+        raise NhentaiUnreachable(
+            "nhentai 这会儿连不上：接口和页面都没取到，多半是网络/代理瞬断或被站点风控。\n"
+            "过一会儿发 /comic retry 再试；一直这样请管理员在 nhentai 渠道配置里"
+            "换代理线路或站点域名"
+        )
 
     # ---- 域名测速择优 ----
     async def _site_domains(self) -> list[str]:

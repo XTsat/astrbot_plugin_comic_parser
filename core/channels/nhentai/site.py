@@ -23,6 +23,7 @@ from astrbot.api import logger
 from ....domain import ChannelError
 from ....domain.constants import PLUGIN_NAME
 from .constants import DEFAULT_IMAGE_DOMAIN, DEFAULT_SITE_DOMAINS, USER_AGENT
+from .errors import GalleryNotFound
 
 # 页面 JSON 里 pages[].t 是单字符类型标记，对应原图扩展名（HTML 兜底才会用到）
 _IMAGE_EXTENSIONS: dict[str, str] = {"j": ".jpg", "p": ".png", "g": ".gif", "w": ".webp"}
@@ -321,7 +322,7 @@ class PageScraper:
         response = self._get(url)
         if response.status_code == 404:
             logger.warning(f"[{PLUGIN_NAME}] nhentai 页面 404：{url}")
-            raise ChannelError("作品不存在或已下架，确认一下 ID 或链接")
+            raise GalleryNotFound("作品不存在或已下架，确认一下 ID 或链接")
         if response.status_code != 200:
             logger.warning(
                 f"[{PLUGIN_NAME}] nhentai 页面 HTTP {response.status_code}：{url}"
