@@ -38,6 +38,7 @@ from .constants import (
     DEFAULT_IMAGE_SEARCH_PREFER_CHINESE,
     DEFAULT_IMAGE_SEARCH_PROXY,
     DEFAULT_IMAGE_SEARCH_STRICT,
+    DEFAULT_IMAGE_SEARCH_TITLE_LIMIT,
     DEFAULT_IMAGE_SEARCH_USE_PROXY,
     DEFAULT_IMAGE_SEARCH_TIMEOUT,
     DEFAULT_NSFW_MODEL_PRESET,
@@ -186,6 +187,7 @@ class PluginSettings:
     image_search_max_results: int = DEFAULT_IMAGE_SEARCH_MAX_RESULTS
     image_search_min_similarity: float = DEFAULT_IMAGE_SEARCH_MIN_SIMILARITY
     image_search_prefer_chinese: bool = DEFAULT_IMAGE_SEARCH_PREFER_CHINESE
+    image_search_title_limit: int = DEFAULT_IMAGE_SEARCH_TITLE_LIMIT
     image_search_strict: bool = DEFAULT_IMAGE_SEARCH_STRICT
     image_search_use_proxy: bool = DEFAULT_IMAGE_SEARCH_USE_PROXY
     image_search_proxy: str = DEFAULT_IMAGE_SEARCH_PROXY
@@ -454,6 +456,15 @@ class PluginSettings:
             ),
             image_search_strict=_as_bool(
                 image_search.get("strict_default"), DEFAULT_IMAGE_SEARCH_STRICT
+            ),
+            # 0 表示不截断；上限 200 是为了不让一条标题把整页结果挤成三行
+            image_search_title_limit=min(
+                _as_int(
+                    image_search.get("title_limit"),
+                    DEFAULT_IMAGE_SEARCH_TITLE_LIMIT,
+                    minimum=0,
+                ),
+                200,
             ),
             image_search_use_proxy=_as_bool(
                 image_search.get("use_proxy"), DEFAULT_IMAGE_SEARCH_USE_PROXY

@@ -336,7 +336,7 @@ class MyPlugin(Star):
 | `search.enable` / `search.timeout` / `search.page_size` / `search.aggregate_limit` | bool / int / int / int | 搜索开关与节奏（`core/search.py`） |
 | `search.cache_ttl` / `search.cooldown` | int / int | 结果缓存与会话冷却（`core/search.py`） |
 | `image_search.enable` / `.base_url` / `.timeout` | bool / string / int | 搜图开关、上游地址与超时（`core/image_search/`） |
-| `image_search.min_similarity` / `.max_results` / `.prefer_chinese` / `.strict_default` | float / int / bool / bool | 搜图结果筛选与展示（`core/image_search/service.py`） |
+| `image_search.min_similarity` / `.max_results` / `.title_limit` / `.prefer_chinese` / `.strict_default` | float / int / int / bool / bool | 搜图结果筛选与展示（`core/image_search/service.py`） |
 | `image_search.use_proxy` / `.proxy` | bool / string | 搜图代理：默认直连，代理多会被上游弹挑战页（`core/image_search/client.py`） |
 | `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |

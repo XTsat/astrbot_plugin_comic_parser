@@ -49,9 +49,13 @@ class ImageSearchHit:
     @property
     def display_title(self) -> str:
         """展示用标题：没有标题时退回「来源 + ID」，避免消息里出现空标题。"""
+        return self.title_within(TITLE_LIMIT)
+
+    def title_within(self, limit: int) -> str:
+        """按给定字数上限压平并截断标题；上限可配置，长标题不该在列表里被硬截。"""
         title = " ".join(self.title.split())
-        if len(title) > TITLE_LIMIT:
-            title = title[: TITLE_LIMIT - 1] + "…"
+        if limit > 0 and len(title) > limit:
+            title = title[: limit - 1] + "…"
         if title:
             return title
         source = SOURCE_LABELS.get(self.source, "")
@@ -209,6 +213,7 @@ def render_report(
     strict: bool,
     command_for: Callable[[ImageSearchHit], str],
     dropped: int = 0,
+    title_limit: int = TITLE_LIMIT,
 ) -> str:
     """把选中的命中渲染成聊天文本，每条附一条可直接发送的下载指令。
 
@@ -218,6 +223,7 @@ def render_report(
         strict: 是否严格模式（只影响抬头文案）。
         command_for: 把命中翻译成下载指令的回调；返回空串表示本插件无对应渠道。
         dropped: 因阈值/条数被截掉的条数，用于提示用户「还有更多」。
+        title_limit: 标题展示的字数上限（配置项），0 表示不截断。
     """
     mode = "严格模式" if strict else "普通模式"
     head = f"🔍 搜图结果 · {mode}（🟢 很像　🟡 一般）"
@@ -236,10 +242,12 @@ def render_report(
     lines = [head, ""]
     for index, hit in enumerate(hits, 1):
         flag = "🟢" if hit.score >= HIGH_CONFIDENCE else "🟡"
-        # 相似度与语言并进标题行：命中页与来源名对「要不要下」没用，一个只说明截图截自第几页，
-        # 另一个早就由下载命令里的 /nh、/eh 说过了
-        detail = f" · 相似度 {hit.score:.0f}% · {hit.language_label}"
-        lines.append(f"{index}. {flag} {hit.display_title}{detail}")
+        # 序号用「1、」而不是「1.」：长消息会被平台转成图片，文转图模板把「1.」当 Markdown
+        # 有序列表，而每条结果之间有空行，于是每条各成一段列表、全部从 1 重新编号
+        lines.append(f"{index}、{flag} {hit.title_within(title_limit)}")
+        # 语言在前、相似度在后，单独一行：两者都是「这条要不要下」的参考，挤进标题会把
+        # 本来就长的标题再截短一截
+        lines.append(f"　 {hit.language_label} · 相似度 {hit.score:.0f}%")
         command = command_for(hit)
         if command:
             lines.append(f"　 下载：{command}")

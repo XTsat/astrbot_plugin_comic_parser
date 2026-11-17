@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Final
 
+from ...domain.constants import DEFAULT_IMAGE_SEARCH_TITLE_LIMIT
+
 # 入口词：`/comic 搜图` 是标准写法，其余为别名；`/comic` 后只附图不带参数也认
 IMAGE_SEARCH_WORDS: Final = frozenset({"搜图", "图搜", "以图搜", "img", "image"})
 IMAGE_STRICT_WORDS: Final = frozenset({"严格", "strict"})
@@ -72,5 +74,6 @@ LANG_LABELS: Final = {
 SOURCE_CHANNELS: Final = {"nhentai": "nhentai", "ehentai": "ehentai"}
 SOURCE_LABELS: Final = {"nhentai": "nhentai", "ehentai": "E-Hentai", "panda": "Panda"}
 
-# 结果页文本上限：标题常带整段宣传语，原样发出去会刷屏
-TITLE_LIMIT: Final = 48
+# 结果页标题的默认字数上限（配置项 image_search.title_limit 会覆盖它）：标题常带整段宣传语，
+# 原样发出去会刷屏
+TITLE_LIMIT: Final = DEFAULT_IMAGE_SEARCH_TITLE_LIMIT

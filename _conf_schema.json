@@ -1111,6 +1111,13 @@
         "default": 5,
         "slider": {"min": 1, "max": 20, "step": 1}
       },
+      "title_limit": {
+        "type": "int",
+        "description": "标题显示字数上限",
+        "hint": "结果里每条标题最多显示多少个字，超出以省略号结尾；0 表示不截断。默认 80，调大可以看更长的标题",
+        "default": 80,
+        "slider": {"min": 0, "max": 200, "step": 1}
+      },
       "prefer_chinese": {
         "type": "bool",
         "description": "同一作品有多语言版本时只留中文",

@@ -92,6 +92,9 @@ DEFAULT_IMAGE_SEARCH_MAX_RESULTS: Final = 5
 DEFAULT_IMAGE_SEARCH_MIN_SIMILARITY: Final = 45.0
 # 同一本作品常有多个语言版本：默认只留中文，避免一本作品重复出现好几次
 DEFAULT_IMAGE_SEARCH_PREFER_CHINESE: Final = True
+# 结果里标题的展示字数上限：上游标题常带整段宣传语，太长会把一行挤成两行；
+# 80 字能装下绝大多数「[社团] 标题 | 副标题 [汉化]」的完整写法，0 表示不截断
+DEFAULT_IMAGE_SEARCH_TITLE_LIMIT: Final = 80
 DEFAULT_IMAGE_SEARCH_STRICT: Final = False
 # 命令末尾的「只取封面」词：`/jm 123456 封面` 只发这一本的封面、不下载整本
 COVER_WORDS: Final = frozenset({"封面", "cover"})

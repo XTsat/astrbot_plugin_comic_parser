@@ -916,7 +916,9 @@ class RankingService:
             meta_parts.append(f"{item.page_count}P")
         meta = f"（{' · '.join(meta_parts)}）" if meta_parts else ""
         mark = f" · {AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
-        return f"{index}. {title}{meta} · ID：{item.comic_id}{mark}"
+        # 序号用「1、」而不是「1.」：长消息会被平台转成图片，文转图模板把「1.」当 Markdown
+        # 有序列表，聚合榜在渠道之间插了【渠道名】，每个渠道的列表都从 1 重新编号
+        return f"{index}、{title}{meta} · ID：{item.comic_id}{mark}"
 
     @staticmethod
     def _note_lines(outcomes: list[RankingOutcome], skip: set[str] | None = None) -> str:

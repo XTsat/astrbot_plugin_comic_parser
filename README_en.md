@@ -325,7 +325,7 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 ### Image search
 
 <details>
-<summary>Image search (7 options)</summary>
+<summary>Image search (8 options)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -335,6 +335,7 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 | Dedicated image search proxy (`proxy`) | string | empty | Empty means no proxy; when set it wins over "reuse the download proxy" |
 | Minimum similarity (`min_similarity`) | float | 45 | Hits below this value are hidden. Upstream returns dozens of hits for any image without a threshold of its own, so anything below 45 is mostly noise |
 | Maximum works shown (`max_results`) | int | 5 | A work only takes one slot (language variants are merged) |
+| Title length limit (`title_limit`) | int | 80 | How many characters of each title to show before an ellipsis; 0 disables truncation |
 | Keep only Chinese when a work has several languages (`prefer_chinese`) | bool | true | When off, the highest-scoring variant wins and may be Japanese or English |
 | Use strict mode by default (`strict_default`) | bool | false | Strict mode gives fewer false positives but may miss the work; override once with `/comic 搜图 普通` |
 | Image search timeout (`timeout`) | int | 120 | Covers the upload plus the upstream lookup |

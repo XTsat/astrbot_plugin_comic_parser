@@ -831,7 +831,9 @@ class SearchService:
             name = channel.display_name if channel else item.channel
             tag = f"[{name}] "
         mark = f" · {AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
-        return [f"{index}. {tag}{title}{meta} · ID：{comic_id}{mark}"]
+        # 序号用「1、」而不是「1.」：长消息会被平台转成图片，文转图模板把「1.」当 Markdown
+        # 有序列表，一旦中间插进说明或空行，后面的条目就会从 1 重新编号；与搜图、榜单同一种写法
+        return [f"{index}、{tag}{title}{meta} · ID：{comic_id}{mark}"]
 
     @staticmethod
     def _note_lines(outcomes: list[SearchOutcome]) -> str:

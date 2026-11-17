@@ -1773,6 +1773,7 @@ class ComicParserPlugin(Star):
             strict=strict,
             command_for=self._download_command_for,
             dropped=max(0, found - len(selected)),
+            title_limit=self.settings.image_search_title_limit,
         )
         if indexed:
             numbers = "、".join(f"/comic {i}" for i in range(1, min(indexed, 3) + 1))
