@@ -8,6 +8,7 @@ from .cover import CoverResult, CoverService
 from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .health import HealthIssue, HealthReport, check as check_health
+from .janitor import CleanupResult, cleanup_temp
 from .packer import Packer
 from .progress import ProgressHeartbeat, ProgressState
 from .nsfw import (
@@ -36,13 +37,14 @@ from .stats import (
     DownloadStats,
     StatsSnapshot,
 )
-from .task import DownloadOutcome, DownloadTask
+from .task import DownloadOutcome, DownloadTask, active_work_dirs
 
 __all__ = [
     "AccessGuard",
     "BaseChannel",
     "CoverResult",
     "ChannelStat",
+    "CleanupResult",
     "CoverService",
     "Detector",
     "DownloadOutcome",
@@ -73,7 +75,9 @@ __all__ = [
     "SearchService",
     "StatsSnapshot",
     "build_channels",
+    "active_work_dirs",
     "check_health",
+    "cleanup_temp",
     "command_map",
     "describe_channels",
     "describe_websites",

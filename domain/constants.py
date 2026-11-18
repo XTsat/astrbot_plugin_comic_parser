@@ -366,6 +366,7 @@ STATUS_WORDS: Final = frozenset({"status", "queue", "状态", "队列", "排队"
 # 因此这些词不会被搜索关键词抢走，没必要为了避让而把用户最可能敲的那个词排除掉
 HEALTH_WORDS: Final = frozenset({"test", "check", "测试", "自检", "体检", "健康"})
 STATS_WORDS: Final = frozenset({"stats", "stat", "统计", "数据"})
+CLEAN_WORDS: Final = frozenset({"clean", "cleanup", "清理", "清缓存"})
 
 # 每个会话记下最近几本下载请求：`/comic retry` 默认认队尾那一本，加 `全部` 就整队重放，
 # 所以要留成队列；同一本再下只挪到队尾、不重复记，条数上限只为防长期运行堆积

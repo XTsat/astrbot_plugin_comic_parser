@@ -57,6 +57,14 @@ _ACTIVE_WORK_DIRS: set[Path] = set()
 META_RETRY_DELAY: float = 2.0
 
 
+def active_work_dirs() -> set[Path]:
+    """当前正被任务写入的工作目录快照（供清理命令跳过它们）。
+
+    复制一份再返回：调用方拿去删东西时不该和任务层的增删互相影响。
+    """
+    return set(_ACTIVE_WORK_DIRS)
+
+
 def _newest_mtime(path: Path) -> float:
     """目录里最新一次写入的时间（含子目录里的文件），用来判断断点是不是真过期了。"""
     newest = path.stat().st_mtime

@@ -48,7 +48,9 @@ from .core import (
     RankingCardRenderer,
     RankingService,
     SearchService,
+    active_work_dirs,
     check_health,
+    cleanup_temp,
     create_detector,
     ensure_onnxruntime,
     build_channels,
@@ -96,6 +98,7 @@ from .domain import (
 )
 from .domain.constants import (
     CHAPTER_TITLE_LIMIT,
+    CLEAN_WORDS,
     HEALTH_WORDS,
     STATS_FILENAME,
     STATS_WORDS,
@@ -1365,6 +1368,10 @@ class ComicParserPlugin(Star):
             return
         if head_lower in STATS_WORDS:
             async for result in self._handle_stats(event):
+                yield result
+            return
+        if head_lower in CLEAN_WORDS:
+            async for result in self._handle_clean(event):
                 yield result
             return
         if head_lower in STOP_WORDS or head_lower in STOP_ALL_WORDS:
@@ -3109,6 +3116,40 @@ class ComicParserPlugin(Star):
             yield event.plain_result("❌ 只有管理员可以看下载统计")
             return
         yield event.plain_result(self.stats.render())
+
+    async def _handle_clean(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """`/comic 清理`：把按现有配置已经过期的临时产物立刻删掉。
+
+        只删「本来就该过期」的东西：过期断点、超 TTL 的封面临时图与榜单图、强杀残留的
+        信息目录。正在下载的目录、未过期的断点、面板暂存与长期保存目录都不碰。
+        限管理员：它会删文件。
+        """
+        if not self._is_admin(event):
+            yield event.plain_result("❌ 只有管理员可以清理临时目录")
+            return
+        result = await asyncio.to_thread(
+            cleanup_temp,
+            self.temp_root,
+            resume_ttl=float(self.settings.resume_ttl),
+            active_dirs=self._active_work_dirs(),
+        )
+        yield event.plain_result(result.render())
+
+    def _active_work_dirs(self) -> set[Path]:
+        """正在被任务写入的目录：清理时要跳过它们。
+
+        直接用任务层登记的 ``_ACTIVE_WORK_DIRS``（它按目录粒度记录，正在下的那本一定在里面）；
+        只在任务层拿不到登记时退化成「整个断点根都不碰」——宁可少清，不能删掉别人正在写的目录。
+        """
+        active = active_work_dirs()
+        if active:
+            return active
+        # 队列里还有没跑到的任务时也可能马上要用断点根，一并排掉
+        if any(not item.started for item in self._running.values()):
+            return {self.temp_root / RESUME_DIRNAME}
+        return set()
 
     @staticmethod
     def _is_admin(event: AstrMessageEvent) -> bool:

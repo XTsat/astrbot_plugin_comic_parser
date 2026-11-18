@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -112,6 +113,7 @@ def _install_astrbot_stub() -> None:
 _install_astrbot_stub()
 
 from astrbot_plugin_comic_parser.core import health as health_mod  # noqa: E402
+from astrbot_plugin_comic_parser.core import janitor  # noqa: E402
 from astrbot_plugin_comic_parser.core import panel as panel_mod  # noqa: E402
 from astrbot_plugin_comic_parser.core.stats import (  # noqa: E402
     OUTCOME_FAIL,
@@ -549,11 +551,118 @@ def test_panel_stats_reset() -> None:
 
 
 
+# ---- 临时目录清理 ----
+
+
+def _touch(path: Path, *, age: float = 0.0, size: int = 16) -> None:
+    """建一个文件并把它连同各级父目录的 mtime 一起往前挪 ``age`` 秒。
+
+    目录自己的 mtime 必须一起改：断点是否过期看的是「目录与其内部文件里最新的那个时间」
+    （见 core/task.py 的 `_newest_mtime`），只把文件改旧、目录还是新建的，就会被判成没过期。
+    """
+    import os
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x" * size)
+    stamp = time.time() - age
+    os.utime(path, (stamp, stamp))
+    for parent in path.parents:
+        try:
+            os.utime(parent, (stamp, stamp))
+        except OSError:
+            break
+
+
+def test_janitor() -> None:
+    now = time.time()
+    with tempfile.TemporaryDirectory() as raw:
+        temp_root = Path(raw) / "temp"
+        # 过期断点（2 小时前）与未过期断点（刚写）
+        old_break = temp_root / "resume" / "jmcomic-111"
+        _touch(old_break / "001.jpg", age=7200, size=100)
+        fresh_break = temp_root / "resume" / "jmcomic-222"
+        _touch(fresh_break / "001.jpg", age=0, size=100)
+        # 正在下载的目录：即使很旧也不能删
+        active_dir = temp_root / "resume" / "jmcomic-333"
+        _touch(active_dir / "001.jpg", age=7200, size=100)
+        # 封面临时图：一张过期、一张新鲜
+        _touch(temp_root / "covers" / "old-cover.jpg", age=7200, size=50)
+        _touch(temp_root / "covers" / "new-cover.jpg", age=0, size=50)
+        # 榜单：中间图过期、成图缓存还在有效期内
+        _touch(temp_root / "ranking" / "card-old.png", age=7200, size=70)
+        _touch(temp_root / "ranking" / "cache-abc.png", age=7200, size=70)
+        # 强杀残留的信息目录
+        _touch(temp_root / "info" / "jmcomic-444" / "meta.json", age=7200, size=10)
+        # 面板暂存：不归清理命令管
+        _touch(temp_root / "panel" / "keep-me.png", age=99999, size=10)
+
+        result = janitor.cleanup_temp(
+            temp_root,
+            resume_ttl=3600,
+            active_dirs={active_dir},
+            now=now,
+        )
+        check("清理：删掉过期断点", not old_break.exists(), str(old_break))
+        check("清理：未过期断点留着", fresh_break.exists(), str(fresh_break))
+        check("清理：正在下载的目录不动", active_dir.exists(), str(active_dir))
+        check(
+            "清理：如实报出跳过数",
+            result.skipped_active == 1,
+            str(result.skipped_active),
+        )
+        check(
+            "清理：过期封面临时图删掉、新鲜的留着",
+            not (temp_root / "covers" / "old-cover.jpg").exists()
+            and (temp_root / "covers" / "new-cover.jpg").exists(),
+            "",
+        )
+        check(
+            "清理：榜单中间图删掉、缓存按上限留着",
+            not (temp_root / "ranking" / "card-old.png").exists()
+            and (temp_root / "ranking" / "cache-abc.png").exists(),
+            "",
+        )
+        check(
+            "清理：强杀残留的信息目录清掉",
+            not (temp_root / "info" / "jmcomic-444").exists(),
+            "",
+        )
+        check(
+            "清理：面板暂存不归它管",
+            (temp_root / "panel" / "keep-me.png").exists(),
+            "",
+        )
+        check(
+            "清理：报了释放空间与分组明细",
+            result.freed_bytes >= 100 and len(result.groups) >= 3,
+            f"bytes={result.freed_bytes} groups={result.groups}",
+        )
+        check(
+            "清理文案：说明不影响长期保存目录",
+            "仅本地保存目录" in result.render(),
+            result.render(),
+        )
+
+        # resume_ttl=0 = 不留断点：连新鲜断点也算过期
+        janitor.cleanup_temp(temp_root, resume_ttl=0, active_dirs=set(), now=now)
+        check(
+            "清理：断点保留设 0 时全部清掉",
+            not fresh_break.exists(),
+            str(fresh_break),
+        )
+
+        # 空目录不该炸
+        empty = janitor.cleanup_temp(Path(raw) / "nope", resume_ttl=60, now=now)
+        check("清理：目录不存在时安全返回", empty.removed_total == 0, "")
+
+
+
 def main() -> int:
     test_health()
     test_stats()
     test_stats_persistence()
     test_panel_stats_reset()
+    test_janitor()
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     print()
