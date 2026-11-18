@@ -170,3 +170,24 @@ class PackResult:
     encrypted: bool
     error: str | None = None
     note: str = ""  # 非致命提示（个别页无法解码已跳过等），写进结果摘要给用户看
+
+
+@dataclass(slots=True)
+class ChannelSelfcheck:
+    """一个渠道「现在能不能用」的结论。
+
+    比 `ComicMeta` 轻得多：不需要作品 ID，只回答站点通不通、走没走代理、卡在哪一步。
+    ``ok`` 为 False 时 ``reason`` 一定是可以直接展示给用户的中文，``hint`` 说怎么补救。
+    """
+
+    channel: str
+    display_command: str
+    enabled: bool = True
+    ok: bool = False
+    latency_ms: int = 0
+    elapsed: float = 0.0
+    url: str = ""
+    # 这一趟走的是直连 / 插件代理 / 本体代理，用于解释「为什么别人能下我不能」
+    proxy_source: str = ""
+    reason: str = ""
+    hint: str = ""

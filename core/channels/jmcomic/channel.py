@@ -30,6 +30,7 @@ from ....domain import (
     SearchQuery,
     select_entries,
 )
+from ....domain.models import ChannelSelfcheck
 from ....domain.constants import (
     DRAIN_POLL_INTERVAL,
     DRAIN_TIMEOUT,
@@ -38,12 +39,15 @@ from ....domain.constants import (
 )
 from ....utils import format_size, split_link
 from ...channel import (
+    SELFCHECK_SAMPLE_BYTES,
+    SELFCHECK_USER_AGENT,
     BaseChannel,
     CancelToken,
     ProgressCallback,
     is_search_proxy_override,
     split_option_list,
 )
+from ...domain_race import probe_url
 from ...progress import ProgressHeartbeat, ProgressState
 from ...search_query import field_label
 from .constants import (
@@ -958,6 +962,46 @@ class JMComicChannel(BaseChannel):
             chapters_label=chapters_label,
         )
 
+
+    async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
+        """打禁漫的接口域名：真正取元信息走的是它，网页域名只是给用户点链接用的。
+
+        接口域名清单优先取用户填的，其次问 jmcomic 要它当前在用的那批——
+        上游换域名比插件发版勤，写死在插件里的清单早晚会过期。
+        """
+        missing = self.missing_requirement()
+        if missing is not None:
+            return self._selfcheck_blocked(
+                f"缺少运行依赖 {missing}", f"pip install {missing}，装好后重载插件"
+            )
+        if not self.enabled:
+            return self._selfcheck_blocked("渠道未启用", "在插件配置里打开它")
+
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            return self._selfcheck_blocked(
+                "缺少运行依赖 jmcomic", "pip install jmcomic，装好后重载插件"
+            )
+
+        started = time.monotonic()
+        proxy, proxy_source = self.resolve_proxy()
+        domains = self._candidate_domains(jmcomic, "api")
+        if not domains:
+            return self._selfcheck_blocked(
+                "接口域名清单是空的",
+                "在渠道配置的「接口域名」里填一个，或留空让插件自动拉取",
+            )
+        # 打真实接口路径而不是根路径：这两个域名的 `/` 对裸请求一律 403（实测），
+        # 但 `/api/album` 是通的——打根路径会把「域名好好的」误报成「站点挂了」
+        url = f"https://{domains[0]}/api/album?album_id=1"
+        timing = await probe_url(
+            self.name,
+            url,
+            proxy=proxy,
+            headers={"User-Agent": SELFCHECK_USER_AGENT, "Accept": "application/json"},
+            sample_bytes=SELFCHECK_SAMPLE_BYTES,
+        )
+        return self._selfcheck_result(timing, url, proxy_source, started)
 
 def _album_tags(album: Any) -> list[str]:
     """取作品详情里的标签；拿不到就当没有——少一行标签不影响下载与打包。"""

@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import time
+
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar
@@ -37,9 +39,15 @@ from ....domain import (
     SearchQuery,
     select_entries,
 )
+from ....domain.models import ChannelSelfcheck
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
-from ...channel import BaseChannel, CancelToken, ProgressCallback
+from ...channel import (
+    BaseChannel,
+    CancelToken,
+    ProgressCallback,
+    split_option_list,
+)
 from ...progress import ProgressHeartbeat
 from ...search_query import fallback_note, plain_search_text
 from .constants import (
@@ -428,6 +436,31 @@ class WnacgChannel(BaseChannel):
             ),
             retry_times=self.opt_int("retry_times", DEFAULT_IMAGE_RETRY_TIMES, minimum=0),
         )
+
+    async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
+        """打站点首页：这个渠道的每一条路（搜索、下载、取元信息）都要先过 Cloudflare，
+        首页能打开基本就说明这一趟能走通。
+        """
+        missing = self.missing_requirement()
+        if missing is not None:
+            return self._selfcheck_blocked(f"缺少运行依赖 {missing}", f"pip install {missing}，装好后重载插件")
+        if not self.enabled:
+            return self._selfcheck_blocked("渠道未启用", "在插件配置里打开它")
+
+        started = time.monotonic()
+        proxy, proxy_source = self.resolve_proxy()
+        domains = self.opt_list("site_domains") or split_option_list(DEFAULT_SITE_DOMAINS)
+        # 逐个试：站点给多条域名就是用来降级的，只试第一条会把「换个域名就好」误报成挂了
+        timing, url = await self._selfcheck_first_reachable(
+            [f"https://{domain}/" for domain in domains],
+            proxy=proxy,
+            headers={"User-Agent": USER_AGENT, "Accept": "text/html"},
+            # 紳士漫畫挡在 Cloudflare 后面，挑战页本身是 200：不识别出来会误报「通了」
+            reject_markers=(b"Just a moment", b"cf-browser-verification"),
+            started=started,
+            timeout=timeout,
+        )
+        return self._selfcheck_result(timing, url, proxy_source, started)
 
     def _proxy(self) -> str:
         """本渠道这一趟要走的代理（详见 `BaseChannel.resolve_proxy`）。"""

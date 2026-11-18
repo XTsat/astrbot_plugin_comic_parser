@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import time
+
 import asyncio
 import re
 from collections.abc import Mapping
@@ -30,11 +32,13 @@ from ....domain import (
     SearchQuery,
 )
 from ....domain.constants import PLUGIN_NAME
+from ....domain.models import ChannelSelfcheck
 from ....utils import host_matches, split_link
 from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
 from ...progress import ProgressHeartbeat
 from ...search_query import fallback_note, plain_search_text
-from ...domain_race import ProbeFn, http_probe
+from ...channel import SELFCHECK_SAMPLE_BYTES
+from ...domain_race import ProbeFn, http_probe, probe_url
 from .api import NhentaiApi
 from .constants import (
     CDN_API_PATH,
@@ -487,6 +491,30 @@ class NhentaiChannel(BaseChannel):
                 "retry_times", DEFAULT_IMAGE_RETRY_TIMES, minimum=0
             ),
         )
+
+    async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
+        """打官方 API 的 `/api/v2/cdn`：无需凭据、不触发 Cloudflare，且本来就是每本都要打的。
+
+        比打首页准：首页在 Cloudflare 后面，直连常常 403，会把「被拦」误报成「站点挂了」。
+        """
+        missing = self.missing_requirement()
+        if missing is not None:
+            return self._selfcheck_blocked(f"缺少运行依赖 {missing}", f"pip install {missing}，装好后重载插件")
+        if not self.enabled:
+            return self._selfcheck_blocked("渠道未启用", "在插件配置里打开它")
+
+        started = time.monotonic()
+        proxy, proxy_source = self.resolve_proxy()
+        domain = (self.opt_list("site_domains") or default_site_domains())[0]
+        url = f"https://{domain}{CDN_API_PATH}"
+        timing = await probe_url(
+            self.name,
+            url,
+            proxy=proxy,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            sample_bytes=SELFCHECK_SAMPLE_BYTES,
+        )
+        return self._selfcheck_result(timing, url, proxy_source, started)
 
     def _proxy(self) -> str:
         """本渠道这一趟要走的代理（详见 `BaseChannel.resolve_proxy`）。

@@ -10,6 +10,15 @@ from .guard import AccessGuard
 from .health import HealthIssue, HealthReport, check as check_health
 from .janitor import CleanupResult, cleanup_temp
 from .packer import Packer
+from .probe import (
+    ProbeOutcome,
+    known_channel_names,
+    pick_channel,
+    probe_channel,
+    render_selfcheck,
+    selfcheck_channels,
+    split_target_args,
+)
 from .progress import ProgressHeartbeat, ProgressState
 from .nsfw import (
     Detector,
@@ -45,6 +54,7 @@ __all__ = [
     "CoverResult",
     "ChannelStat",
     "CleanupResult",
+    "ProbeOutcome",
     "CoverService",
     "Detector",
     "DownloadOutcome",
@@ -78,6 +88,12 @@ __all__ = [
     "active_work_dirs",
     "check_health",
     "cleanup_temp",
+    "known_channel_names",
+    "pick_channel",
+    "probe_channel",
+    "render_selfcheck",
+    "selfcheck_channels",
+    "split_target_args",
     "command_map",
     "describe_channels",
     "describe_websites",

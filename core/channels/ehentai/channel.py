@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import time
+
 import asyncio
 import json
 import os
@@ -40,6 +42,7 @@ from ....domain import (
     SearchQuery,
 )
 from ....domain.constants import IMAGE_SUFFIXES, PLUGIN_NAME
+from ....domain.models import ChannelSelfcheck
 from ....utils import (
     find_existing_image,
     host_matches,
@@ -47,7 +50,8 @@ from ....utils import (
     write_image_atomically,
 )
 from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_list
-from ...domain_race import ProbeFn, http_probe
+from ...channel import SELFCHECK_SAMPLE_BYTES
+from ...domain_race import ProbeFn, http_probe, probe_url
 from ...progress import ProgressHeartbeat, emit
 from .api import (
     EHLoginRequired,
@@ -59,6 +63,7 @@ from .api import (
     parse_cookie_string,
 )
 from .constants import (
+    API_PATH,
     DEFAULT_IMAGE_CONCURRENCY,
     DEFAULT_IMAGE_RETRY_TIMES,
     DEFAULT_MAX_PAGES,
@@ -921,6 +926,30 @@ class EHentaiChannel(BaseChannel):
             # 不标记出来会被测速排到第一，下载再回落一次
             reject_markers=(b"Sad Panda",),
         )
+
+    async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
+        """打 `gdata` 接口：这是取元信息真正要走的那条路，比首页更能说明「能不能下」。
+
+        没填 Cookie 时也能拿到公开作品，所以自检不需要凭据。
+        """
+        missing = self.missing_requirement()
+        if missing is not None:
+            return self._selfcheck_blocked(f"缺少运行依赖 {missing}", f"pip install {missing}，装好后重载插件")
+        if not self.enabled:
+            return self._selfcheck_blocked("渠道未启用", "在插件配置里打开它")
+
+        started = time.monotonic()
+        proxy, proxy_source = self.resolve_proxy()
+        host = (self.opt_list("site_domains") or split_option_list(DEFAULT_SITE_DOMAINS))[0]
+        url = f"https://{host}{API_PATH}?gid=1&token=1"
+        timing = await probe_url(
+            self.name,
+            url,
+            proxy=proxy,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            sample_bytes=SELFCHECK_SAMPLE_BYTES,
+        )
+        return self._selfcheck_result(timing, url, proxy_source, started)
 
     def _proxy(self) -> str:
         proxy, _source = self.resolve_proxy()

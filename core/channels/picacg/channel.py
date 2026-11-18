@@ -34,18 +34,27 @@ from ....domain import (
 )
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, sanitize_filename, split_link
-from ...channel import BaseChannel, CancelToken, ProgressCallback
+from ...domain_race import probe_url
+from ...channel import (
+    SELFCHECK_SAMPLE_BYTES,
+    BaseChannel,
+    CancelToken,
+    ProgressCallback,
+)
 from ...progress import ProgressHeartbeat, ProgressState, emit
 from ...search_query import fallback_note, plain_search_text
 from .api import PicaClient, image_url
 from .constants import (
+    BASE_URL,
     DEFAULT_MAX_CONCURRENT_IMAGES,
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_RETRY_TIMES,
     DEFAULT_SECRET_KEY,
     SHORT_ID_LENGTH,
+    USER_AGENT,
     WEB_COMIC_DOMAINS,
 )
+from ....domain.models import ChannelSelfcheck
 
 # 榜单窗口 → 官方排行榜的时间窗取值。哔咔只有 24 小时/7 天/30 天三档，没有总榜
 _BOARD_WINDOW = {"day": "H24", "week": "D7", "month": "D30"}
@@ -125,6 +134,38 @@ class PicacgChannel(BaseChannel):
         self._token = ""
 
     # ---- 客户端 ----
+    async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
+        """打哔咔的接口域名：下载要过签名接口，光打开官网说明不了能不能用。
+
+        这里只探「接口域名活不活」，不尝试登录——自检不该消耗账号登录次数，
+        也不该因为没填账号就报「连不上」。
+        """
+        missing = self.missing_requirement()
+        if missing is not None:
+            return self._selfcheck_blocked(
+                f"缺少运行依赖 {missing}", f"pip install {missing}，装好后重载插件"
+            )
+        if not self.enabled:
+            return self._selfcheck_blocked("渠道未启用", "在插件配置里打开它")
+
+        started = time.monotonic()
+        proxy, proxy_source = self.resolve_proxy()
+        url = BASE_URL.rstrip("/") + "/"
+        timing = await probe_url(
+            self.name,
+            url,
+            proxy=proxy,
+            headers={"User-Agent": USER_AGENT, "Accept": "*/*"},
+            sample_bytes=SELFCHECK_SAMPLE_BYTES,
+        )
+        result = self._selfcheck_result(timing, url, proxy_source, started)
+        # 接口域名对裸请求常回 4xx（缺签名/缺 token），这恰恰说明域名是活的：
+        # 探测层把 >=400 判成失败，这里按「能连上」纠正，免得天天误报
+        if not result.ok and "HTTP " in result.reason:
+            result.ok = True
+            result.reason = ""
+        return result
+
     def _new_client(self) -> PicaClient:
         return PicaClient(
             secret_key=self.opt_str("secret_key", DEFAULT_SECRET_KEY),

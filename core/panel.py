@@ -58,8 +58,8 @@ from ..domain.constants import (
     PLUGIN_NAME,
 )
 from ..domain.errors import PanelError
+from .probe import probe_channel
 from .nsfw import Detector, ModelWeights, create_detector, censor_cover
-from .registry import resolve_link
 
 
 @dataclass(slots=True)
@@ -387,6 +387,9 @@ class PanelService:
     async def fetch_from_channel(self, channel_name: Any, text: Any) -> dict[str, Any]:
         """按渠道取一本作品的元信息与封面，封面直接进面板的图片暂存表。
 
+        探测逻辑在 `core/probe.py`：聊天里的 `/comic 测试 <渠道> <ID>` 走的是同一套，
+        两边各写一份的话「面板通、命令不通」这种分叉迟早会出现。
+
         Args:
             channel_name: 渠道全称或简写（``nhentai`` / ``nh``）。
             text: 作品 ID 或作品链接；链接指向别的站点时按链接那家走。
@@ -395,102 +398,40 @@ class PanelService:
             dict: ``comic`` 是元信息，``image`` 是封面（取不到时为 None，``cover_error``
             说明原因）。
         """
-        raw = str(text or "").strip()
-        if not raw:
-            raise PanelError("先填作品 ID 或作品链接")
-
         channels = self._channel_objects()
         if not channels:
             raise PanelError("当前没有可用渠道")
 
-        channel = _pick_channel(channels, str(channel_name or ""))
-        if channel is None:
-            raise PanelError(f"没有这个渠道：{channel_name}")
-
-        # 贴的是作品链接就按链接走：命令/渠道只是入口，不能拿 A 站的 ID 去问 B 站
-        if raw.lower().startswith(("http://", "https://")):
-            resolved = resolve_link(channels, raw)
-            if resolved is None:
-                raise PanelError("认不出这条链接属于哪个渠道，检查一下链接或改用作品 ID")
-            channel, comic_id = resolved
-        else:
-            try:
-                comic_id = channel.normalize_id(raw)
-            except Exception as exc:
-                raise PanelError(f"{channel.display_command} 的作品 ID 看着不对：{exc}") from exc
-
-        if not channel.enabled:
-            raise PanelError(
-                f"渠道 {channel.display_command} 没有启用；先在插件设置里打开它"
-            )
-
         work_dir = self._ensure_temp_dir() / "channel" / uuid.uuid4().hex
         try:
-            work_dir.mkdir(parents=True, exist_ok=True)
-            meta = await asyncio.wait_for(
-                channel.fetch_meta(comic_id, work_dir), timeout=PANEL_CHANNEL_TIMEOUT
+            outcome = await probe_channel(
+                channels,
+                str(channel_name or ""),
+                text,
+                work_dir,
+                timeout=PANEL_CHANNEL_TIMEOUT,
+                with_cover=True,
             )
-        except PanelError:
-            raise
-        except asyncio.TimeoutError as exc:
-            raise PanelError(
-                f"{channel.display_command} 取元信息超过 {PANEL_CHANNEL_TIMEOUT:.0f} 秒没响应，"
-                "可能站点被墙或需要代理；可以先去渠道配置里开代理再试"
-            ) from exc
-        except Exception as exc:  # 各渠道抛的异常类型不统一，这里统一变成页面文案
-            logger.warning(f"[{PLUGIN_NAME}] 面板取元信息失败 {channel.command}/{comic_id}: {exc}")
-            raise PanelError(f"{channel.display_command} 取元信息失败：{exc}") from exc
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+        if not outcome.comic_id:
+            # 连 ID 都没解析出来（渠道不存在 / 链接认不出 / 没填）——页面要的是错误
+            raise PanelError(outcome.error or "先填作品 ID 或作品链接")
+        if not outcome.ok:
+            raise PanelError(outcome.error or "取元信息失败")
 
         payload: dict[str, Any] = {
-            "channel": channel.command,
-            "display_command": channel.display_command,
-            "comic": {
-                "channel": meta.channel,
-                "comic_id": meta.comic_id,
-                "title": meta.title,
-                "author": meta.author,
-                "page_count": meta.page_count,
-                "tags": list(meta.tags),
-            },
+            "channel": outcome.channel,
+            "display_command": outcome.display_command,
+            "comic": dict(outcome.meta),
             "image": None,
-            "cover_error": "",
+            "cover_error": outcome.cover_error,
         }
-
-        if not channel.supports_cover:
-            payload["cover_error"] = (
-                f"渠道 {channel.display_command} 只支持查元信息，取不到封面预览；可以直接上传图片试"
-            )
+        if not outcome.cover:
             return payload
 
-        try:
-            raw_cover = await asyncio.wait_for(
-                channel.fetch_cover(comic_id), timeout=PANEL_CHANNEL_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"[{PLUGIN_NAME}] 面板取封面超时 {channel.command}/{comic_id}"
-                f"（{PANEL_CHANNEL_TIMEOUT:.0f}s）"
-            )
-            raw_cover = None
-        except Exception as exc:
-            logger.warning(f"[{PLUGIN_NAME}] 面板取封面失败 {channel.command}/{comic_id}: {exc}")
-            raw_cover = None
-
-        if not raw_cover:
-            # 渠道自己在 fetch_cover 里记了失败原因（哪几个域名、什么错）就直接透给用户，
-            # 光说「没取到」用户没法判断是该开代理、换域名还是这个本子下架了
-            reason = str(getattr(channel, "cover_error", "") or "").strip()
-            payload["cover_error"] = (
-                f"没取到 {channel.display_command} 的封面：{reason}"
-                if reason
-                else (
-                    f"没取到 {channel.display_command} 的封面：可能被站点风控、站点结构有变或网络不通"
-                    f"（面板最多等 {PANEL_CHANNEL_TIMEOUT:.0f} 秒）；详情看插件日志，也可以直接上传图片试"
-                )
-            )
-            return payload
-
-        item = self.add_image(raw_cover, _image_suffix(raw_cover))
+        item = self.add_image(outcome.cover, _image_suffix(outcome.cover))
         payload["image"] = {
             "image_id": item.id,
             "width": item.width,
@@ -1216,21 +1157,6 @@ def _coerce_value(field_type: str, raw: Any, node: Mapping[str, Any]) -> Any:
     if isinstance(options, list) and options and text not in options:
         raise ValueError(f"不在可选范围: {text}")
     return text
-
-
-def _pick_channel(channels: Mapping[str, Any], name: str) -> Any | None:
-    """按全称、简写或渠道名找到渠道对象。"""
-    wanted = name.strip().lower()
-    if not wanted:
-        return None
-    for key, channel in channels.items():
-        if wanted in {str(key).lower(), str(getattr(channel, "command", "")).lower()}:
-            return channel
-        names = {str(item).lower() for item in getattr(channel, "command_names", ())}
-        aliases = {str(item).lower() for item in getattr(channel, "command_aliases", ())}
-        if wanted in names or wanted in aliases:
-            return channel
-    return None
 
 
 def _image_suffix(raw: bytes) -> str:

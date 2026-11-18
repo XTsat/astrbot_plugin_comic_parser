@@ -31,6 +31,7 @@ from ....domain import (
     SearchPage,
     SearchQuery,
 )
+from ....domain.models import ChannelSelfcheck
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
 from ...channel import (
@@ -698,6 +699,35 @@ class Hanime1Channel(BaseChannel):
                 "retry_times", DEFAULT_IMAGE_RETRY_TIMES, minimum=0
             ),
         )
+
+    async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
+        """打站点首页：搜索、详情页、图床都靠它给的地址，首页通了这条路才谈得上能走。"""
+        missing = self.missing_requirement()
+        if missing is not None:
+            return self._selfcheck_blocked(f"缺少运行依赖 {missing}", f"pip install {missing}，装好后重载插件")
+        if not self.enabled:
+            return self._selfcheck_blocked("渠道未启用", "在插件配置里打开它")
+
+        started = time.monotonic()
+        proxy, proxy_source = self.resolve_proxy()
+        domains = self.opt_list("site_domains") or split_option_list(DEFAULT_SITE_DOMAINS)
+        # 两个域名都试：hanime1.me 与 hanimeone.me 对某些出口的拦截策略并不一致
+        timing, url = await self._selfcheck_first_reachable(
+            [f"https://{domain}/" for domain in domains],
+            proxy=proxy,
+            headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html"},
+            started=started,
+            timeout=timeout,
+        )
+        result = self._selfcheck_result(timing, url, proxy_source, started)
+        if not result.ok and "403" in result.reason:
+            # 403 与「连不上」是两件事：站点活着、只是拒绝了这个出口/这个 UA。
+            # 照抄通用提示会让人去换域名、换代理反复试，其实该换的是线路出口
+            result.hint = (
+                "站点活着但拒绝了这台机器的出口（换一条代理线路通常能过；"
+                "一直 403 说明该出口被站点拉黑了）"
+            )
+        return result
 
     def _proxy(self) -> str:
         """本渠道这一趟要走的代理（详见 `BaseChannel.resolve_proxy`）。

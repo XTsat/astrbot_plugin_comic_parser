@@ -9,15 +9,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import os
 import threading
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 from astrbot.api import logger
 
@@ -38,10 +40,13 @@ from ..domain import (
     SearchUnsupportedError,
 )
 from ..domain.constants import DRAIN_TIMEOUT
+from ..domain.models import ChannelSelfcheck
 from .domain_race import (
     CACHE,
+    DomainTiming,
     ProbeFn,
     order_domains,
+    probe_url,
     race_domains,
     summarize,
 )
@@ -50,6 +55,14 @@ from .progress import ProgressState
 # 进度回调：每次都交一份完整快照，命令层据此决定要不要往聊天里发
 ProgressCallback = Callable[[ProgressState], Awaitable[None]]
 
+
+# 平台自检的探测面：拿一个常见浏览器 UA 打站点首页。样本只要够判「通不通」，
+# 不必读完——自检要快，用户等着结论
+SELFCHECK_USER_AGENT: Final = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
+)
+SELFCHECK_SAMPLE_BYTES: Final = 16 * 1024
 
 # 中断原因：命令层的文案必须区分「用户自己按停」与「插件被重载打断」——前者断点一定还在，
 # 后者要看重载时会不会清空临时目录，照抄暂停文案会把「能接着下」说成假话
@@ -475,6 +488,159 @@ class BaseChannel(ABC):
         判断「已保存 N 张」能不能当成最终结果报给用户。
         """
         return True
+
+    # ---- 平台自检：这个渠道现在能不能真的用 ----
+    def _selfcheck_blocked(self, reason: str, hint: str) -> ChannelSelfcheck:
+        """自检在发请求之前就被拦住（缺依赖 / 没启用）：直接给结论，别打站点。
+
+        仍然带上线路：用户看到「未启用 · 代理」时能顺带确认代理配置本身是对的，
+        不必等启用之后才发现填错了。
+        """
+        try:
+            proxy, source = self.resolve_proxy()
+        except Exception:  # noqa: BLE001 - 读线路失败不该让自检失败
+            source = ""
+        return ChannelSelfcheck(
+            channel=self.name,
+            display_command=self.display_command,
+            enabled=self.enabled,
+            proxy_source=source if proxy else source,
+            reason=reason,
+            hint=hint,
+        )
+
+    async def _selfcheck_first_reachable(
+        self,
+        urls: Sequence[str],
+        *,
+        proxy: str,
+        headers: Mapping[str, str],
+        reject_markers: Sequence[bytes] = (),
+        started: float | None = None,
+        timeout: float = 15.0,
+    ) -> tuple[DomainTiming, str]:
+        """按降级顺序逐个试候选地址，第一个通的就返回。
+
+        为什么必须逐个试：站点常有多条域名，第一条打不开不代表渠道不能用——
+        真实下载本来就会按这个顺序降级。只试第一条会把「换个域名就好」误报成「挂了」。
+
+        每个候选都套自己的超时：`probe_url` 本身没有上限，一个死域名会把整次自检
+        拖到 30 秒以上（实测过），用户等来的结论还是错的。
+
+        Returns:
+            ``(探测结果, 实际试到的那个 URL)``；全都不通时返回最后一个的结果。
+        """
+        started = time.monotonic() if started is None else started
+        last: DomainTiming | None = None
+        url = urls[0] if urls else ""
+        for candidate in urls:
+            url = candidate
+            try:
+                last = await asyncio.wait_for(
+                    probe_url(
+                        self.name,
+                        candidate,
+                        proxy=proxy,
+                        headers=dict(headers),
+                        sample_bytes=SELFCHECK_SAMPLE_BYTES,
+                        reject_markers=reject_markers,
+                    ),
+                    timeout,
+                )
+            except asyncio.TimeoutError:
+                last = DomainTiming(self.name, False, 0, 0.0, f"超过 {timeout:g}s")
+            if last.ok:
+                return last, candidate
+        if last is None:
+            last = DomainTiming(self.name, False, 0, 0.0, "没有可试的地址")
+        return last, url
+
+    def _selfcheck_result(
+        self,
+        timing: DomainTiming,
+        url: str,
+        proxy_source: str,
+        started: float,
+    ) -> ChannelSelfcheck:
+        """把一次探测结果收成自检结论：各渠道的自检只负责挑探测面，其余共用这一份。"""
+        return ChannelSelfcheck(
+            channel=self.name,
+            display_command=self.display_command,
+            enabled=True,
+            ok=timing.ok,
+            latency_ms=timing.latency_ms,
+            elapsed=time.monotonic() - started,
+            url=url,
+            proxy_source=proxy_source,
+            reason="" if timing.ok else (timing.note or "连不上"),
+        )
+
+    async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
+        """实际打一次本渠道的入口，回答「现在能不能用」。
+
+        与 `fetch_meta` 的区别：这里**不需要作品 ID**，打的是站点入口（首页/接口探针），
+        用来区分「站点连不上」「被风控拦了」「缺依赖/没启用」这几种完全不同的原因——
+        用户报「下不动」时，先看清是哪一种才知道该开代理、换域名还是装依赖。
+
+        默认实现打 `website` 首页；各渠道覆盖它换成更贴近真实用法的探针
+        （例如 nhentai 打 API、哔咔打接口域名），并且一律用**本渠道自己的**
+        域名清单与代理设置，与真正下载走同一条线路。
+
+        Args:
+            timeout: 单次请求上限（秒）。
+
+        Returns:
+            ChannelSelfcheck: ``ok`` 为 False 时 ``reason`` 是可直接展示的中文。
+        """
+        started = time.monotonic()
+        missing = self.missing_requirement()
+        if missing is not None:
+            return ChannelSelfcheck(
+                channel=self.name,
+                display_command=self.display_command,
+                enabled=self.enabled,
+                reason=f"缺少运行依赖 {missing}",
+                hint=f"pip install {missing}，装好后重载插件",
+            )
+        if not self.enabled:
+            return ChannelSelfcheck(
+                channel=self.name,
+                display_command=self.display_command,
+                enabled=False,
+                reason="渠道未启用",
+                hint="在插件配置里打开它",
+            )
+
+        url = f"{self.website.rstrip('/')}/" if self.website else ""
+        if not url:
+            return ChannelSelfcheck(
+                channel=self.name,
+                display_command=self.display_command,
+                enabled=True,
+                reason="不知道该访问哪个地址",
+                hint="这个渠道没有声明 website",
+            )
+
+        proxy, proxy_source = self.resolve_proxy()
+        timing = await probe_url(
+            self.name,
+            url,
+            proxy=proxy,
+            headers={"User-Agent": SELFCHECK_USER_AGENT, "Accept": "text/html,*/*"},
+            sample_bytes=SELFCHECK_SAMPLE_BYTES,
+        )
+        elapsed = time.monotonic() - started
+        return ChannelSelfcheck(
+            channel=self.name,
+            display_command=self.display_command,
+            enabled=True,
+            ok=timing.ok,
+            latency_ms=timing.latency_ms,
+            elapsed=elapsed,
+            url=url,
+            proxy_source=proxy_source,
+            reason="" if timing.ok else (timing.note or "连不上"),
+        )
 
     def wrap_failure(self, exc: Exception) -> DownloadError:
         """把渠道内部异常翻译成面向用户的下载失败文案。

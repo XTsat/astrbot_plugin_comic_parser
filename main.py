@@ -10,6 +10,7 @@ import asyncio
 import shutil
 import json
 import time
+import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +51,11 @@ from .core import (
     SearchService,
     active_work_dirs,
     check_health,
+    known_channel_names,
+    probe_channel,
+    render_selfcheck,
+    selfcheck_channels,
+    split_target_args,
     cleanup_temp,
     create_detector,
     ensure_onnxruntime,
@@ -100,7 +106,6 @@ from .domain.constants import (
     CHAPTER_TITLE_LIMIT,
     CLEAN_WORDS,
     HEALTH_WORDS,
-    STATS_FILENAME,
     STATS_WORDS,
     PACK_FORMAT_ALIASES,
     PACK_FORMATS,
@@ -114,6 +119,7 @@ from .domain.constants import (
     PROGRESS_REACTIONS,
     PROGRESS_STALL_INTERVAL,
     LAST_REQUEST_FILENAME,
+    STATS_FILENAME,
     LAST_REQUEST_KEEP,
     LAST_REQUEST_LIMIT,
     PROGRESS_STEP_PERCENT,
@@ -1280,6 +1286,11 @@ class ComicParserPlugin(Star):
             f"{index_lines}"
             f"/comic stop [全部] 取消 · /comic retry [全部] 接着下 · "
             f"/comic status [全部] 看排队\n\n"
+            f"🩺 维护（管理员）\n"
+            f"/comic 测试 [渠道 ID] 环境自检 / 试一个渠道 · /comic 统计 下载计数 · "
+            f"/comic 清理 清过期临时文件\n"
+            f"面板：插件详情页 →「漫画下载器面板」（打码测试 / 模型下载 / "
+            f"渠道测试 / 状态 / 设置）\n\n"
             f"🌐 渠道\n"
             f"{describe_channels(self.channels)}\n\n"
             f"⚙️ 当前设置\n"
@@ -1340,7 +1351,8 @@ class ComicParserPlugin(Star):
             yield event.plain_result(
                 "用法：/comic <作品链接> [格式]，或回列表里的序号\n"
                 "搜索 /comic sou <关键词> · 排行 /comic 排行 · 搜图 /comic 搜图 + 截图\n"
-                "完整说明：/comic help　站点与链接：/comic site"
+                "完整说明：/comic help　站点与链接：/comic site　"
+                "出问题先 /comic 测试"
             )
             return
 
@@ -1363,7 +1375,7 @@ class ComicParserPlugin(Star):
         # 维护类命令放在下载解析之前：它们的词是固定命令词，
         # 掉进下面就会被当成作品 ID 或链接去解析
         if head_lower in HEALTH_WORDS:
-            async for result in self._handle_health(event):
+            async for result in self._handle_health(event, rest.strip()):
                 yield result
             return
         if head_lower in STATS_WORDS:
@@ -1529,6 +1541,11 @@ class ComicParserPlugin(Star):
             return
         if head_lower in STATUS_WORDS:
             yield event.plain_result("ℹ️ 查看在跑与排队的下载请用 /comic status")
+            return
+        if head_lower in HEALTH_WORDS or head_lower in STATS_WORDS or head_lower in CLEAN_WORDS:
+            yield event.plain_result(
+                "ℹ️ 自检 / 统计 / 清理是全局的：请用 /comic 测试、/comic 统计、/comic 清理"
+            )
             return
         # 说明与站点速查是全局的（与渠道无关），渠道命令下指回 `/comic`
         if head_lower in HELP_WORDS:
@@ -3086,23 +3103,59 @@ class ComicParserPlugin(Star):
             elapsed=outcome.elapsed if outcome is not None else 0.0,
         )
 
-    # ==================== 维护：环境自检 ====================
+    # ==================== 维护：自检 / 统计 / 清理 ====================
 
     async def _handle_health(
-        self, event: AstrMessageEvent
+        self, event: AstrMessageEvent, args: str = ""
     ) -> AsyncGenerator[MessageEventResult, None]:
-        """`/comic 测试`：按当前配置检查服务器依赖与配置冲突，只读本地、不联网。
+        """`/comic 测试 [渠道] [ID 或链接]`：先查本机环境，给了渠道再打一次站点。
 
-        回答的是「这台机器现在能不能按当前配置跑」，不是「站点通不通」——后者要真打上游。
-        限管理员：报错里带依赖名与安装命令，对普通群成员没有意义。
+        两段是分开的，因为它们是两个问题：
+        - 不带参数只跑本地自检（依赖装没装、配置冲不冲突），毫秒级、不联网；
+        - 带 ``<渠道> <ID>`` 才真打上游，与面板「状态 → 渠道测试」走同一个实现
+          （`core/probe.py`），所以「面板通、命令不通」这种分叉不会出现。
+
+        限管理员：输出里有依赖名与安装命令，普通群成员看了也做不了什么。
         """
         if not self._is_admin(event):
             yield event.plain_result(
-                "❌ 只有管理员可以看环境自检：它报的是服务器依赖"
+                "❌ 只有管理员可以看环境自检：它报的是服务器依赖与站点连通性"
             )
             return
+
+        channel_name, target = split_target_args(args)
+        if not channel_name:
+            # 不带参数 = 实际访问每个已启用渠道，看这台机器现在到底能用哪几个。
+            # 本机依赖缺失也一并说：站点通了但缺组件，照样下不出来
+            report = check_health(self.settings, self.channels)
+            if not report.ok:
+                yield event.plain_result(report.render())
+            results = await selfcheck_channels(self.channels)
+            yield event.plain_result(render_selfcheck(results))
+            return
+
         report = check_health(self.settings, self.channels)
-        yield event.plain_result(report.render())
+        if not target:
+            # 只给了渠道名：说清还差什么，别让用户对着「没有这个渠道」猜
+            yield event.plain_result(
+                f"用法：/comic 测试 {channel_name} <作品 ID 或链接>\n"
+                f"可用渠道：{known_channel_names(self.channels) or '（暂无）'}\n"
+                f"只看本机环境：/comic 测试（不带参数）"
+            )
+            return
+
+        # 本机有会让下载白费的问题时先说：站点通了也下不出文件，先修更要紧
+        if not report.ok:
+            yield event.plain_result(report.render())
+
+        work_dir = self.temp_root / "probe" / f"{uuid.uuid4().hex}"
+        try:
+            outcome = await probe_channel(
+                self.channels, channel_name, target, work_dir, with_cover=False
+            )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        yield event.plain_result(outcome.render())
 
     async def _handle_stats(
         self, event: AstrMessageEvent
