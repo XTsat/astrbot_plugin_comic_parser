@@ -35,11 +35,15 @@ from .core import (
     CoverResult,
     CoverService,
     DownloadOutcome,
+    DownloadStats,
     DownloadTask,
     GroupFileResult,
     GroupFileUploader,
     ProgressState,
     ModelWeights,
+    OUTCOME_FAIL,
+    OUTCOME_OK,
+    OUTCOME_PAUSED,
     PanelService,
     RankingCardRenderer,
     RankingService,
@@ -93,6 +97,8 @@ from .domain import (
 from .domain.constants import (
     CHAPTER_TITLE_LIMIT,
     HEALTH_WORDS,
+    STATS_FILENAME,
+    STATS_WORDS,
     PACK_FORMAT_ALIASES,
     PACK_FORMATS,
     PLUGIN_AUTHOR,
@@ -504,6 +510,8 @@ class ComicParserPlugin(Star):
         self.save_root = self._resolve_save_dir()
         self.temp_root = self._resolve_temp_dir()
         self.guard = AccessGuard(self.settings)
+        # 累计数落盘（重载不丢），本次运行的增量在内存里另算
+        self.stats = DownloadStats(self.data_dir / STATS_FILENAME)
         self.group_files = GroupFileUploader()
         # 定时撤回：发出去的封面到点自己删（见 _recall_cover_later）
         self.auto_recall = AutoRecall()
@@ -576,6 +584,9 @@ class ComicParserPlugin(Star):
             },
             channels_provider=lambda: self.channels,
             tasks_provider=self._panel_tasks,
+            health_provider=lambda: check_health(self.settings, self.channels).snapshot(),
+            stats_provider=lambda: self.stats.snapshot().snapshot(),
+            stats_reset=self.stats.reset,
             config_provider=lambda: self.config,
             config_writer=self._panel_save_config,
             schema_path=Path(__file__).resolve().parent / "_conf_schema.json",
@@ -771,6 +782,12 @@ class ComicParserPlugin(Star):
                 "插件面板：释放一张暂存图片",
             ),
             (
+                f"/{PLUGIN_NAME}/panel/stats/reset",
+                self.api_panel_stats_reset,
+                ["POST"],
+                "插件面板：把累计下载计数清零",
+            ),
+            (
                 f"/{PLUGIN_NAME}/panel/channels",
                 self.api_panel_channels,
                 ["GET"],
@@ -951,6 +968,14 @@ class ComicParserPlugin(Star):
     async def api_panel_status(self) -> Any:
         """面板「状态」页的全景快照。"""
         return plugin_web.json_response({"status": "ok", "data": self.panel.status()})
+
+    async def api_panel_stats_reset(self) -> Any:
+        """把累计下载计数清零；返回新快照，页面直接重画。"""
+        try:
+            data = self.panel.reset_stats()
+        except PanelError as exc:
+            return plugin_web.error_response(str(exc), status_code=400)
+        return plugin_web.json_response({"status": "ok", "data": data})
 
     async def api_panel_channels(self) -> Any:
         """渠道清单：页面据此决定「渠道测试」能不能用、支持哪些能力。"""
@@ -1338,6 +1363,10 @@ class ComicParserPlugin(Star):
             async for result in self._handle_health(event):
                 yield result
             return
+        if head_lower in STATS_WORDS:
+            async for result in self._handle_stats(event):
+                yield result
+            return
         if head_lower in STOP_WORDS or head_lower in STOP_ALL_WORDS:
             include_all = (
                 head_lower in STOP_ALL_WORDS
@@ -1642,6 +1671,8 @@ class ComicParserPlugin(Star):
         )
         # ok / fail / paused：暂停与取消都不是失败，表情就停在「下载中」，别贴个锤子吓人
         result_state = "fail"
+        # 只有成功那次才有 outcome；统计在 finally 里按 result_state 记，失败/暂停也能计数
+        outcome: DownloadOutcome | None = None
         try:
             if self._semaphore.locked():
                 yield event.plain_result(self._queue_notice(session_id, slot))
@@ -1715,6 +1746,7 @@ class ComicParserPlugin(Star):
                 result_state = "ok"
         finally:
             self._end_running(slot)
+            self._record_download_stat(channel, result_state, outcome)
             # 暂停/取消时表情停在「下载中」，别贴个锤子吓人
             if result_state != "paused":
                 await self._react(event, "done" if result_state == "ok" else "fail")
@@ -3014,6 +3046,39 @@ class ComicParserPlugin(Star):
             ):
                 yield result
 
+    def _record_download_stat(
+        self,
+        channel: BaseChannel,
+        result_state: str,
+        outcome: DownloadOutcome | None,
+    ) -> None:
+        """把一次下载的结局记进运行期统计。
+
+        失败与暂停也记：管理员真正要判断的是「这个渠道到底能不能用」，
+        只数成功会把「十个请求全失败」显示成「零次下载」。
+        """
+        state_map = {
+            "ok": OUTCOME_OK,
+            "paused": OUTCOME_PAUSED,
+            "fail": OUTCOME_FAIL,
+        }
+        size = 0
+        if outcome is not None and outcome.pack.success:
+            path = outcome.pack.output_path
+            try:
+                if path is not None and path.is_file():
+                    size = path.stat().st_size
+            except OSError:
+                size = 0
+        self.stats.record(
+            channel.name,
+            state_map.get(result_state, OUTCOME_FAIL),
+            images=outcome.image_count if outcome is not None else 0,
+            failed_images=outcome.failed_images if outcome is not None else 0,
+            size_bytes=size,
+            elapsed=outcome.elapsed if outcome is not None else 0.0,
+        )
+
     # ==================== 维护：环境自检 ====================
 
     async def _handle_health(
@@ -3031,6 +3096,19 @@ class ComicParserPlugin(Star):
             return
         report = check_health(self.settings, self.channels)
         yield event.plain_result(report.render())
+
+    async def _handle_stats(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """`/comic 统计`：下载计数（累计落盘 + 本次运行增量）。
+
+        限管理员：累计数会一直留着，等于把「这台机器人被用了多少次」长期摆在那里；
+        管理员需要它判断哪个渠道在用，普通群成员不需要。
+        """
+        if not self._is_admin(event):
+            yield event.plain_result("❌ 只有管理员可以看下载统计")
+            return
+        yield event.plain_result(self.stats.render())
 
     @staticmethod
     def _is_admin(event: AstrMessageEvent) -> bool:

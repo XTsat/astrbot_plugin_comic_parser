@@ -81,6 +81,7 @@ const ctx = {
     channels: "panel/channels",
     channelsFetch: "panel/channels/fetch",
     status: "panel/status",
+    statsReset: "panel/stats/reset",
     settings: "panel/settings",
   },
   api: {

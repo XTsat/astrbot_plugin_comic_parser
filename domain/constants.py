@@ -365,6 +365,7 @@ STATUS_WORDS: Final = frozenset({"status", "queue", "状态", "队列", "排队"
 # 中文词都收「整词」写法：搜索要先写 sou（`/comic sou 测试` 的首词是 sou），
 # 因此这些词不会被搜索关键词抢走，没必要为了避让而把用户最可能敲的那个词排除掉
 HEALTH_WORDS: Final = frozenset({"test", "check", "测试", "自检", "体检", "健康"})
+STATS_WORDS: Final = frozenset({"stats", "stat", "统计", "数据"})
 
 # 每个会话记下最近几本下载请求：`/comic retry` 默认认队尾那一本，加 `全部` 就整队重放，
 # 所以要留成队列；同一本再下只挪到队尾、不重复记，条数上限只为防长期运行堆积
@@ -376,6 +377,12 @@ LAST_REQUEST_LIMIT: Final = 500
 # 这条记录要存盘：插件重载会重建实例，只放内存里的话重载中断提示刚让你发 `/comic retry`，
 # 发过去却回「没有下载记录」
 LAST_REQUEST_FILENAME: Final = "last_request.json"
+
+# 下载统计落盘：累计数跨重载保留（本次运行的增量在内存里另算）。
+# 版本号写进文件，读回时版本对不上就按「没有历史」重来——宁可少一段历史，
+# 也不能拿旧格式的字段去解释新结构，那会算出一份看起来正常、其实全错的数
+STATS_FILENAME: Final = "stats.json"
+STATS_VERSION: Final = 1
 
 # 取消与超时的巡检间隔（秒）：线程池里的下载只认取消令牌，得靠这个循环把它收掉
 CANCEL_POLL_INTERVAL: Final = 0.5

@@ -28,20 +28,33 @@ from .registry import (
 from .ranking import RankingOutcome, RankingService, RankingTurn
 from .ranking_card import CardResult, RankingCardRenderer
 from .search import SearchOutcome, SearchService
+from .stats import (
+    OUTCOME_FAIL,
+    OUTCOME_OK,
+    OUTCOME_PAUSED,
+    ChannelStat,
+    DownloadStats,
+    StatsSnapshot,
+)
 from .task import DownloadOutcome, DownloadTask
 
 __all__ = [
     "AccessGuard",
     "BaseChannel",
     "CoverResult",
+    "ChannelStat",
     "CoverService",
     "Detector",
     "DownloadOutcome",
+    "DownloadStats",
     "DownloadTask",
     "GroupFileResult",
     "HealthIssue",
     "HealthReport",
     "GroupFileUploader",
+    "OUTCOME_FAIL",
+    "OUTCOME_OK",
+    "OUTCOME_PAUSED",
     "PanelImage",
     "ModelWeights",
     "PanelService",
@@ -58,6 +71,7 @@ __all__ = [
     "RankingTurn",
     "SearchOutcome",
     "SearchService",
+    "StatsSnapshot",
     "build_channels",
     "check_health",
     "command_map",

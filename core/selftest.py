@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -111,6 +112,16 @@ def _install_astrbot_stub() -> None:
 _install_astrbot_stub()
 
 from astrbot_plugin_comic_parser.core import health as health_mod  # noqa: E402
+from astrbot_plugin_comic_parser.core import panel as panel_mod  # noqa: E402
+from astrbot_plugin_comic_parser.core.stats import (  # noqa: E402
+    OUTCOME_FAIL,
+    OUTCOME_OK,
+    OUTCOME_PAUSED,
+    DownloadStats,
+)
+from astrbot_plugin_comic_parser.domain.constants import (  # noqa: E402
+    STATS_VERSION,
+)
 
 RESULTS: list[tuple[str, bool, str]] = []
 
@@ -306,8 +317,243 @@ def test_health() -> None:
 
 
 
+# ---- 运行期统计 ----
+
+
+def test_stats() -> None:
+    stats = DownloadStats()
+    empty = stats.render()
+    check("统计：没有记录时给一句说明", "还没有下载记录" in empty, empty)
+
+    stats.record("jmcomic", OUTCOME_OK, images=20, size_bytes=2 * 1024 * 1024, elapsed=30)
+    stats.record("jmcomic", OUTCOME_FAIL, elapsed=5)
+    stats.record("nhentai", OUTCOME_PAUSED, images=7, elapsed=12)
+
+    snap = stats.snapshot()
+    check(
+        "统计：成功/失败/暂停分别计数",
+        (snap.ok, snap.fail, snap.paused) == (1, 1, 1),
+        f"{snap.ok}/{snap.fail}/{snap.paused}",
+    )
+    check("统计：总次数含暂停", snap.total == 3, str(snap.total))
+    check(
+        "统计：图片与产物只累加成功那次",
+        snap.images == 27 and snap.bytes == 2 * 1024 * 1024,
+        f"images={snap.images} bytes={snap.bytes}",
+    )
+    check(
+        "统计：渠道合计与全局合计对得上",
+        snap.channels["jmcomic"].total == 2 and snap.channels["nhentai"].total == 1,
+        str({k: v.total for k, v in snap.channels.items()}),
+    )
+    check(
+        "统计：渠道按次数降序排（jm 有两次）",
+        next(iter(snap.channels)) == "jmcomic",
+        str(list(snap.channels)),
+    )
+
+    text = stats.render()
+    check(
+        "统计文案：总览 + 渠道明细 + 起算说明",
+        "3 次下载" in text and "jmcomic" in text and "本次运行" in text,
+        text,
+    )
+
+    # 未知结局按失败记：宁可多报一次失败，也不能静默吞掉
+    stats.record("wnacg", "something-odd")
+    snap = stats.snapshot()
+    check(
+        "统计：未知结局按失败记",
+        snap.fail == 2 and snap.channels["wnacg"].fail == 1,
+        f"fail={snap.fail}",
+    )
+
+    stats.reset()
+    snap = stats.snapshot()
+    check(
+        "统计：清零后回到起点",
+        snap.total == 0 and not snap.channels and snap.images == 0,
+        str(snap.snapshot()),
+    )
+
+
+def test_stats_persistence() -> None:
+    """落盘与读回：跨「重载」累计数要留着，本次运行的增量要归零。"""
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / "stats.json"
+
+        first = DownloadStats(path)
+        first.record("jmcomic", OUTCOME_OK, images=10, size_bytes=1024, elapsed=4)
+        first.record("jmcomic", OUTCOME_FAIL, elapsed=1)
+        check("落盘：文件写出来了", path.is_file(), str(path))
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        check(
+            "落盘：带版本号与渠道表",
+            payload.get("version") == STATS_VERSION
+            and "jmcomic" in (payload.get("channels") or {}),
+            str(sorted(payload)),
+        )
+
+        # 模拟重载：新实例读同一个文件
+        second = DownloadStats(path)
+        snap = second.snapshot()
+        check(
+            "落盘：重载后累计数还在",
+            snap.total == 2 and snap.channels["jmcomic"].ok == 1,
+            f"total={snap.total}",
+        )
+        check(
+            "落盘：重载后本次运行从零开始",
+            snap.session.get("total") == 0,
+            str(snap.session),
+        )
+
+        second.record("nhentai", OUTCOME_OK, images=3)
+        snap = second.snapshot()
+        check(
+            "落盘：新记录同时进累计与本次运行",
+            snap.total == 3 and snap.session.get("total") == 1,
+            f"total={snap.total} session={snap.session}",
+        )
+        text = second.render()
+        check(
+            "落盘文案：说清是累计、存于哪个文件",
+            "累计" in text and "stats.json" in text,
+            text,
+        )
+        check(
+            "落盘文案：不重复念「存盘、重载不丢」",
+            "重载不丢" not in text and "会存盘" not in text,
+            text,
+        )
+
+        # 版本对不上：按「没有历史」重来，但不能删用户文件、也不能崩
+        path.write_text(
+            json.dumps({"version": 999, "channels": {"jmcomic": {"ok": 5}}}),
+            encoding="utf-8",
+        )
+        third = DownloadStats(path)
+        check(
+            "落盘：版本不认识时按无历史处理",
+            third.snapshot().total == 0,
+            str(third.snapshot().total),
+        )
+
+        # 内容损坏：同样不崩
+        path.write_text("{ not json", encoding="utf-8")
+        fourth = DownloadStats(path)
+        check(
+            "落盘：文件损坏时按无历史处理",
+            fourth.snapshot().total == 0,
+            str(fourth.snapshot().total),
+        )
+
+        # 字段类型不对：单条丢掉，不影响其它渠道
+        path.write_text(
+            json.dumps(
+                {
+                    "version": STATS_VERSION,
+                    "channels": {
+                        "jmcomic": {"ok": "坏值", "fail": 2},
+                        "nhentai": "根本不是字典",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        fifth = DownloadStats(path)
+        snap = fifth.snapshot()
+        check(
+            "落盘：脏字段按 0 算、坏条目丢弃",
+            snap.channels["jmcomic"].ok == 0
+            and snap.channels["jmcomic"].fail == 2
+            and "nhentai" not in snap.channels,
+            str({k: v.snapshot() for k, v in snap.channels.items()}),
+        )
+
+        # 清零要把文件也清掉，否则重载后又回来了
+        fifth.reset()
+        sixth = DownloadStats(path)
+        check(
+            "落盘：清零后重载仍是空的",
+            sixth.snapshot().total == 0,
+            str(sixth.snapshot().total),
+        )
+
+    # 纯内存模式（不传路径）不该碰磁盘
+    memory_only = DownloadStats()
+    memory_only.record("jmcomic", OUTCOME_OK)
+    check(
+        "落盘：不传路径时是纯内存",
+        memory_only.snapshot().total == 1,
+        "",
+    )
+
+
+# ---- 面板统计清零 ----
+
+
+def test_panel_stats_reset() -> None:
+    """面板「清零」：清掉累计数、清盘，并把新快照返回给页面。"""
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / "stats.json"
+        stats = DownloadStats(path)
+        stats.record("jmcomic", OUTCOME_OK, images=4, size_bytes=2048, elapsed=3)
+
+        service = panel_mod.PanelService(
+            models_dir=Path(raw) / "models",
+            temp_root=Path(raw) / "temp",
+            stats_provider=lambda: stats.snapshot().snapshot(),
+            stats_reset=stats.reset,
+        )
+        payload = service.reset_stats()
+        check(
+            "面板清零：返回的是清零后的快照",
+            payload.get("total") == 0,
+            str(payload.get("total")),
+        )
+        check("面板清零：累计数确实清掉了", stats.snapshot().total == 0, "")
+        check(
+            "面板清零：磁盘上也不再保留旧数",
+            DownloadStats(path).snapshot().total == 0,
+            "",
+        )
+
+        # 没注入回调时要说清不可用，不能静默成功
+        bare = panel_mod.PanelService(
+            models_dir=Path(raw) / "models2",
+            temp_root=Path(raw) / "temp2",
+        )
+        try:
+            bare.reset_stats()
+            check("面板清零：没注入回调时报错", False, "没有抛异常")
+        except panel_mod.PanelError as exc:
+            check("面板清零：没注入回调时报错", "不支持" in str(exc), str(exc))
+
+        # 重置回调自己炸了，要变成可读错误，而不是把异常甩给页面
+        def boom() -> None:
+            raise OSError("磁盘只读")
+
+        broken = panel_mod.PanelService(
+            models_dir=Path(raw) / "models3",
+            temp_root=Path(raw) / "temp3",
+            stats_provider=lambda: {},
+            stats_reset=boom,
+        )
+        try:
+            broken.reset_stats()
+            check("面板清零：写盘失败时报错", False, "没有抛异常")
+        except panel_mod.PanelError as exc:
+            check("面板清零：写盘失败时报错", "磁盘只读" in str(exc), str(exc))
+
+
+
 def main() -> int:
     test_health()
+    test_stats()
+    test_stats_persistence()
+    test_panel_stats_reset()
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     print()

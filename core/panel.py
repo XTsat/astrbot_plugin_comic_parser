@@ -106,6 +106,9 @@ class PanelService:
         plugin_info: Mapping[str, str] | None = None,
         channels_provider: Callable[[], dict[str, Any]] | None = None,
         tasks_provider: Callable[[], dict[str, Any]] | None = None,
+        health_provider: Callable[[], dict[str, Any]] | None = None,
+        stats_provider: Callable[[], dict[str, Any]] | None = None,
+        stats_reset: Callable[[], None] | None = None,
         config_provider: Callable[[], Mapping[str, Any]] | None = None,
         config_writer: Callable[[dict[str, Any]], None] | None = None,
         schema_path: Path | None = None,
@@ -132,6 +135,11 @@ class PanelService:
         self._channels_provider = channels_provider
         # 正在跑 / 排队的下载任务：只有插件主类知道，面板只读它
         self._tasks_provider = tasks_provider
+        # 环境自检与运行期统计：都由插件主类算好，面板只负责展示
+        self._health_provider = health_provider
+        self._stats_provider = stats_provider
+        # 重置统计：页面上的「清零」按钮调它。只清累计数，不动其它任何东西
+        self._stats_reset = stats_reset
         # 「设置」页：读插件当前配置、写回插件配置（由主类注入，面板不直接碰 AstrBot 的配置对象）
         self._config_provider = config_provider
         self._config_writer = config_writer
@@ -343,6 +351,20 @@ class PanelService:
             except Exception as exc:
                 logger.warning(f"[{PLUGIN_NAME}] 面板读任务快照失败: {exc}")
 
+        health: dict[str, Any] = {}
+        if self._health_provider is not None:
+            try:
+                health = dict(self._health_provider())
+            except Exception as exc:  # 自检失败不能把整页状态拖垮
+                logger.warning(f"[{PLUGIN_NAME}] 面板读环境自检失败: {exc}")
+
+        stats: dict[str, Any] = {}
+        if self._stats_provider is not None:
+            try:
+                stats = dict(self._stats_provider())
+            except Exception as exc:
+                logger.warning(f"[{PLUGIN_NAME}] 面板读运行统计失败: {exc}")
+
         return {
             "plugin": self._plugin_info,
             "runtime": _runtime_info(),
@@ -357,6 +379,8 @@ class PanelService:
             "disk": {"total": disk_total, "free": disk_free},
             "channels": self.channels(),
             "tasks": tasks,
+            "health": health,
+            "stats": stats,
             "images": {"cached": len(self._images), "max": PANEL_MAX_IMAGES},
         }
 
@@ -475,6 +499,30 @@ class PanelService:
             "data_url": _data_url(item.path),
         }
         return payload
+
+    def reset_stats(self) -> dict[str, Any]:
+        """把累计下载计数清零（页面「统计 → 清零」按钮）。
+
+        只清统计，不碰断点、临时文件与配置。清完返回一份新快照，
+        页面拿到就能直接重画，不用再打一次 status。
+
+        Raises:
+            PanelError: 插件没注入重置回调（老版本主类）时说明不可用。
+        """
+        if self._stats_reset is None:
+            raise PanelError("当前插件版本不支持重置统计，重载插件后再试")
+        try:
+            self._stats_reset()
+        except Exception as exc:  # 清盘失败要让用户知道，不能假装成功
+            logger.warning(f"[{PLUGIN_NAME}] 重置统计失败: {exc}")
+            raise PanelError(f"重置统计失败：{exc}") from exc
+        if self._stats_provider is None:
+            return {}
+        try:
+            return dict(self._stats_provider())
+        except Exception as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 重置后读统计失败: {exc}")
+            return {}
 
     def _channel_objects(self) -> dict[str, Any]:
         """渠道对象表（键是渠道名）；没有注入时返回空表。"""

@@ -23,7 +23,17 @@ export default {
           </div>
         </div>
 
+        <div id="sHealth" hidden></div>
+
         <div class="stats" id="sStats"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>下载统计</h2>
+            <button id="sStatsReset" class="ghost">清零</button>
+          </div>
+          <div class="defs" id="sRunStats"></div>
+        </div>
 
         <div class="card">
           <div class="card-head"><h2>运行时</h2></div>
@@ -207,8 +217,101 @@ export default {
         ),
       ].join("");
 
+      renderHealth(data.health || {});
+      renderRunStats(data.stats || {});
+
       el("sUpdated").textContent = `更新于 ${new Date().toLocaleTimeString()}`;
       el("sUpdated").className = "badge ok";
+    }
+
+    /**
+     * 环境自检提示条：有 error 才显眼，warn 用黄色，全通过就不占版面。
+     * 这些问题的后果都是「下载到最后一步才失败」，所以必须放在页面最上面。
+     */
+    function renderHealth(health) {
+      const box = el("sHealth");
+      const issues = health.issues || [];
+      if (!issues.length) {
+        box.hidden = true;
+        box.innerHTML = "";
+        return;
+      }
+      const bad = (health.errors || 0) > 0;
+      const head = bad
+        ? `环境自检发现 ${health.errors} 个问题，会让下载白费`
+        : `环境自检：能跑，但有 ${health.warnings} 项降级`;
+      box.hidden = false;
+      box.innerHTML = `
+        <div class="card">
+          <div class="card-head">
+            <h2>环境自检</h2>
+            <span class="tag ${bad ? "bad" : "warn"}">${escapeHtml(head)}</span>
+          </div>
+          <div class="defs">${issues
+          .map(
+            (item) => `<div class="muted-line">
+              <span class="tag ${item.level === "error" ? "bad" : "warn"}">${
+                item.level === "error" ? "缺" : "降级"
+              }</span>
+              <strong>${escapeHtml(item.title)}</strong>
+              <div class="hint">${escapeHtml(item.impact)}</div>
+              <div class="hint">补：${escapeHtml(item.fix)}</div>
+            </div>`,
+          )
+          .join("")}</div>
+        </div>`;
+    }
+
+    /**
+     * 下载计数：累计与本次运行分两行写——混成一个数会让人分不清
+     * 「重启前的」还是「刚下的」。
+     */
+    function renderRunStats(stats) {
+      const channels = Object.entries(stats.channels || {});
+      const session = stats.session || {};
+      const sessionBits = [
+        `成功 ${session.ok || 0}`,
+        `失败 ${session.fail || 0}`,
+      ];
+      if (session.paused) sessionBits.push(`暂停 ${session.paused}`);
+      const rows = [
+        [
+          "累计",
+          `${stats.total || 0} 次（成功 ${stats.ok || 0} / 失败 ${stats.fail || 0}${
+            stats.paused ? ` / 暂停 ${stats.paused}` : ""
+          }）`,
+        ],
+        [
+          "本次运行",
+          session.total
+            ? `${session.total} 次（${sessionBits.join(" / ")}）`
+            : "还没有新的下载",
+        ],
+        ["已下图片", `${stats.images || 0} 张${stats.failed_images ? `（失败 ${stats.failed_images} 张）` : ""}`],
+        ["产物总量", stats.bytes ? fmtBytes(stats.bytes) : "—"],
+        ["累计耗时", stats.seconds ? `${Math.round(stats.seconds)} 秒` : "—"],
+      ];
+      if (stats.since) {
+        rows.push([
+          "统计起点",
+          `${new Date(stats.since * 1000).toLocaleDateString()} 起`,
+        ]);
+      }
+      if (channels.length) {
+        rows.push([
+          "按渠道",
+          channels
+            .map(([name, item]) => {
+              const bits = [`成功 ${item.ok}`];
+              if (item.fail) bits.push(`失败 ${item.fail}`);
+              if (item.paused) bits.push(`暂停 ${item.paused}`);
+              return `<div class="muted-line mono">${escapeHtml(name)} · ${bits.join(" · ")}</div>`;
+            })
+            .join(""),
+        ]);
+      }
+      rows.push(["说明", "只到渠道粒度，不含作品名与会话"]);
+      el("sRunStats").innerHTML = kv(rows);
     }
 
     /** jm 优先，其余保持后端给的顺序（后端顺序 = 渠道注册顺序）。 */
@@ -312,6 +415,23 @@ export default {
         schedule();
       }, 5000);
     }
+
+    // 清零是不可撤销的（累计数一旦清掉就没了），所以先确认再动手；
+    // 成功后用接口返回的新快照直接重画，不必再等下一轮刷新
+    el("sStatsReset").addEventListener("click", async () => {
+      const button = el("sStatsReset");
+      if (!window.confirm("把累计下载计数清零？统计只用于观察用量，清掉后无法恢复。")) return;
+      button.disabled = true;
+      try {
+        const data = await api.post(EP.statsReset, {});
+        renderRunStats(data || {});
+        toast("累计下载计数已清零");
+      } catch (err) {
+        toast(`清零失败：${err.message}`, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
 
     el("sRefresh").addEventListener("click", () => refresh(true));
     el("sAuto").addEventListener("click", () => {
