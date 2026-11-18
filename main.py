@@ -44,6 +44,7 @@ from .core import (
     RankingCardRenderer,
     RankingService,
     SearchService,
+    check_health,
     create_detector,
     ensure_onnxruntime,
     build_channels,
@@ -91,6 +92,7 @@ from .domain import (
 )
 from .domain.constants import (
     CHAPTER_TITLE_LIMIT,
+    HEALTH_WORDS,
     PACK_FORMAT_ALIASES,
     PACK_FORMATS,
     PLUGIN_AUTHOR,
@@ -1328,6 +1330,12 @@ class ComicParserPlugin(Star):
             # `全部` 既能配 stop 也能配 status：先把 `/comic 全部 status` 认成查看，
             # 否则它会掉进 stop 分支，看一眼排队就把所有会话的下载全取消了
             async for result in self._handle_status(event, include_all=True):
+                yield result
+            return
+        # 维护类命令放在下载解析之前：它们的词是固定命令词，
+        # 掉进下面就会被当成作品 ID 或链接去解析
+        if head_lower in HEALTH_WORDS:
+            async for result in self._handle_health(event):
                 yield result
             return
         if head_lower in STOP_WORDS or head_lower in STOP_ALL_WORDS:
@@ -3005,6 +3013,30 @@ class ComicParserPlugin(Star):
                 chapters=self._chapter_spec(record.chapters),
             ):
                 yield result
+
+    # ==================== 维护：环境自检 ====================
+
+    async def _handle_health(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[MessageEventResult, None]:
+        """`/comic 测试`：按当前配置检查服务器依赖与配置冲突，只读本地、不联网。
+
+        回答的是「这台机器现在能不能按当前配置跑」，不是「站点通不通」——后者要真打上游。
+        限管理员：报错里带依赖名与安装命令，对普通群成员没有意义。
+        """
+        if not self._is_admin(event):
+            yield event.plain_result(
+                "❌ 只有管理员可以看环境自检：它报的是服务器依赖"
+            )
+            return
+        report = check_health(self.settings, self.channels)
+        yield event.plain_result(report.render())
+
+    @staticmethod
+    def _is_admin(event: AstrMessageEvent) -> bool:
+        """协议端拿不到身份时按「非管理员」处理：维护类命令宁可少给权限。"""
+        checker = getattr(event, "is_admin", None)
+        return bool(checker and checker())
 
     async def _handle_stop(
         self, event: AstrMessageEvent, *, include_all: bool

@@ -7,6 +7,7 @@ from .channel import BaseChannel
 from .cover import CoverResult, CoverService
 from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
+from .health import HealthIssue, HealthReport, check as check_health
 from .packer import Packer
 from .progress import ProgressHeartbeat, ProgressState
 from .nsfw import (
@@ -38,6 +39,8 @@ __all__ = [
     "DownloadOutcome",
     "DownloadTask",
     "GroupFileResult",
+    "HealthIssue",
+    "HealthReport",
     "GroupFileUploader",
     "PanelImage",
     "ModelWeights",
@@ -56,6 +59,7 @@ __all__ = [
     "SearchOutcome",
     "SearchService",
     "build_channels",
+    "check_health",
     "command_map",
     "describe_channels",
     "describe_websites",
