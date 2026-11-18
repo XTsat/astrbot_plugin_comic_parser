@@ -133,7 +133,7 @@ def _detail_page() -> str:
 
 
 def _reader_page() -> str:
-    letters = ", ".join(f"&quot;j&quot;" for _ in range(PAGES))
+    letters = ", ".join("&quot;j&quot;" for _ in range(PAGES))
     return f"""<!DOCTYPE html>
 <html><body>
 <div class="no-select comic-show-content-nav" style="background-color: #383838;" data-id="{MEDIA_ID}" data-pages="{PAGES}">
