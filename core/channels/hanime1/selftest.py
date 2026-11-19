@@ -278,6 +278,7 @@ async def _run() -> int:
             f"{meta.title} / {meta.author}",
         )
         check("详情页页数正确", meta.page_count == PAGES, f"page_count={meta.page_count}")
+        check("单卷作品按 1 章报", meta.chapter_count == 1, f"chapter_count={meta.chapter_count}")
         check("标签解析正确", meta.tags[:2] == ["中出", "JK制服"], str(meta.tags))
 
         # ---- 真实下载 ----

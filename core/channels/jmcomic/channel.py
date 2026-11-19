@@ -228,14 +228,7 @@ class JMComicChannel(BaseChannel):
         album = self._fetch_album_sync(jmcomic, option, comic_id)
         # 章节筛选要用同一份章节清单：留在实例上让 download 直接取，省一次相册详情请求
         self._album_cache()[comic_id] = album
-        return ComicMeta(
-            channel=self.name,
-            comic_id=str(album.id),
-            title=str(getattr(album, "title", "") or ""),
-            author=str(getattr(album, "author", "") or ""),
-            page_count=len(album) if hasattr(album, "__len__") else 0,
-            tags=_album_tags(album),
-        )
+        return _album_meta(self.name, album)
 
     # ---- 域名测速择优 ----
     async def _ranked_domains(
@@ -945,14 +938,7 @@ class JMComicChannel(BaseChannel):
                 )
             raise DownloadError("没有下载到任何图片，可能本子 ID 不存在或已被下架")
 
-        meta = ComicMeta(
-            channel=self.name,
-            comic_id=str(album.id),
-            title=str(getattr(album, "title", "") or ""),
-            author=str(getattr(album, "author", "") or ""),
-            page_count=len(album) if hasattr(album, "__len__") else 0,
-            tags=_album_tags(album),
-        )
+        meta = _album_meta(self.name, album)
         return DownloadedComic(
             meta=meta,
             source_dir=source_dir,
@@ -1002,6 +988,24 @@ class JMComicChannel(BaseChannel):
             sample_bytes=SELFCHECK_SAMPLE_BYTES,
         )
         return self._selfcheck_result(timing, url, proxy_source, started)
+
+
+def _album_meta(channel: str, album: Any) -> ComicMeta:
+    """相册详情 → 元信息：页数取 ``page_count``，章节数取 ``len(album)``。
+
+    jmcomic 的 ``len(album)`` 是章节数（``episode_list`` 长度），``page_count`` 才是整本
+    图片张数。这两个数早先被混填进同一个字段，单章本会显示成「页数：1」。
+    """
+    return ComicMeta(
+        channel=channel,
+        comic_id=str(getattr(album, "id", "") or ""),
+        title=str(getattr(album, "title", "") or ""),
+        author=str(getattr(album, "author", "") or ""),
+        page_count=_to_int(getattr(album, "page_count", 0)),
+        chapter_count=len(album) if hasattr(album, "__len__") else 0,
+        tags=_album_tags(album),
+    )
+
 
 def _album_tags(album: Any) -> list[str]:
     """取作品详情里的标签；拿不到就当没有——少一行标签不影响下载与打包。"""

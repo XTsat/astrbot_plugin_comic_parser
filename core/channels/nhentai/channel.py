@@ -343,12 +343,14 @@ class NhentaiChannel(BaseChannel):
 
     # ---- 内部 ----
     def _build_meta(self, comic_id: str, parsed: ParsedGallery) -> ComicMeta:
+        # nhentai 一本就是一份连续的图，没有章节概念：固定按 1 章报
         return ComicMeta(
             channel=self.name,
             comic_id=comic_id,
             title=parsed.title,
             author=parsed.author,
             page_count=parsed.page_count,
+            chapter_count=1,
             tags=parsed.tags,
         )
 

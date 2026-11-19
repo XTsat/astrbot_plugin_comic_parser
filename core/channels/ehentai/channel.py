@@ -970,12 +970,14 @@ class EHentaiChannel(BaseChannel):
         return self.opt_int("max_pages", DEFAULT_MAX_PAGES, minimum=0)
 
     def _build_meta(self, comic_id: str, meta: GalleryMeta) -> ComicMeta:
+        # E-Hentai 一份 gallery 是连续的图，没有章节概念：固定按 1 章报
         return ComicMeta(
             channel=self.name,
             comic_id=comic_id,
             title=meta.display_title,
             author=meta.author,
             page_count=meta.filecount,
+            chapter_count=1,
             tags=meta.tags,
         )
 

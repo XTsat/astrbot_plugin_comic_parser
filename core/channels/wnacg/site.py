@@ -55,6 +55,8 @@ _TAG_LINK = re.compile(
     r"<a[^>]*class=\"[^\"]*\btagshow\b[^\"]*\"[^>]*>(.*?)</a>",
     re.DOTALL | re.IGNORECASE,
 )
+# 详情页信息条里的「頁數：194P」，单本相册的图片张数；合辑给的是所有子相册之和
+_PAGE_COUNT = re.compile(r"頁數[：:]\s*(\d+)\s*P", re.IGNORECASE)
 # 合辑的章节入口：data-chid 是子相册自己的 aid（不是章节序号）
 _CHAPTER_LINK = re.compile(
     r"<a[^>]*class=\"[^\"]*\btagshow\b[^\"]*\"[^>]*data-chid=\"(\d+)\"[^>]*>(.*?)</a>",
@@ -91,6 +93,8 @@ class AlbumPage:
 
     title: str = ""
     tags: list[str] = field(default_factory=list)
+    # 详情页「頁數：194P」里的张数；解析不到时为 0（展示层省略，不瞎猜）
+    page_count: int = 0
     # 合辑才有：子相册的 (aid, 标题)，按站内原始顺序（新→旧）；调用方负责反转成阅读顺序
     chapter_ids: list[tuple[str, str]] = field(default_factory=list)
     # 章节列表自身的页数（合辑章节多时才 >1）
@@ -197,9 +201,11 @@ def parse_album(document: str) -> AlbumPage:
         seen.add(aid)
         chapters.append((aid, _clean(raw_name) or aid))
 
+    matched_pages = _PAGE_COUNT.search(document)
     return AlbumPage(
         title=title,
         tags=tags,
+        page_count=int(matched_pages.group(1)) if matched_pages else 0,
         chapter_ids=chapters,
         chapter_last_page=chapter_page_count(document),
     )

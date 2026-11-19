@@ -86,6 +86,21 @@ def _image_suffix(url: str) -> str:
     return suffix
 
 
+def _episode_page_total(episodes: list[dict[str, Any]]) -> int:
+    """各话 ``pagesCount`` 之和；上游少给一章就少算一章，取不到时整本按 0 处理。
+
+    只要有一话缺 ``pagesCount``，加起来就是残缺的数，比不显示更误导——那种情况直接回 0，
+    展示层会省略页数、只报章节数。
+    """
+    total = 0
+    for episode in episodes:
+        pages = _as_int(episode.get("pagesCount"), 0)
+        if pages <= 0:
+            return 0
+        total += pages
+    return total
+
+
 def _chapter_entries(episodes: list[dict[str, Any]]) -> list[ChapterEntry]:
     """把哔咔的章节列表收敛成 1 基序号 + 标题 + 页数，序号按列表位置重排。"""
     entries: list[ChapterEntry] = []
@@ -223,7 +238,8 @@ class PicacgChannel(BaseChannel):
     async def fetch_meta(self, comic_id: str, work_dir: Path) -> ComicMeta:
         async with self._session() as client:
             comic = await client.fetch_comic(comic_id)
-        return self._meta(comic_id, comic)
+            episodes = await client.fetch_episodes(comic_id)
+        return self._meta(comic_id, comic, episodes)
 
     # ---- 章节 ----
     async def fetch_chapters(self, comic_id: str) -> list[ChapterEntry]:
@@ -389,15 +405,27 @@ class PicacgChannel(BaseChannel):
                 return url
         return ""
 
-    def _meta(self, comic_id: str, comic: Mapping[str, Any]) -> ComicMeta:
+    def _meta(
+        self,
+        comic_id: str,
+        comic: Mapping[str, Any],
+        episodes: list[dict[str, Any]] | None = None,
+    ) -> ComicMeta:
+        """详情 + 章节 → 元信息。
+
+        详情接口只给 ``epsCount``（几话），没有整本图片总数；真实页数要把各话的
+        ``pagesCount`` 加起来。所以传了章节清单才算页数，没传就只报章节数。
+        """
         creator = comic.get("_creator") or {}
         author = str(comic.get("author") or creator.get("name") or "")
+        chapter_count = _as_int(comic.get("epsCount"), 0) or len(episodes or ())
         return ComicMeta(
             channel=self.name,
             comic_id=str(comic.get("_id") or comic_id),
             title=str(comic.get("title") or ""),
             author=author,
-            page_count=_as_int(comic.get("epsCount"), 0),
+            page_count=_episode_page_total(episodes or ()),
+            chapter_count=chapter_count,
             tags=_tag_list(comic.get("tags")),
         )
 
@@ -461,7 +489,7 @@ class PicacgChannel(BaseChannel):
                 "图片全部下载失败，请稍后重试；若一直失败，请在渠道配置里改用代理"
             )
         return DownloadedComic(
-            meta=self._meta(comic_id, comic),
+            meta=self._meta(comic_id, comic, episodes),
             source_dir=root,
             image_count=done,
             failed_images=failed,

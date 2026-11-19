@@ -336,7 +336,8 @@ export default {
             <div class="kv"><span>渠道</span><span class="mono">${escapeHtml(comic.channel || "")}</span></div>
             <div class="kv"><span>作品 ID</span><span class="mono">${escapeHtml(comic.comic_id || "")}</span></div>
             <div class="kv"><span>作者</span><span>${escapeHtml(comic.author || "—")}</span></div>
-            <div class="kv"><span>页数 / 章节</span><span class="mono">${comic.page_count || "—"}</span></div>
+            <div class="kv"><span>页数</span><span class="mono">${comic.page_count || "—"}</span></div>
+            <div class="kv"><span>章节</span><span class="mono">${comic.chapter_count || "—"}</span></div>
             <div class="kv"><span>标签</span><span class="tag-row" style="justify-content:flex-end">${tags || "—"}</span></div>
             <div class="row-actions" style="margin-top: 10px">
               ${data.image ? '<button id="cToTest" class="primary">送去打码测试</button>' : ""}

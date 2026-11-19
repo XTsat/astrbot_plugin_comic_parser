@@ -82,13 +82,17 @@ BROKEN_IMAGE = "ep2/002.jpg"
 EXPECTED_IMAGES = 8
 EXPECTED_FAILED = 1
 
+# pagesCount 是每话的图片张数：元信息的「页数」由各话相加得到，与下面 _PAGES 对得上
 _EPISODES = [
     [
-        {"_id": "ep-a", "id": "ep-a", "order": 1, "title": "第一话/序章", "updated_at": "2024-01-01"},
-        {"_id": "ep-b", "id": "ep-b", "order": 2, "title": "第二话", "updated_at": "2024-01-02"},
+        {"_id": "ep-a", "id": "ep-a", "order": 1, "title": "第一话/序章", "pagesCount": 5,
+         "updated_at": "2024-01-01"},
+        {"_id": "ep-b", "id": "ep-b", "order": 2, "title": "第二话", "pagesCount": 2,
+         "updated_at": "2024-01-02"},
     ],
     [
-        {"_id": "ep-c", "id": "ep-c", "order": 3, "title": "第三话", "updated_at": "2024-01-03"},
+        {"_id": "ep-c", "id": "ep-c", "order": 3, "title": "第三话", "pagesCount": 1,
+         "updated_at": "2024-01-03"},
     ],
 ]
 _PAGES = {
@@ -330,6 +334,11 @@ async def _run() -> int:
         meta = await channel.fetch_meta(COMIC_ID, work_dir)
         check("元信息标题/作者正确", meta.title == "自测用漫画" and meta.author == "自测作者",
               f"{meta.title}/{meta.author}")
+        # 页数与章节数必须分开报：详情接口只给 epsCount，页数得按各话 pagesCount 求和
+        check("元信息页数是各话张数之和", meta.page_count == EXPECTED_IMAGES,
+              f"page_count={meta.page_count}，应为 {EXPECTED_IMAGES}")
+        check("元信息章节数取自 epsCount", meta.chapter_count == 3,
+              f"chapter_count={meta.chapter_count}")
 
         # ---- 真实下载 ----
         comic = await channel.download(COMIC_ID, work_dir, on_progress)
@@ -524,7 +533,10 @@ async def _run_live() -> int:
     try:
         print(f"→ 登录并取元信息 {comic_id} …")
         meta = await channel.fetch_meta(comic_id, work_dir)
-        print(f"  标题：{meta.title} · 作者：{meta.author} · 章节数：{meta.page_count}")
+        print(
+            f"  标题：{meta.title} · 作者：{meta.author} · "
+            f"{meta.page_count} 页 / {meta.chapter_count} 章"
+        )
         print("→ 整本下载（含全部章节与图片）…")
         comic = await channel.download(comic_id, work_dir)
         print(f"  成功 {comic.image_count} 张，失败 {comic.failed_images} 张")

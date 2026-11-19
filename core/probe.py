@@ -65,6 +65,8 @@ class ProbeOutcome:
             lines.append(f"作者：{meta['author']}")
         if meta.get("page_count"):
             lines.append(f"页数：{meta['page_count']}")
+        if int(meta.get("chapter_count") or 0) > 1:
+            lines.append(f"章节：{meta['chapter_count']} 章")
         if meta.get("tags"):
             tags = "、".join(str(item) for item in list(meta["tags"])[:8])
             lines.append(f"标签：{tags}")
@@ -206,6 +208,7 @@ async def probe_channel(
         "title": meta.title,
         "author": meta.author,
         "page_count": meta.page_count,
+        "chapter_count": meta.chapter_count,
         "tags": list(meta.tags),
     }
 

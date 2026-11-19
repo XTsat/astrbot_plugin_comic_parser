@@ -14,7 +14,11 @@ class ComicMeta:
     comic_id: str
     title: str = ""
     author: str = ""
-    page_count: int = 0  # 章节数，0 表示渠道未提供
+    # 两者语义严格分开：page_count 是图片张数，chapter_count 是章节数（单本相册为 1）。
+    # 混填会让「简介」把 1 章写成「页数：1」——上游站点给的是哪种数，就填到哪个字段，
+    # 拿不到就留 0，展示层按 0 省略。
+    page_count: int = 0  # 图片张数，0 表示渠道未提供
+    chapter_count: int = 0  # 章节数，0 表示渠道未提供（单章本通常记 1）
     tags: list[str] = field(default_factory=list)
 
     @property

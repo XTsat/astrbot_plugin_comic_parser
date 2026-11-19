@@ -2483,6 +2483,8 @@ class ComicParserPlugin(Star):
             lines.append(f"作者：{meta.author}")
         if meta.page_count:
             lines.append(f"页数：{meta.page_count}")
+        if meta.chapter_count > 1:
+            lines.append(f"章节：{meta.chapter_count} 章")
         if meta.tags:
             lines.append(self._tag_line(meta.tags))
         lines.append(f"ID：{comic_id}")
@@ -3327,6 +3329,8 @@ class ComicParserPlugin(Star):
             lines.append(self._tag_line(outcome.meta.tags))
         if outcome.chapters_label:
             lines.append(f"章节：{outcome.chapters_label}")
+        elif outcome.meta.chapter_count > 1:
+            lines.append(f"章节：共 {outcome.meta.chapter_count} 章")
         count_line = f"图片：{outcome.image_count} 张"
         if outcome.failed_images:
             count_line += f"（{outcome.failed_images} 张失败）"

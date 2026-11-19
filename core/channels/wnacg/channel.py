@@ -387,11 +387,13 @@ class WnacgChannel(BaseChannel):
 
     # ---- 内部 ----
     def _build_meta(self, comic_id: str, album: AlbumPage) -> ComicMeta:
+        """详情页 → 元信息。页数取「頁數：NP」，章节数只对合辑有意义（单本相册算 1 章）。"""
         return ComicMeta(
             channel=self.name,
             comic_id=comic_id,
             title=album.title,
-            page_count=len(album.chapter_ids),  # 0 表示单本相册
+            page_count=album.page_count,
+            chapter_count=len(album.chapter_ids) or 1,
             # 详情页标签动辄几十个，全塞进结果摘要只会喧宾夺主
             tags=album.tags[:12],
         )

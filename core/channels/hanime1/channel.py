@@ -242,6 +242,8 @@ class Hanime1Channel(BaseChannel):
             title=parsed.title,
             author=parsed.author,
             page_count=parsed.resolved_page_count,
+            # 漫画区是 nhentai 供源，一本一份连续的图，没有章节
+            chapter_count=1,
             tags=parsed.tags,
         )
 
