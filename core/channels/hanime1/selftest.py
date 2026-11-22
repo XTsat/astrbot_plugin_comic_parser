@@ -216,7 +216,8 @@ def _install_scraper_shim() -> None:
     """把抓页器的 cloudscraper 换成替身：本自测不关心浏览器指纹，只关心链路。"""
     shim = types.ModuleType("cloudscraper-shim")
     shim.create_scraper = lambda **kwargs: _FakeSession()  # noqa: ARG005
-    hanime_site.import_cloudscraper = lambda: shim  # type: ignore[assignment]
+    # setattr 而不是直接赋值：给模块打补丁时属性类型对不上，直接赋值要 type: ignore
+    setattr(hanime_site, "import_cloudscraper", lambda: shim)
 
 
 def _start_server() -> tuple[ThreadingHTTPServer, int]:

@@ -39,12 +39,18 @@ class AccessGuard:
             return False
 
         now = time.time()
-        bucket = self._cache.setdefault(session_id, {})
         expire = now - self._interval
-        for existing, timestamp in list(bucket.items()):
-            if timestamp < expire:
-                bucket.pop(existing, None)
+        # 整表清扫而不是只扫当前会话：只清自己那一桶的话，来过的每个会话都会永久留下
+        # 一个空 dict，群多的部署跑久了就是几万个空桶
+        for sid in list(self._cache):
+            bucket = self._cache[sid]
+            for existing, timestamp in list(bucket.items()):
+                if timestamp < expire:
+                    bucket.pop(existing, None)
+            if not bucket:
+                self._cache.pop(sid, None)
 
+        bucket = self._cache.setdefault(session_id, {})
         if key in bucket:
             return True
         bucket[key] = now

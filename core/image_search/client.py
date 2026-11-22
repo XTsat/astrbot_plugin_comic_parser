@@ -13,7 +13,6 @@ import io
 import time
 from typing import Any
 
-import httpx
 from PIL import Image
 
 from ...domain import PluginError, PluginSettings
@@ -33,6 +32,15 @@ from .constants import (
     STRICT_FACTOR,
 )
 
+
+
+def _httpx() -> Any:
+    """惰性拿 httpx：AstrBot 自带，缺了不该让整个插件加载失败。"""
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover - AstrBot 环境里必然存在
+        raise ImageSearchError("搜图依赖 httpx 未安装，请先安装后重载插件") from exc
+    return httpx
 
 class ImageSearchError(PluginError):
     """搜图失败：消息直接展示给用户。"""
@@ -129,14 +137,15 @@ class ImageSearchClient:
             if attempt:
                 delay = RETRY_DELAYS[min(attempt - 1, len(RETRY_DELAYS) - 1)]
                 await asyncio.sleep(delay)
+            http_mod = _httpx()
             try:
-                async with httpx.AsyncClient(**options) as http:
+                async with http_mod.AsyncClient(**options) as http:
                     resp = await http.post(
                         url,
                         files={"file": ("image.jpg", payload, "image/jpeg")},
                         data={"factor": factor},
                     )
-            except (httpx.HTTPError, OSError):
+            except (http_mod.HTTPError, OSError):
                 # 异常类型只进日志：群成员看到 ConnectError 也做不了什么
                 last_error = ImageSearchError(
                     "搜图失败：暂时连不上搜图服务，稍后再试"
@@ -150,7 +159,7 @@ class ImageSearchClient:
             try:
                 data = resp.json()
             except ValueError as exc:
-                raise ImageSearchError("搜图失败：搜图服务返回的不是合法数据") from exc
+                raise ImageSearchError("搜图失败：搜图服务返回的不是合法数据，稍后再试") from exc
             if not isinstance(data, dict):
                 raise ImageSearchError("搜图失败：搜图服务返回的不是合法数据")
             return data
@@ -176,7 +185,7 @@ class ImageSearchClient:
             with Image.open(io.BytesIO(image)) as raw:
                 img = raw.convert("RGB")
         except (OSError, ValueError) as exc:
-            raise ImageSearchError("搜图失败：图片打不开，可能不是图片文件") from exc
+            raise ImageSearchError("搜图失败：图片打不开，换一张截图再试") from exc
         scale = 1.0
         while True:
             buf = io.BytesIO()

@@ -517,7 +517,7 @@ class EHentaiChannel(BaseChannel):
             )
             pages = pages[:max_pages]
         if not pages:
-            raise DownloadError("没有解析到任何图片页，站点结构可能已变化")
+            raise DownloadError("没有解析到任何图片页，站点结构可能已变化：换个域名或稍后再试")
 
         wants_original = self.opt_bool("download_original", True)
         if wants_original and not client.logged_in:
@@ -595,7 +595,7 @@ class EHentaiChannel(BaseChannel):
         # 整本已下完，页地址缓存不再有用；「仅本地保存」模式下别把它留在用户目录里
         try:
             (work_dir / _PAGES_CACHE).unlink(missing_ok=True)
-        except OSError:
+        except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
             pass
         # 目录里的实际张数才是要打包的张数：续跑时目录里可能还留着上一轮下好的、
         # 已经超出本次 max_pages 截取范围的页，按 session.done 报会少算
@@ -641,7 +641,7 @@ class EHentaiChannel(BaseChannel):
                 session.done += 1
                 try:
                     session.bytes_downloaded += existing.stat().st_size
-                except OSError:
+                except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
                     pass
                 return
 

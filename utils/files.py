@@ -19,7 +19,7 @@ def find_existing_image(stem: Path) -> Path | None:
         try:
             if path.is_file() and path.stat().st_size > 0:
                 return path
-        except OSError:
+        except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
             continue
     return None
 

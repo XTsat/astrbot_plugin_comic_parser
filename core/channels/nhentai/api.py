@@ -62,7 +62,7 @@ class NhentaiApi:
             not_found=GalleryNotFound(f"作品 {gallery_id} 不存在或已下架"),
         )
         if not isinstance(payload, dict):
-            raise ChannelError("nhentai 接口返回了非预期的数据格式")
+            raise ChannelError("nhentai 接口返回了非预期的数据格式：稍后再试，或换个站点域名")
         return payload
 
     async def search(self, keyword: str, page: int = 1) -> dict[str, Any]:
@@ -75,7 +75,7 @@ class NhentaiApi:
             path, not_found=ChannelError("nhentai 搜索接口不存在")
         )
         if not isinstance(payload, dict):
-            raise ChannelError("nhentai 搜索接口返回了非预期的数据格式")
+            raise ChannelError("nhentai 搜索接口返回了非预期的数据格式：稍后再试，或换个站点域名")
         return payload
 
     async def ranking(self, sort: str, page: int = 1) -> dict[str, Any]:
@@ -95,7 +95,7 @@ class NhentaiApi:
             path, not_found=ChannelError("nhentai 榜单接口不存在")
         )
         if not isinstance(payload, dict):
-            raise ChannelError("nhentai 榜单接口返回了非预期的数据格式")
+            raise ChannelError("nhentai 榜单接口返回了非预期的数据格式：稍后再试，或换个站点域名")
         return payload
 
     async def image_servers(self) -> list[str]:

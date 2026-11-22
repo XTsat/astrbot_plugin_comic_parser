@@ -3,8 +3,9 @@
 依赖方向单向：`main.py → core → utils / domain`；`utils → domain`；`domain` 不依赖任何人。
 """
 
-from .channel import BaseChannel
+from .channel import BaseChannel, CancelToken
 from .cover import CoverResult, CoverService
+from .domain_race import DomainTiming
 from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .health import HealthIssue, HealthReport, check as check_health
@@ -35,7 +36,7 @@ from .registry import (
     describe_websites,
     resolve_link,
 )
-from .ranking import RankingOutcome, RankingService, RankingTurn
+from .ranking import RankingOutcome, RankingResult, RankingService, RankingTurn
 from .ranking_card import CardResult, RankingCardRenderer
 from .search import SearchOutcome, SearchService
 from .stats import (
@@ -51,12 +52,14 @@ from .task import DownloadOutcome, DownloadTask, active_work_dirs
 __all__ = [
     "AccessGuard",
     "BaseChannel",
+    "CancelToken",
     "CoverResult",
     "ChannelStat",
     "CleanupResult",
     "ProbeOutcome",
     "CoverService",
     "Detector",
+    "DomainTiming",
     "DownloadOutcome",
     "DownloadStats",
     "DownloadTask",
@@ -79,6 +82,7 @@ __all__ = [
     "CardResult",
     "RankingCardRenderer",
     "RankingOutcome",
+    "RankingResult",
     "RankingService",
     "RankingTurn",
     "SearchOutcome",

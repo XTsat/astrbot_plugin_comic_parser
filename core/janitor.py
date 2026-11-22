@@ -68,7 +68,7 @@ def _newest_mtime(path: Path) -> float:
         try:
             if child.is_file():
                 newest = max(newest, child.stat().st_mtime)
-        except OSError:
+        except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
             continue
     return newest
 
@@ -85,7 +85,7 @@ def _tree_size(path: Path) -> int:
         try:
             if child.is_file():
                 total += child.stat().st_size
-        except OSError:
+        except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
             continue
     return total
 
@@ -149,7 +149,7 @@ def cleanup_temp(
                 if entry.resolve() in active:
                     result.skipped_active += 1
                     continue
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
             if not expired(entry, float(resume_ttl)):
                 continue
@@ -196,7 +196,7 @@ def cleanup_temp(
                 if entry.resolve() in active:
                     result.skipped_active += 1
                     continue
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
             if expired(entry, INFO_TTL):
                 size += take(entry)

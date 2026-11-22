@@ -190,7 +190,9 @@ class EHentaiClient:
         """取 HTML 正文，返回（正文，最终 URL）；最终 URL 用来识别登录跳转。"""
         body, _content_type, status, final_url = await self._request("GET", url)
         if status == 509:
-            raise EHQuotaExceeded("E-Hentai 返回 509：图片配额已用尽")
+            raise EHQuotaExceeded(
+                "E-Hentai 图片配额已用尽（返回 509）：过几小时再试，或先少下几本"
+            )
         if status != 200:
             raise ChannelError(f"页面请求返回 HTTP {status}")
         return body.decode("utf-8", "replace"), final_url
@@ -207,7 +209,9 @@ class EHentaiClient:
             "POST", url, json_body=payload
         )
         if status == 509:
-            raise EHQuotaExceeded("E-Hentai 返回 509：图片配额已用尽")
+            raise EHQuotaExceeded(
+                "E-Hentai 图片配额已用尽（返回 509）：过几小时再试，或先少下几本"
+            )
         if status == 403:
             # 站点在 Cloudflare 后面：UA 缺失、出口 IP 被判定为滥用时都回 403
             raise ChannelError(
@@ -222,7 +226,7 @@ class EHentaiClient:
         try:
             return json.loads(body.decode("utf-8", "replace"))
         except ValueError as exc:
-            raise ChannelError("E-Hentai 接口返回的不是合法 JSON") from exc
+            raise ChannelError("E-Hentai 接口返回的不是合法 JSON：稍后再试，或换个域名") from exc
 
     async def _request(
         self,
@@ -232,7 +236,7 @@ class EHentaiClient:
         json_body: dict[str, Any] | None = None,
     ) -> tuple[bytes, str, int, str]:
         if aiohttp is None:
-            raise ChannelError("缺少 aiohttp 依赖，无法访问 E-Hentai")
+            raise ChannelError("缺少 aiohttp 依赖，暂时用不了 E-Hentai：请联系管理员安装后重载插件")
         session = self._ensure_session()
         try:
             async with session.request(
@@ -267,7 +271,7 @@ class EHentaiClient:
 
     def _ensure_session(self) -> aiohttp.ClientSession:
         if aiohttp is None:
-            raise ChannelError("缺少 aiohttp 依赖，无法访问 E-Hentai")
+            raise ChannelError("缺少 aiohttp 依赖，暂时用不了 E-Hentai：请联系管理员安装后重载插件")
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 headers=self._headers,

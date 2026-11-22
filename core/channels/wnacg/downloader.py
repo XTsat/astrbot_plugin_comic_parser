@@ -76,7 +76,7 @@ class ImageDownloader:
         on_progress: ImageProgressCallback | None = None,
     ) -> DownloadStats:
         if aiohttp is None:
-            raise ChannelError("缺少 aiohttp 依赖，无法下载图片")
+            raise ChannelError("缺少 aiohttp 依赖，暂时下不了图：请联系管理员安装后重载插件")
 
         work_dir.mkdir(parents=True, exist_ok=True)
         stats = DownloadStats(total=len(urls))
@@ -134,7 +134,7 @@ class ImageDownloader:
                 session.done += 1
                 try:
                     session.bytes_downloaded += existing.stat().st_size
-                except OSError:
+                except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
                     pass
                 await emit(on_progress, session.state())
                 return True

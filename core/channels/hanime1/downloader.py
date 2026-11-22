@@ -134,7 +134,7 @@ class ImageDownloader:
                 session.done += 1
                 try:
                     session.bytes_downloaded += existing.stat().st_size
-                except OSError:
+                except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
                     pass
                 await emit(on_progress, session.state())
                 return True

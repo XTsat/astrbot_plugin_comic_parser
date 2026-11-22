@@ -307,7 +307,7 @@ class JMComicChannel(BaseChannel):
                 future = asyncio.run_coroutine_threadsafe(on_progress(state), loop)
                 # 结果无人等待，挂个回调吞掉异常，避免 "Future exception was never retrieved"
                 future.add_done_callback(lambda f: f.cancelled() or f.exception())
-            except RuntimeError:
+            except RuntimeError:  # 兜底路径异常不影响主流程
                 # 事件循环已关闭（插件重载中），丢弃这次进度即可
                 pass
 

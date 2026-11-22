@@ -8,19 +8,34 @@ from __future__ import annotations
 
 import base64
 import os
-
-import httpx
+from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.message_components import Image as ImageComp
 from astrbot.api.message_components import Reply
 
+from ...domain import PluginError
+from ...domain.constants import PLUGIN_NAME
+
 _IMAGE_MAGICS = (b"\x89PNG", b"GIF8", b"RIFF", b"BM")
 _DOWNLOAD_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
+
+
+def _httpx() -> Any:
+    """惰性拿 httpx。
+
+    AstrBot 自带 httpx，但缺了也不该让整个插件加载失败——搜图用不到时
+    不必为它挡住插件启动，所以只在真要下载聊天图时才 import。
+    """
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover - AstrBot 环境里必然存在
+        raise PluginError("搜图依赖 httpx 未安装，请先安装后重载插件") from exc
+    return httpx
 
 
 def _decode_base64(value: str) -> bytes | None:
@@ -74,21 +89,22 @@ async def resolve_image_bytes(ref: str, *, timeout: float) -> bytes | None:
     if cand.startswith("file:///"):
         cand = cand[len("file://"):]
     if cand.startswith(("http://", "https://")):
+        http = _httpx()
         try:
-            async with httpx.AsyncClient(
+            async with http.AsyncClient(
                 timeout=timeout, follow_redirects=True, trust_env=False
             ) as client:
                 resp = await client.get(cand, headers={"User-Agent": _DOWNLOAD_UA})
                 resp.raise_for_status()
                 return resp.content
-        except (httpx.HTTPError, OSError) as exc:
-            logger.warning(f"[{__name__}] 下载图片失败 {cand[:80]}: {exc}")
+        except (http.HTTPError, OSError) as exc:
+            logger.warning(f"[{PLUGIN_NAME}] 下载图片失败 {cand[:80]}: {exc}")
             return None
     if os.path.isfile(cand):
         try:
             with open(cand, "rb") as handle:
                 return handle.read()
         except OSError as exc:
-            logger.warning(f"[{__name__}] 读取本地图片失败 {cand[:80]}: {exc}")
+            logger.warning(f"[{PLUGIN_NAME}] 读取本地图片失败 {cand[:80]}: {exc}")
             return None
     return _decode_base64(cand)

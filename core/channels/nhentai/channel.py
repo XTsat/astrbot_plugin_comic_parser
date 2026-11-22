@@ -167,7 +167,7 @@ class NhentaiChannel(BaseChannel):
         site = (await self._site_domains())[0]
         urls = build_image_urls(image_base, parsed.page_paths)
         if not urls:
-            raise DownloadError("没有解析到任何图片地址，站点结构可能已变化")
+            raise DownloadError("没有解析到任何图片地址，站点结构可能已变化：换个域名或稍后再试")
 
         session = DownloadSession(comic_id=comic_id, total=len(urls), cancel=cancel)
         register_session(session)

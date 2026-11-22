@@ -105,7 +105,7 @@ def _pick(kind: str, candidates: list[Path], probe: tuple[str, str]) -> Path | N
             if not path.is_file() or path.stat().st_size <= 0:
                 continue
             probe_font = ImageFont.truetype(str(path), 32)
-        except (OSError, ValueError):
+        except (OSError, ValueError):  # 单条读不了或值异常只跳过，不能让整轮扫描失败
             continue
         if _glyphs_differ(probe_font, probe):
             found = path
@@ -138,7 +138,7 @@ def resolve_latin_path() -> Path | None:
             probe = ImageFont.truetype(str(cjk), 32)
             if _glyphs_differ(probe, _PROBE_LATIN):
                 return cjk
-        except (OSError, ValueError):
+        except (OSError, ValueError):  # 清理或读取失败不阻塞主流程，残留由下次惰性清理兜底
             pass
     return _pick("西文", _latin_candidates(), _PROBE_LATIN)
 

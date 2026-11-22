@@ -25,5 +25,6 @@ models/*.part
 .dsh-vision-router/
 
 # 无人值守运行的过程稿：本地留存、不入库
+.runs/
 RUN_LOG.md
 RUN_REPORT.md

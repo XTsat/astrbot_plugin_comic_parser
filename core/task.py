@@ -72,7 +72,7 @@ def _newest_mtime(path: Path) -> float:
         try:
             if child.is_file():
                 newest = max(newest, child.stat().st_mtime)
-        except OSError:
+        except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
             continue
     return newest
 
@@ -250,7 +250,7 @@ class DownloadTask:
                 expired = ttl <= 0 or now - entry.stat().st_mtime > ttl
                 if expired and ttl > 0:
                     expired = now - _newest_mtime(entry) > ttl
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
             if expired:
                 logger.info(f"[{PLUGIN_NAME}] 清理过期断点：{entry.name}")
@@ -271,7 +271,7 @@ class DownloadTask:
                 if not path.is_file():
                     continue
                 size += path.stat().st_size
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
             count += 1
         return count, size

@@ -102,7 +102,7 @@ def find_model_files(models_dir: Path) -> list[Path]:
         try:
             if path.is_file() and path.stat().st_size >= NSFW_MIN_MODEL_BYTES:
                 found.append(path)
-        except OSError:
+        except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
             continue
     return found
 

@@ -179,7 +179,7 @@ def progress_downloader_class(jmcomic: Any) -> type:
             # 个别本子上游没给总页数：退化成逐章累加，次计数仍然有意义
             try:
                 self._session.pages_total += len(photo)
-            except Exception:
+            except Exception:  # 章节对象可能没实现 __len__，缺分母只影响进度文案
                 pass
 
         def after_photo(self, photo: Any) -> None:

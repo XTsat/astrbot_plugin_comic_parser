@@ -571,7 +571,7 @@ class RankingCardRenderer:
                 continue
             try:
                 path.unlink(missing_ok=True)
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
 
     def _cleanup_old(self) -> None:
@@ -595,7 +595,7 @@ class RankingCardRenderer:
                 )
                 if now - path.stat().st_mtime > keep:
                     path.unlink(missing_ok=True)
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
 
     # ---- 封面 ----

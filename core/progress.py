@@ -103,7 +103,7 @@ class ProgressHeartbeat:
         task.cancel()
         try:
             await task
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # 任务已取消，这里只是收尾
             pass
 
     async def __aenter__(self) -> ProgressHeartbeat:

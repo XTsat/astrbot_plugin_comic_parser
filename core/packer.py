@@ -304,7 +304,7 @@ class Packer:
         for strip in strips:
             try:
                 strip.unlink(missing_ok=True)
-            except OSError:
+            except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
                 pass
 
     def _render_long_strips(
@@ -365,7 +365,7 @@ class Packer:
                 shutil.rmtree(path, ignore_errors=True)
             elif path.exists():
                 path.unlink(missing_ok=True)
-        except OSError:
+        except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
             pass
 
     @staticmethod

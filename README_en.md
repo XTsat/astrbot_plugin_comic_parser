@@ -327,26 +327,6 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 
 </details>
 
-### Image search
-
-<details>
-<summary>Image search (8 options)</summary>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| Enable image search (`enable`) | bool | true | When off, `/comic 搜图` reports that it is disabled; keyword search and downloads are unaffected |
-| Image search service URL (`base_url`) | string | see default | The default works out of the box; point it at a local reverse proxy if you run one |
-| Reuse the download proxy (`use_proxy`) | bool | false | Off by default: image search connects directly. Datacenter or shared proxies tend to get a browser challenge; turn this on only if direct access fails |
-| Dedicated image search proxy (`proxy`) | string | empty | Empty means no proxy; when set it wins over "reuse the download proxy" |
-| Minimum similarity (`min_similarity`) | float | 45 | Hits below this value are hidden. Upstream returns dozens of hits for any image without a threshold of its own, so anything below 45 is mostly noise |
-| Maximum works shown (`max_results`) | int | 5 | A work only takes one slot (language variants are merged) |
-| Title length limit (`title_limit`) | int | 80 | How many characters of each title to show before an ellipsis; 0 disables truncation |
-| Keep only Chinese when a work has several languages (`prefer_chinese`) | bool | true | When off, the highest-scoring variant wins and may be Japanese or English |
-| Use strict mode by default (`strict_default`) | bool | false | Strict mode gives fewer false positives but may miss the work; override once with `/comic 搜图 普通` |
-| Image search timeout (`timeout`) | int | 120 | Covers the upload plus the upstream lookup |
-
-</details>
-
 ### Search
 
 <details>
@@ -362,6 +342,26 @@ Between the four: the **segmentation presets give the tightest boxes** (coverage
 | Search cooldown (`cooldown`) | int | 3 | Minimum seconds between two searches in the same session; 0 disables the limit |
 | Auto-proxy retry on timeout (`auto_proxy`) | bool | true | When any channel misses the per-channel search timeout, retry once through the global proxy configured in the plugin; has no effect without a global proxy |
 | Extra time for auto-proxy retry (`auto_proxy_timeout`) | int | 15 | The retry has its own time budget and does not consume the per-channel search timeout; only used when auto-proxy is on and a global proxy is configured |
+
+</details>
+
+### Image search
+
+<details>
+<summary>Image search (10 options)</summary>
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| Enable image search (`enable`) | bool | true | When off, `/comic 搜图` reports that it is disabled; keyword search and downloads are unaffected |
+| Image search service URL (`base_url`) | string | see default | The default works out of the box; point it at a local reverse proxy if you run one |
+| Reuse the download proxy (`use_proxy`) | bool | false | Off by default: image search connects directly. Datacenter or shared proxies tend to get a browser challenge; turn this on only if direct access fails |
+| Dedicated image search proxy (`proxy`) | string | empty | Empty means no proxy; when set it wins over "reuse the download proxy" |
+| Minimum similarity (`min_similarity`) | float | 45 | Hits below this value are hidden. Upstream returns dozens of hits for any image without a threshold of its own, so anything below 45 is mostly noise |
+| Maximum works shown (`max_results`) | int | 5 | A work only takes one slot (language variants are merged) |
+| Title length limit (`title_limit`) | int | 80 | How many characters of each title to show before an ellipsis; 0 disables truncation |
+| Keep only Chinese when a work has several languages (`prefer_chinese`) | bool | true | When off, the highest-scoring variant wins and may be Japanese or English |
+| Use strict mode by default (`strict_default`) | bool | false | Strict mode gives fewer false positives but may miss the work; override once with `/comic 搜图 普通` |
+| Image search timeout (`timeout`) | int | 120 | Covers the upload plus the upstream lookup |
 
 </details>
 
@@ -421,7 +421,7 @@ Censoring is off by default, so you can receive covers without any model (sent a
 
 ### Troubleshooting
 
-**Why did I still receive the file in chat with "upload to group files" on, or why did it land in the group file root?** A failed upload shows its error in the message, but two causes are beyond what the plugin can tell: the protocol backend cannot read the plugin's temp file (when the plugin and the backend are not on the same machine or do not share the same mounted directory, that path simply does not exist for the backend), or the bot account has no upload permission / the group has no target folder and one cannot be created (creating a group file folder requires the bot to be a group admin or owner). In those cases the file is sent in chat or uploaded to the root instead, so the download is not wasted. Let the backend read the plugin's temp directory, make the bot an admin, or create the "漫画" folder yourself in the group files.
+**Why did I still receive the file in chat with "upload to group files after download" on, or why did it land in the group file root?** A failed upload shows its error in the message, but two causes are beyond what the plugin can tell: the protocol backend cannot read the plugin's temp file (when the plugin and the backend are not on the same machine or do not share the same mounted directory, that path simply does not exist for the backend), or the bot account has no upload permission / the group has no target folder and one cannot be created (creating a group file folder requires the bot to be a group admin or owner). In those cases the file is sent in chat or uploaded to the root instead, so the download is not wasted. Let the backend read the plugin's temp directory, make the bot an admin, or create the "漫画" folder yourself in the group files.
 
 **Why does a JM search keep timing out?** A direct JM search can take 10–20 seconds, while the per-channel search timeout defaults to 10 seconds. If a global proxy is already configured, turn on "use proxy" in the JM channel settings; with a proxy it took about 1–3 seconds in testing. You can also raise the per-channel search timeout to 15–20 seconds, or search just that channel with `/jm sou`.
 

@@ -221,7 +221,7 @@ def select_entries(
     越界与笔误都会落在这里，所以文案要说清「这本有几章」，用户才知道是不是把范围写错了。
     """
     if not entries:
-        raise ChapterError("这本没有章节清单，没法按章节下载")
+        raise ChapterError("这本没有章节清单，没法按章节下载：去掉「章节」直接下整本")
     picked = set(spec.indices(len(entries)))
     chosen = [entry for entry in entries if entry.index in picked]
     if not chosen:

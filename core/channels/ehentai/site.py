@@ -126,7 +126,7 @@ def parse_gallery_page(html_text: str, host: str) -> list[str]:
     for href, _gid, index in _THUMB_LINK.findall(html_text):
         try:
             order = int(index)
-        except ValueError:
+        except ValueError:  # 单条值异常只跳过，不能让整轮扫描失败
             continue
         found.append((order, _absolute(host, href)))
     found.sort(key=lambda pair: pair[0])
@@ -144,10 +144,10 @@ def parse_image_page(html_text: str, host: str) -> ImageLinks:
     """从图片页里取重采样图与原图地址；被登录墙/配额挡住时抛对应异常。"""
     tag_match = _IMG_TAG.search(html_text)
     if tag_match is None:
-        raise ChannelError("图片页里没有找到图片地址，站点结构可能已变化")
+        raise ChannelError("图片页里没有找到图片地址，站点结构可能已变化：换个域名或稍后再试")
     src_match = _SRC_ATTR.search(tag_match.group(0))
     if src_match is None:
-        raise ChannelError("图片页里的图片标签缺少 src，站点结构可能已变化")
+        raise ChannelError("图片页里的图片标签缺少 src，站点结构可能已变化：换个域名或稍后再试")
 
     resample = _absolute(host, src_match.group(1))
     if is_quota_gif(resample):

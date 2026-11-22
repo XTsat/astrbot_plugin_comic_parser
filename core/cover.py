@@ -88,7 +88,7 @@ class CoverService:
             try:
                 if path.is_file() and path.stat().st_size > 0:
                     images.append(path)
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
         return sorted(images)
 
@@ -105,7 +105,7 @@ class CoverService:
             try:
                 with Image.open(path) as image:
                     width, height = image.size
-            except Exception:
+            except Exception:  # 坏图/半截图只该跳过这一张，不能连累整本挑封面
                 continue
             if min(width, height) >= COVER_MIN_SIDE:
                 return path
@@ -230,7 +230,7 @@ class CoverService:
             try:
                 if path.is_file() and now - path.stat().st_mtime > COVER_FILE_TTL:
                     path.unlink(missing_ok=True)
-            except OSError:
+            except OSError:  # 单个条目读不了（权限/竞态删除）只跳过，不能让整轮扫描失败
                 continue
 
     # ---- 补救 ----

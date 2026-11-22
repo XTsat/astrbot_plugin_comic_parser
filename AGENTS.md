@@ -26,6 +26,10 @@
 - **产物交付**：压缩包以文件形式发出；仅本地保存模式的目录落进数据目录并长期保留
 - **搜图（以图搜图）**：`/comic 搜图 [严格]` 或只附图不带参数，把一张截图变成作品；命中后每条结果附一条可直接发送的渠道下载命令（`/nh <ID>`、`/eh <gid>-<token>`），同一本作品有多语言版本时默认只列中文。搜图只产出「作品 ID + 现成命令」，不碰渠道搜索接口，也不进打包链路
 - **搜索（可选能力）**：`/jm sou <关键词>` 只搜一个渠道，`/comic sou <关键词>` 并发搜所有支持搜索的渠道；每个渠道单独超时，慢渠道自动跳过；搜索结果按序号给出、只留 ID，回序号即可下载，结果多时本地翻页（翻完缓冲再取上游下一页），不进入下载/打包链路
+- **排行榜（可选能力）**：`/comic 排行` 聚合所有渠道、`/jm 排行` 只看一个；日/周/月/总榜可选，渠道缺档时自动改看最近一档并注明；渠道覆盖 `ranking()` 并声明 `ranking_boards` 即自动 `supports_ranking`，不实现也能正常下载
+- **封面交付（可选能力）**：下载成功后可单独发一张封面；打开「给封面打码」用本地 NSFW 模型只糊掉裸露部位，模型缺失时**不发封面**（绝不发未打码的图），被平台拦下会自动整张重糊重发；支持封面自动撤回
+- **面板（views/panel）**：插件详情页里的五个标签——打码测试、模型下载、渠道测试、状态、设置；与聊天命令共用同一套业务实现（`core/probe.py`、`core/panel.py`），不各写一份
+- **维护命令**：`/comic 测试`（实访各渠道 + 查依赖与配置冲突）、`/comic 统计`（累计落盘 + 本次运行增量）、`/comic 清理`（清掉按现有配置已过期的临时产物），三条都限管理员
 
 底板参考（只借形态，不复制代码）：配置底板与「白/黑名单 + 防抖 + 超时重试 + `template_list` 渠道模板」的思路参考同类 AstrBot 解析插件；ZIP/PDF 打包与加密行为参考同类漫画下载插件。下载方向与它们都不同，判断取舍时以「下载为主、搜索为辅」为准。
 
@@ -70,11 +74,29 @@ astrbot_plugin_comic_parser/
 │   └── errors.py                # PluginError 族（消息面向用户）
 ├── utils/                       # 通用工具层
 │   ├── filename.py              # 文件名清洗与打包基名
-│   └── link.py                  # 作品链接拆主机名/路径、域名归属判断
+│   ├── files.py                 # 落盘小工具：认出「已下好的图」，避免把写了一半的当成品
+│   ├── font.py                  # 图片渲染的字体出口（中日韩字形 + 拉丁/数字两套）
+│   ├── format.py                # 体积格式化的通用单位（进度、摘要、失败说明共用）
+│   ├── link.py                  # 作品链接拆主机名/路径、域名归属判断
+│   ├── pack_format.py           # 命令末尾的格式词（`/jm 123456 pdf` 只改这一次）
+│   └── title.py                 # 标题里的小标记（「AI 生成」这类括注）识别
 └── core/                        # 业务层
     ├── channel.py               # BaseChannel 抽象（渠道做取元信息 + 下载；搜索是可选方法）
     ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
     ├── search.py                # 搜索编排：单渠道超时、聚合、缓存、翻页与结果渲染
+    ├── search_query.py          # 搜索条件解析：`tag:x -tag:y` → 结构化条件，各站各自翻译
+    ├── ranking.py               # 排行榜：单渠道超时、全渠道聚合、缓存、翻页、序号与文字渲染
+    ├── ranking_card.py          # 榜单卡片：把一页榜单画成一张可发送的图（Pillow）
+    ├── probe.py                 # 渠道探测：聊天 `/comic 测试` 与面板「渠道测试」共用一份
+    ├── health.py                # 环境自检：只读本地状态，查依赖缺失与配置冲突
+    ├── stats.py                 # 下载统计：累计计数落盘 + 本次运行增量
+    ├── janitor.py               # 手动清理：立刻清掉按现有配置本就该过期的临时产物
+    ├── cover.py                 # 封面交付：挑封面 → 打分/打码 → 落成可发送的临时文件
+    ├── progress.py              # 跨渠道进度上报：统一状态快照 + 独立心跳
+    ├── domain_race.py           # 下载前域名测速择优：同时打一批候选，最快的排最前
+    ├── panel.py                 # 插件面板业务逻辑：暂存上传图、按页面参数评分与打码
+    ├── selftest.py              # 维护类能力的离线自测（自检/统计/清理/探测/接线）
+    ├── nsfw/                    # NSFW 检测与打码：权重管理、YOLO 检测器、封面马赛克
     ├── image_search/            # 搜图（以图搜图）：图片 → 作品 ID，命中后仍交给渠道下载
     │   ├── __init__.py          #   只导出对外 API（客户端、归一化、优选、渲染）
     │   ├── client.py            #   上游接口客户端：缩图、严格度系数、错误翻译
@@ -131,8 +153,8 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 层 | 目录 | 本项目实际内容 |
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
-| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py`（搜索超时/聚合/翻页/渲染）、`image_search/`（搜图：图片 → 作品 ID + 可发送的下载指令） |
-| 工具层 | `utils/` | `filename.py`（文件名清洗）、`link.py`（链接拆主机名/路径、域名归属） |
+| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py` / `search_query.py`（搜索编排与条件解析）、`ranking.py` / `ranking_card.py`（榜单聚合与卡片）、`probe.py` / `health.py` / `stats.py` / `janitor.py`（测试、自检、统计、清理四条维护链路）、`cover.py`（封面挑选与打码交付）、`progress.py`（跨渠道进度）、`domain_race.py`（域名测速择优）、`panel.py`（面板业务）、`nsfw/`（检测与打码）、`image_search/`（搜图：图片 → 作品 ID + 可发送的下载指令） |
+| 工具层 | `utils/` | `filename.py`（文件名清洗）、`files.py`（落盘与断点识别）、`font.py`（渲染字体）、`format.py`（体积单位）、`link.py`（链接拆主机名/路径、域名归属）、`pack_format.py`（末尾格式词）、`title.py`（标题小标记） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
 **渠道与上层的分工是硬约束**：渠道（`core/channels/<渠道名>/`）只允许「解析 ID → 取元信息 → 下载图片到目录」，**禁止**在渠道里做打包、加密、发送、清理；这些属于 `core/packer.py` / `core/task.py` / `main.py`。**搜索是可选能力**：渠道覆盖 `BaseChannel.search()` 即自动 `supports_search`，不实现也能正常下载；搜索结果由 `core/search.py` 统一做超时、聚合、翻页与渲染。新增渠道的固定动作仍是 **六处**（漏一处渠道就跑不起来）：
@@ -325,23 +347,31 @@ class MyPlugin(Star):
 | key | 类型 | 归属 |
 |---|---|---|
 | `packing.pack_format` / `packing.pack_password` | string / string | 打包加密（`core/packer.py`） |
-| `packing.filename_template` / `packing.filename_custom` | string / string | 产物文件名（`utils/filename.py`） |
+| `packing.filename_template` / `packing.filename_custom` / `packing.filename_max_length` | string / string / int | 产物文件名（`utils/filename.py`） |
+| `packing.upload_to_group_file` / `packing.group_file_folder` / `packing.group_file_create_folder` | bool / string / bool | 群文件交付（`core/group_file.py`） |
 | `packing.download_dir` | string | 仅本地保存目录 |
 | `packing.auto_delete_after_send` / `packing.clean_temp_on_start` | bool / bool | 交付与清理（`main.py`） |
-| `delivery.upload_to_group_file` / `delivery.group_file_folder` / `delivery.group_file_create_folder` | bool / string / bool | 群文件交付（`core/group_file.py`） |
+| `download.proxy` | string | 渠道共用代理地址（渠道请求、测速、搜索自动代理重试都用它） |
 | `download.progress_style` / `download.show_result_summary` | string / bool | 进度与结果提示（`main.py`） |
 | `download.max_concurrent_tasks` / `download.timeout` / `download.retry_times` | int | 调度（`core/task.py`） |
+| `download.segment_timeout` / `download.resume_ttl` | int / int | 分段超时与断点保留时长（`core/task.py`） |
 | `download.chapter_default_range` / `download.chapter_list_limit` | string / int | 分章节：默认范围与目录显示条数（`domain/chapters.py`、`main.py`） |
-| `network.proxy` | string | 渠道共用代理地址（渠道请求、测速、搜索自动代理重试都用它） |
+| `cover.send` / `cover.caption` / `cover.recall_seconds` | bool / bool / int | 封面发送、独立说明与自动撤回（`core/cover.py`） |
+| `cover.censor.*`（`enable`/`style`/`block`/`padding`/`full_area`/`retry_strong`） | bool / string / int / int / float / bool | 封面打码（`core/nsfw/censor.py`） |
+| `cover.model.*`（`preset`/`auto_download`/`download_url`/`threshold`/`imgsz`） | string / bool / string / float / int | 检测模型档位与权重（`core/nsfw/weights.py`） |
+| `probe.enable` / `probe.timeout` / `probe.min_speed` / `probe.cache_ttl` | bool / int / int / int | 下载前域名测速（`core/domain_race.py`） |
 | `search.enable` / `search.timeout` / `search.page_size` / `search.aggregate_limit` | bool / int / int / int | 搜索开关与节奏（`core/search.py`） |
-| `search.cache_ttl` / `search.cooldown` | int / int | 结果缓存与会话冷却（`core/search.py`） |
+| `search.cache_ttl` / `search.cooldown` / `search.auto_proxy` / `search.auto_proxy_timeout` | int / int / bool / int | 缓存、冷却与超时自动代理重试（`core/search.py`） |
 | `image_search.enable` / `.base_url` / `.timeout` | bool / string / int | 搜图开关、上游地址与超时（`core/image_search/`） |
 | `image_search.min_similarity` / `.max_results` / `.title_limit` / `.prefer_chinese` / `.strict_default` | float / int / int / bool / bool | 搜图结果筛选与展示（`core/image_search/service.py`） |
 | `image_search.use_proxy` / `.proxy` | bool / string | 搜图代理：默认直连，代理多会被上游弹挑战页（`core/image_search/client.py`） |
+| `ranking.enable` / `.default_board` / `.timeout` / `.page_size` / `.aggregate_limit` | bool / string / int / int / int | 榜单开关与节奏（`core/ranking.py`） |
+| `ranking.max_pages` / `.max_chapters` / `.cache_ttl` / `.cooldown` | int / int / int / int | 尺寸上限与缓存（`domain/config.py` 的 `ranking_size_ok`、`core/ranking.py`） |
+| `ranking.output` / `ranking.image.*`（`page_size`/`columns`/`show_author`/`show_id`） | string / int / int / bool / bool | 输出形态与卡片排版（`core/ranking_card.py`） |
 | `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |
 
-顶层 key 是 `channels` / `access` / `network` / `packing` / `delivery` / `download` / `probe` / `search` 八个分组（`channels` 是 `template_list`，其余是 `object`，WebUI 里各成一块区域；顺序即设置页里的展示顺序，渠道排在最前）；`domain/config.py` 只按当前分组读取，不为改名/换组做兼容回退——配置项改名或换组即视为破坏性变更，升级后老位置的值不再生效，需在 CHANGELOG 里写明要用户重设。
+顶层 key 是 `channels` / `access` / `download` / `packing` / `cover` / `probe` / `search` / `image_search` / `ranking` 九个分组（`channels` 是 `template_list`，其余是 `object`，WebUI 里各成一块区域；顺序即设置页里的展示顺序，渠道排在最前）；`domain/config.py` 只按当前分组读取，不为改名/换组做兼容回退——配置项改名或换组即视为破坏性变更，升级后老位置的值不再生效，需在 CHANGELOG 里写明要用户重设。
 
 渠道模板里的条目会被 `domain/config.py` 收敛成 `{渠道名: 条目}`，渠道私有字段（如 `client_type`、`image_suffix`）由渠道自己用 `BaseChannel.opt_*` 读取，**不要提升成顶层配置**——否则新增渠道会不断污染顶层 schema。
 
@@ -433,7 +463,19 @@ async def on_message(
 | `/jm <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本禁漫天堂作品 |
 | `/<渠道命令> <ID 或链接> 章节`（也认 `章`、`chapter`、`ch`） | 全部（受白名单/黑名单约束） | 列出章节目录（序号 + 标题 + 页数）；不分章节的渠道直接说明 |
 | `/<渠道命令> <ID 或链接> 章节 <范围>` | 全部（受白名单/黑名单约束） | 只下指定章节：`3`、`1-20`、`-20`、`100-`、`最新5`、`1-5,9` |
-| `/nh <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品 |
+| `/nh <ID 或链接>` | 全部（受白名单/黑名单约束） | 下载整本 nhentai 作品；其余渠道同理（`/pica`、`/hm`、`/ssmh`、`/eh`） |
+| `/eh <gid:token 或链接>` | 全部（受白名单/黑名单约束） | E-Hentai 的 ID 是 gid 加 token 两段，只给数字会提示补全 |
+| `/comic 搜图 [严格]`（也认 `图搜`、`img`、`以图搜`；只发图不带参数也认） | 全部（受白名单/黑名单约束） | 截图找作品，每条结果附一条可直接发送的下载命令；结果同时记进列表可回序号下载 |
+| `/comic 排行 [日榜\|周榜\|月榜\|总榜]`（也认 `rank`、`榜`） | 全部（受白名单/黑名单约束） | 一次取所有支持排行榜的渠道；缺档时自动改看最近一档并注明 |
+| `<渠道命令> 排行 [时间窗]` | 全部（受白名单/黑名单约束） | 只看一个渠道的榜单 |
+| `/<渠道命令> <ID 或链接> 封面`（也认 `cover`） | 全部（受白名单/黑名单约束） | 只发封面图，不下载整本 |
+| `/<渠道命令> <ID 或链接> 简介`（也认 `信息`、`详情`、`info`） | 全部（受白名单/黑名单约束） | 只回标题、作者、页数、章节数与标签，不下载整本 |
+| `/comic <序号>`（渠道命令同理） | 全部（受白名单/黑名单约束） | 下载最近一次搜索结果或榜单里对应编号的那一本 |
+| `/comic 下一页`（也认 `next`；上一页用 `上一页` 或 `prev`） | 全部（受白名单/黑名单约束） | 翻最近一次列表的下一页；搜索编号跨页连续，榜单每页重新从 1 开始 |
+| `<下载命令> <格式词>` | 全部（受白名单/黑名单约束） | 单次指定打包格式（`zip`/`pdf`/`long_img`/`none`），不改全局配置 |
+| `/comic stop`（渠道命令同理，也认 `取消`、`停止`） | 全部（受白名单/黑名单约束） | 停掉本会话的下载；带 `全部` 清整个队列 |
+| `/comic status`（也认 `状态`、`队列`） | 全部（受白名单/黑名单约束） | 看排队与进行中的任务 |
+| `/comic retry`（也认 `重试`、`继续`） | 全部（受白名单/黑名单约束） | 从断点续跑；带 `全部` 接上所有被打断的，带格式词可换格式 |
 | `/comic help`（也认 `/漫画帮助`、`/comichelp`） | 全部 | 查看可用渠道、打包格式、密码与进度提示设置 |
 | `/comic site`（也认 `/comic sites`、`/漫画网站`、`/comicsites`） | 全部 | 列出各渠道官网与作品页链接示意（`<ID>` 占位），方便到站内找作品 ID |
 | `/comic 测试 [渠道] [ID 或链接]`（也认 `test`、`check`、`自检`、`体检`、`健康`） | 管理员 | 不带参数：实际访问每个已启用渠道（各走自己的域名与代理），报可用性/耗时/线路/失败原因，并查依赖与配置冲突。带渠道 + ID/链接：只试该渠道，与面板「渠道测试」共用 `core/probe.py` |

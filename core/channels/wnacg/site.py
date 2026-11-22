@@ -307,7 +307,7 @@ class WnacgSite:
     # ---- 生命周期 ----
     async def __aenter__(self) -> WnacgSite:
         if aiohttp is None:
-            raise ChannelError("缺少 aiohttp 依赖，无法访问 wnacg")
+            raise ChannelError("缺少 aiohttp 依赖，暂时用不了 wnacg：请联系管理员安装后重载插件")
         self._session = aiohttp.ClientSession(
             headers={
                 "User-Agent": USER_AGENT,

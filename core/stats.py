@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from astrbot.api import logger
 
@@ -95,15 +95,21 @@ class ChannelStat:
 
 
 def _as_int(raw: object) -> int:
+    """把落盘读回来的脏值收成非负整数；`int()` 只接受数值类，脏值走 except。
+
+    显式 cast 而不是压制类型检查：这里确实要先当成数值再看能不能转，
+    类型检查器看到的是 object，cast 表达的是「我知道它的期望形状」。
+    """
     try:
-        return max(0, int(raw))  # type: ignore[arg-type]
+        return max(0, int(cast(float, raw)))
     except (TypeError, ValueError):
         return 0
 
 
 def _as_float(raw: object) -> float:
+    """同上，收成非负浮点。"""
     try:
-        return max(0.0, float(raw))  # type: ignore[arg-type]
+        return max(0.0, float(cast(float, raw)))
     except (TypeError, ValueError):
         return 0.0
 
@@ -406,7 +412,7 @@ class DownloadStats:
             logger.warning(f"[{PLUGIN_NAME}] 统计写入失败（不影响下载）: {exc}")
             try:
                 tmp.unlink(missing_ok=True)
-            except OSError:
+            except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
                 pass
 
 

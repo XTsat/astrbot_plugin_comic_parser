@@ -48,6 +48,7 @@ DEPENDENCIES: Final[tuple[Dependency, ...]] = (
     Dependency("fitz", "pymupdf", "PDF 打包"),
     Dependency("PIL", "Pillow", "长图拼接与封面打码"),
     Dependency("cloudscraper", "cloudscraper", "紳士漫畫 / nhentai 的 Cloudflare 兜底"),
+    Dependency("httpx", "httpx", "哔咔渠道与搜图（AstrBot 一般自带）"),
 )
 CENSOR_DEPENDENCY: Final = Dependency(
     "onnxruntime", "onnxruntime", "封面打码与榜单图片版"
@@ -228,11 +229,12 @@ def _requirement_reason(
             return (LEVEL_ERROR, "打包格式选的是 PDF，缺 pymupdf：每次下载都打不出文件")
         return None
     if dep.module == "PIL":
-        if fmt == "long_img":
-            return (LEVEL_ERROR, "打包格式选的是长图，缺 Pillow：每次下载都拼不出图")
-        if _needs_censor(settings):
-            return (LEVEL_ERROR, "封面打码要用 Pillow：缺了就没法处理封面")
-        return None
+        # Pillow 在多个模块的顶层导入（封面、面板、榜单卡片、搜图），缺了插件根本加载不起来，
+        # 所以不能像以前那样「只有选了长图或开了打码才算问题」——那会把致命问题说成没事
+        return (
+            LEVEL_ERROR,
+            "缺少 Pillow：封面、面板、榜单卡片与搜图都依赖它，插件可能加载不起来",
+        )
     if dep.module == "cloudscraper":
         # 只是 Cloudflare 兜底路径：主路径（官方 API / 直连）不依赖它，
         # 所以永远不算 error——但也不能像以前那样直接不提，否则用户永远查不到
@@ -242,6 +244,15 @@ def _requirement_reason(
             "紳士漫畫 / nhentai 被 Cloudflare 拦下时没有兜底可走，"
             "这两个渠道遇到风控就只能报错",
         )
+    if dep.module == "httpx":
+        # 哔咔渠道与搜图都只在真要用时才 import；两个功能都关着就不算问题
+        enabled = getattr(settings, "enabled_channel_names", ()) or ()
+        if "picacg" in enabled or getattr(settings, "image_search_enabled", False):
+            return (
+                LEVEL_ERROR,
+                "哔咔渠道或搜图已启用，缺 httpx：这两处一调用就报缺依赖",
+            )
+        return None
     if dep.module == "jmcomic":
         # 渠道级的缺失由 _channel_issues 按「是否启用」判定，这里不重复报
         return None

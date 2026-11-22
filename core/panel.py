@@ -59,7 +59,7 @@ from ..domain.constants import (
 )
 from ..domain.errors import PanelError
 from .probe import probe_channel
-from .nsfw import Detector, ModelWeights, create_detector, censor_cover
+from .nsfw import Detector, ModelWeights, NsfwScore, create_detector, censor_cover
 
 
 @dataclass(slots=True)
@@ -341,7 +341,7 @@ class PanelService:
         try:
             usage = shutil.disk_usage(self._models_dir)
             disk_total, disk_free = usage.total, usage.free
-        except OSError:
+        except OSError:  # 清理失败不该阻塞主流程，残留由下次惰性清理兜底
             pass
 
         tasks: dict[str, Any] = {}
@@ -400,7 +400,7 @@ class PanelService:
         """
         channels = self._channel_objects()
         if not channels:
-            raise PanelError("当前没有可用渠道")
+            raise PanelError("当前没有可用渠道：到插件设置里把至少一个渠道的「启用」打开")
 
         work_dir = self._ensure_temp_dir() / "channel" / uuid.uuid4().hex
         try:
@@ -530,7 +530,7 @@ class PanelService:
     def add_image(self, raw: bytes, suffix: str) -> PanelImage:
         """把上传的字节落成临时文件并登记；超出上限时挤掉最早的一张。"""
         if not raw:
-            raise PanelError("没有收到图片内容")
+            raise PanelError("没有收到图片内容：重新选一张图再试")
         if len(raw) > PANEL_MAX_UPLOAD_BYTES:
             raise PanelError(
                 f"图片超过 {PANEL_MAX_UPLOAD_BYTES // 1024 // 1024}MB 上限，换个小的试"
@@ -646,7 +646,7 @@ class PanelService:
         两条路各有用处：服务器连镜像都通不了、或者想用自己导出的权重时，上传是最快的办法。
         """
         if not raw:
-            raise PanelError("没有收到权重文件")
+            raise PanelError("没有收到权重文件：重新选一个 .onnx 文件再试")
         if len(raw) > PANEL_MODEL_UPLOAD_MAX_BYTES:
             raise PanelError(
                 f"权重超过 {PANEL_MODEL_UPLOAD_MAX_BYTES // 1024 // 1024}MB 上限，确认一下传的是不是 .onnx"
@@ -825,7 +825,9 @@ class PanelService:
             ],
         }
 
-    def _analyze(self, path: Path, preset: str, threshold: float, imgsz: int):
+    def _analyze(
+        self, path: Path, preset: str, threshold: float, imgsz: int
+    ) -> NsfwScore:
         """线程里跑：取检测器 → 改输入尺寸 → 推理，整段持锁。"""
         with self._infer_lock:
             detector = self._detector(preset)

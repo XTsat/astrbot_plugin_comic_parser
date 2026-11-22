@@ -2,7 +2,7 @@
 
 from .chapters import ChapterEntry, ChapterSpec, select_entries
 from .config import PluginSettings
-from .constants import PACK_FORMATS, PLUGIN_NAME
+from .constants import PACK_FORMATS, PLUGIN_NAME, NsfwModelPreset
 from .errors import (
     ChapterError,
     ChannelError,
@@ -23,6 +23,7 @@ from .errors import (
     SearchUnsupportedError,
 )
 from .models import (
+    ChannelSelfcheck,
     ComicMeta,
     DownloadedComic,
     PackResult,
@@ -35,6 +36,7 @@ from .models import (
 )
 
 __all__ = [
+    "ChannelSelfcheck",
     "ChapterEntry",
     "ChapterError",
     "ChapterSpec",
@@ -46,6 +48,7 @@ __all__ = [
     "DownloadCancelled",
     "DownloadError",
     "DownloadPaused",
+    "NsfwModelPreset",
     "DownloadedComic",
     "PanelError",
     "PACK_FORMATS",
