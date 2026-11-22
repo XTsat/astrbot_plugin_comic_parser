@@ -51,6 +51,11 @@ RANKING_ENRICH_BUDGET: Final = 10
 RANKING_DETAIL_INTERVAL: Final = 0.3
 # 补到的页数/作者缓存多久（秒）：同一本第二次上榜时不必再抓一次
 RANKING_DETAIL_CACHE_TTL: Final = 1800
+
+# 搜索补页数：搜索结果卡片只有标题与封面，页数要进作品页才拿得到。
+# 展示页通常只有 5 条，并发 2 本 + 短超时就够；补不到就省略页数，不拖住搜索
+SEARCH_DETAIL_CONCURRENCY: Final = 2
+SEARCH_DETAIL_TIMEOUT: Final = 8
 # 小于这个体积的响应几乎不可能是真图片（多为防盗链的 HTML 错误页）
 MIN_IMAGE_BYTES: Final = 512
 

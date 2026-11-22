@@ -50,6 +50,8 @@ from .constants import (
     RANKING_DETAIL_INTERVAL,
     RANKING_DETAIL_TIMEOUT,
     RANKING_ENRICH_BUDGET,
+    SEARCH_DETAIL_CONCURRENCY,
+    SEARCH_DETAIL_TIMEOUT,
     DEFAULT_FETCH_PROXY,
     DEFAULT_USER_AGENT,
     IMAGE_HOST_FALLBACKS,
@@ -493,13 +495,13 @@ class Hanime1Channel(BaseChannel):
         搜索页只收 ``query`` 一个关键词，没有字段筛选参数；前缀条件按关键词搜索并标注。
         """
         keyword = plain_search_text(query)
-        scraper = self._scraper()
         domains = self.opt_list("site_domains") or split_option_list(
             DEFAULT_SITE_DOMAINS
         )
         ordered = [domain for domain in domains if "hanimeone" in domain] + [
             domain for domain in domains if "hanimeone" not in domain
         ]
+        scraper = self._scraper()
         last_error: Exception | None = None
         for domain in ordered:
             url = build_page_url(domain, comic_search_path(keyword, page=page))
@@ -539,6 +541,45 @@ class Hanime1Channel(BaseChannel):
             keyword=query.raw,
             note=fallback_note(query),
         )
+
+    async def fill_page_counts(self, items: list[SearchItem]) -> None:
+        """给搜索结果补页数：搜索卡片只有标题与封面，页数要进作品页才拿得到。
+
+        与榜单补详情走同一条通道（同一个域名 + 同一个读取代理），并发小、单请求短；
+        抓不到就留空（展示时省略），不让补数失败影响搜索本身。
+        """
+        targets = [item for item in items if item.page_count <= 0]
+        if not targets:
+            return
+        domains = self.opt_list("site_domains") or split_option_list(
+            DEFAULT_SITE_DOMAINS
+        )
+        # 漫画区只在 hanimeone 系列域名有内容，与搜索的域名顺序保持一致
+        ordered = [domain for domain in domains if "hanimeone" in domain] + [
+            domain for domain in domains if "hanimeone" not in domain
+        ]
+        domain = ordered[0] if ordered else ""
+        if not domain:
+            return
+        semaphore = asyncio.Semaphore(SEARCH_DETAIL_CONCURRENCY)
+
+        async def fill(item: SearchItem) -> None:
+            async with semaphore:
+                await asyncio.sleep(RANKING_DETAIL_INTERVAL)
+                try:
+                    page_count, _author = await asyncio.wait_for(
+                        self._fetch_detail_via_scraper(item.comic_id, domain),
+                        timeout=SEARCH_DETAIL_TIMEOUT,
+                    )
+                except Exception as exc:  # noqa: BLE001 - 补数失败只影响这一行
+                    logger.debug(
+                        f"[{PLUGIN_NAME}] 搜索补页数失败（{item.comic_id}）：{exc}"
+                    )
+                    return
+            if page_count > 0:
+                item.page_count = page_count
+
+        await asyncio.gather(*(fill(item) for item in targets))
 
     # ---- 排行榜 ----
     ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "all")

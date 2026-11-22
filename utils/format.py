@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 
 def format_size(num_bytes: int) -> str:
     """不足 1 MB 用 KB：小本子显示成 0.0 MB 看不出任何变化。"""
@@ -10,7 +12,14 @@ def format_size(num_bytes: int) -> str:
     return f"{num_bytes / 1048576:.1f} MB"
 
 
-def truncate_keep_tail(text: str, limit: int, note: str, *, tail_lines: int = 2) -> str:
+def truncate_keep_tail(
+    text: str,
+    limit: int,
+    note: str,
+    *,
+    tail_lines: int = 2,
+    starts_group: Callable[[str], bool] | None = None,
+) -> str:
     """超长消息按行截断：保住开头的标题与结尾的可操作提示。
 
     Args:
@@ -19,6 +28,9 @@ def truncate_keep_tail(text: str, limit: int, note: str, *, tail_lines: int = 2)
         note: 截断时插进正文的那句说明（自带括号更好读）。
         tail_lines: 结尾要原样保留几行——「怎么下载」「怎么翻页」就在那里，
             从尾部硬截会把用户唯一能照做的那两句切掉。
+        starts_group: 判断「这一行是一条结果的开头」。给了它就按**整条**截：
+            只剩标题行、ID 行没挤进去的那一条整条丢弃——只留标题等于让用户看到一本
+            抄不出 ID 的作品。
 
     Returns:
         str: 未超限时原样返回，否则是「标题行 + 保留的结果行 + 说明 + 结尾提示」。
@@ -38,4 +50,14 @@ def truncate_keep_tail(text: str, limit: int, note: str, *, tail_lines: int = 2)
             break
         kept.append(line)
         used += len(line) + 1
+    if starts_group is not None and kept:
+        # 截断点落在「标题行进来了、ID 行没进来」的位置：这条不完整，整条去掉。
+        # 条目之间可能隔了空行，判断时跳过行尾的空白行
+        cursor = len(kept) - 1
+        while cursor >= 0 and not kept[cursor].strip():
+            cursor -= 1
+        if cursor >= 0 and starts_group(kept[cursor]):
+            del kept[cursor:]
+            while kept and not kept[-1].strip():
+                kept.pop()
     return "\n".join([head, *kept, note, *tail])

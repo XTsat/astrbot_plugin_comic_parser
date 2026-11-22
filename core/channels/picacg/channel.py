@@ -284,8 +284,10 @@ class PicacgChannel(BaseChannel):
                         comic_id=comic_id,
                         title=str(entry.get("title") or ""),
                         author=_author_name(entry.get("author")),
+                        # 与榜单同一套取值：pagesCount 才是图片张数，epsCount 是「几话」，
+                        # 拿它当页数会让每本都显示成 1P
                         page_count=_as_int(
-                            entry.get("epsCount") or entry.get("pagesCount"), 0
+                            entry.get("pagesCount") or entry.get("epsCount"), 0
                         ),
                         cover_url=_cover_url(entry.get("thumb")),
                     )

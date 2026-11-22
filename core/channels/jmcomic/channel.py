@@ -60,6 +60,8 @@ from .constants import (
     RANKING_DETAIL_CONCURRENCY,
     RANKING_DETAIL_TIMEOUT,
     RANKING_ENRICH_BUDGET,
+    SEARCH_DETAIL_CONCURRENCY,
+    SEARCH_DETAIL_TIMEOUT,
 )
 from .option import build_option, import_jmcomic
 from .progress import (
@@ -628,6 +630,48 @@ class JMComicChannel(BaseChannel):
             note=note,
         )
 
+    async def fill_page_counts(self, items: list[SearchItem]) -> None:
+        """给搜索结果补页数：JM 的搜索接口只回标题/作者/标签，页数要逐本查详情。
+
+        只补缺页数的条目，并发有限、整轮有总时限；查不到的那一条留空（展示时省略），
+        绝不因为补数失败让搜索整体失败。
+        """
+        targets = [item for item in items if item.page_count <= 0]
+        if not targets:
+            return
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            return
+        option = await asyncio.to_thread(
+            build_option,
+            self,
+            jmcomic,
+            Path(tempfile.gettempdir()),
+            impl="api",
+            for_search=True,
+            retry_times=1,
+            request_timeout=SEARCH_DETAIL_TIMEOUT,
+        )
+        # 客户端建一次就够：每本各建一个只会白花连接与鉴权开销
+        client = await asyncio.to_thread(option.new_jm_client)
+        semaphore = asyncio.Semaphore(SEARCH_DETAIL_CONCURRENCY)
+
+        async def fill(item: SearchItem) -> None:
+            async with semaphore:
+                try:
+                    pages, _chapters = await asyncio.to_thread(
+                        self._album_size_with, jmcomic, client, item.comic_id
+                    )
+                except Exception as exc:  # noqa: BLE001 - 补数失败只影响这一行
+                    logger.debug(
+                        f"[{PLUGIN_NAME}] 搜索补页数失败（{item.comic_id}）：{exc}"
+                    )
+                    return
+            if pages > 0:
+                item.page_count = pages
+
+        await asyncio.gather(*(fill(item) for item in targets))
+
     # ---- 排行榜 ----
     ranking_boards: ClassVar[tuple[str, ...]] = ("day", "week", "month", "all")
 
@@ -768,7 +812,12 @@ class JMComicChannel(BaseChannel):
         self, jmcomic: Any, option: Any, comic_id: str
     ) -> tuple[int, int]:
         """取一本的（总页数, 章节数）：``page_count`` 是页数，``len(album)`` 是章节数。"""
-        client = option.new_jm_client()
+        return self._album_size_with(jmcomic, option.new_jm_client(), comic_id)
+
+    def _album_size_with(
+        self, jmcomic: Any, client: Any, comic_id: str
+    ) -> tuple[int, int]:
+        """用已有的客户端取（总页数, 章节数）；批量补数时省掉重复建客户端。"""
         album = client.get_album_detail(jmcomic.JmcomicText.parse_to_jm_id(comic_id))
         return _to_int(getattr(album, "page_count", 0)), len(album)
 

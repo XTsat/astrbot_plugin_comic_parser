@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...domain import PluginSettings
+from ..result_line import INDENT, render_item
 from .constants import (
     CHINESE_LANGS,
     HIGH_CONFIDENCE,
@@ -37,6 +38,7 @@ class ImageSearchHit:
     title: str = ""
     language: str = ""
     page: int = 0
+    page_count: int = 0  # 作品总页数；0 表示上游没给，展示时省略
     score: float = 0.0
     page_url: str = ""
     source_url: str = ""
@@ -63,8 +65,14 @@ class ImageSearchHit:
 
     @property
     def language_label(self) -> str:
-        """语言码翻成中文名；认不出来时说「其他语言」，不回显上游枚举。"""
+        """语言码翻成中文名；没有语言信息时返回空串，认不出来的码说「其他语言」。
+
+        上游没给语言时不该说「其他语言」——那会被读成「这是个非中文版本」，
+        而实际上只是不知道。空串让展示层直接省略这一段。
+        """
         code = (self.language or "").strip().lower()
+        if not code:
+            return ""
         return LANG_LABELS.get(code, "其他语言")
 
     @property
@@ -92,6 +100,22 @@ def _comic_id(source: str, page_url: str, source_url: str) -> str:
         if match:
             return match.group(1)
     return ""
+
+
+def _page_count(facts: Any) -> int:
+    """上游给的作品总页数；没有、为 0 或不是数字时返回 0（展示时省略）。
+
+    字段在两种响应形状里的位置不同：v2.2 放在 `path_segments[].metadata.facts.page_count`，
+    旧版直接挂在行上。这里两种都试，认不出就当没有——页数只是参考，不该因为它缺而丢结果。
+    """
+    if not isinstance(facts, dict):
+        return 0
+    raw = facts.get("page_count")
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return count if count > 0 else 0
 
 
 def normalize_hits(payload: dict[str, Any]) -> tuple[list[ImageSearchHit], float]:
@@ -138,6 +162,7 @@ def normalize_hits(payload: dict[str, Any]) -> tuple[list[ImageSearchHit], float
                     title=title,
                     language=str(seg.get("language") or ""),
                     page=int(seg.get("page_no") or 0),
+                    page_count=_page_count(meta.get("facts") or {}),
                     score=score,
                     page_url=page_url,
                     source_url=source_url,
@@ -164,6 +189,7 @@ def normalize_hits(payload: dict[str, Any]) -> tuple[list[ImageSearchHit], float
                         title=str(row.get("title") or ""),
                         language=str(row.get("language") or ""),
                         page=int(row.get("page") or 0),
+                        page_count=_page_count(row),
                         score=score,
                         page_url=page_url,
                         source_url=source_url,
@@ -240,22 +266,32 @@ def render_report(
             "换一张更完整、更清晰的截图再试；裁得太碎或整页缩放过度都会搜不到。"
         )
     lines = [head, ""]
+    # 整页都是中文版本时语言一律不写：默认就只留中文，逐条重复「简体中文」是噪音。
+    # 只有混进非中文版本时，语言才成了「这条要不要下」的判断依据
+    show_language = not all(hit.is_chinese for hit in hits)
     for index, hit in enumerate(hits, 1):
         flag = "🟢" if hit.score >= HIGH_CONFIDENCE else "🟡"
-        # 序号用「1、」而不是「1.」：长消息会被平台转成图片，文转图模板把「1.」当 Markdown
-        # 有序列表，而每条结果之间有空行，于是每条各成一段列表、全部从 1 重新编号
-        lines.append(f"{index}、{flag} {hit.title_within(title_limit)}")
-        # 语言在前、相似度在后，单独一行：两者都是「这条要不要下」的参考，挤进标题会把
-        # 本来就长的标题再截短一截
-        lines.append(f"　 {hit.language_label} · 相似度 {hit.score:.0f}%")
+        if index > 1:
+            lines.append("")
+        # 与关键词搜索、榜单同一套版式：标题一行，ID 一行，页数与语言跟在 ID 后面
+        lines.extend(
+            render_item(
+                index,
+                hit.title_within(title_limit),
+                badge=f"{flag} ",
+                comic_id=hit.comic_id,
+                page_count=hit.page_count,
+                extras=(
+                    hit.language_label if show_language else "",
+                    f"相似度 {hit.score:.0f}%",
+                ),
+            )
+        )
         command = command_for(hit)
         if command:
-            lines.append(f"　 下载：{command}")
+            lines.append(f"{INDENT}下载：{command}")
         else:
-            lines.append("　 （这个来源本插件下不了，仅作参考）")
-        lines.append("")
-    if lines[-1] == "":
-        lines.pop()
+            lines.append(f"{INDENT}（这个来源本插件下不了，仅作参考）")
     if dropped:
         lines.append("")
         lines.append(f"另有 {dropped} 本没列出来（相似度不够或超出展示条数）。")

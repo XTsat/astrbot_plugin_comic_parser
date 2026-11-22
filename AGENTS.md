@@ -76,7 +76,7 @@ astrbot_plugin_comic_parser/
 │   ├── filename.py              # 文件名清洗与打包基名
 │   ├── files.py                 # 落盘小工具：认出「已下好的图」，避免把写了一半的当成品
 │   ├── font.py                  # 图片渲染的字体出口（中日韩字形 + 拉丁/数字两套）
-│   ├── format.py                # 体积格式化的通用单位（进度、摘要、失败说明共用）
+│   ├── format.py                # 体积格式化的通用单位（进度、摘要、失败说明共用；超长按整条截断）
 │   ├── link.py                  # 作品链接拆主机名/路径、域名归属判断
 │   ├── pack_format.py           # 命令末尾的格式词（`/jm 123456 pdf` 只改这一次）
 │   └── title.py                 # 标题里的小标记（「AI 生成」这类括注）识别
@@ -84,6 +84,7 @@ astrbot_plugin_comic_parser/
     ├── channel.py               # BaseChannel 抽象（渠道做取元信息 + 下载；搜索是可选方法）
     ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
     ├── search.py                # 搜索编排：单渠道超时、聚合、缓存、翻页与结果渲染
+    ├── result_line.py           # 列表条目排版：标题一行、ID 一行，搜索/搜图/榜单共用
     ├── search_query.py          # 搜索条件解析：`tag:x -tag:y` → 结构化条件，各站各自翻译
     ├── ranking.py               # 排行榜：单渠道超时、全渠道聚合、缓存、翻页、序号与文字渲染
     ├── ranking_card.py          # 榜单卡片：把一页榜单画成一张可发送的图（Pillow）
@@ -153,7 +154,7 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 层 | 目录 | 本项目实际内容 |
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
-| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py` / `search_query.py`（搜索编排与条件解析）、`ranking.py` / `ranking_card.py`（榜单聚合与卡片）、`probe.py` / `health.py` / `stats.py` / `janitor.py`（测试、自检、统计、清理四条维护链路）、`cover.py`（封面挑选与打码交付）、`progress.py`（跨渠道进度）、`domain_race.py`（域名测速择优）、`panel.py`（面板业务）、`nsfw/`（检测与打码）、`image_search/`（搜图：图片 → 作品 ID + 可发送的下载指令） |
+| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py` / `search_query.py`（搜索编排与条件解析）、`result_line.py`（列表条目统一排版）、`ranking.py` / `ranking_card.py`（榜单聚合与卡片）、`probe.py` / `health.py` / `stats.py` / `janitor.py`（测试、自检、统计、清理四条维护链路）、`cover.py`（封面挑选与打码交付）、`progress.py`（跨渠道进度）、`domain_race.py`（域名测速择优）、`panel.py`（面板业务）、`nsfw/`（检测与打码）、`image_search/`（搜图：图片 → 作品 ID + 可发送的下载指令） |
 | 工具层 | `utils/` | `filename.py`（文件名清洗）、`files.py`（落盘与断点识别）、`font.py`（渲染字体）、`format.py`（体积单位）、`link.py`（链接拆主机名/路径、域名归属）、`pack_format.py`（末尾格式词）、`title.py`（标题小标记） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 

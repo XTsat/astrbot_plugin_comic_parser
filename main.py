@@ -1861,6 +1861,8 @@ class ComicParserPlugin(Star):
                 channel=hit.channel,
                 comic_id=hit.comic_id,
                 title=hit.display_title,
+                # 页数一并带进会话：回序号下载后再翻页/看列表时，这一本不用重新补
+                page_count=hit.page_count,
             )
             for hit in hits
             if hit.channel and hit.channel in self.channels

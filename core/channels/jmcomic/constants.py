@@ -46,3 +46,8 @@ RANKING_DETAIL_TIMEOUT: Final = 10
 RANKING_ENRICH_BUDGET: Final = 12
 # 页数按天缓存：榜单一天里反复翻，同一本没必要回回查详情
 RANKING_DETAIL_CACHE_TTL: Final = 1800
+
+# 搜索补页数：JM 的搜索接口只回标题、作者与标签，页数要逐本查详情。
+# 一页展示 5 条、并发 3 本，两轮就能补完；单请求 8 秒、只重试 1 次，坏节点尽快放弃
+SEARCH_DETAIL_CONCURRENCY: Final = 3
+SEARCH_DETAIL_TIMEOUT: Final = 8

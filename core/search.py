@@ -34,6 +34,7 @@ from ..domain.constants import (
     SEARCH_CACHE_MAX_ENTRIES,
     SEARCH_INDEX_HINT_MAX,
     SEARCH_MAX_TEXT_CHARS,
+    SEARCH_PAGE_COUNT_BUDGET,
     SEARCH_RESULT_MAX_SESSIONS,
     SEARCH_RESULT_TTL,
     SEARCH_UPSTREAM_FETCH_LIMIT,
@@ -41,6 +42,7 @@ from ..domain.constants import (
 from ..utils import truncate_keep_tail
 from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
+from .result_line import render_item, starts_item
 from .search_query import parse_search_query
 
 _WHITESPACE = re.compile(r"\s+")
@@ -291,6 +293,64 @@ class SearchService:
         self._cache_put(cache_key, result)
         return SearchOutcome(
             channel=channel, page=result, elapsed=time.monotonic() - started
+        )
+
+    async def _fill_page_counts(
+        self, channel: BaseChannel, items: list[SearchItem], budget: float
+    ) -> None:
+        """给缺页数的条目补一次详情；到点就收手，补不到的那一行少一个页数。
+
+        只在展示前补「马上要发出去的这几条」，不补整页缓冲：补页数是为了一眼看清
+        这本有多长，翻到下一页时再补下一页的就够了，没必要替用户把后面几十条也查一遍。
+        补数失败（站点改版、被风控、超时）只影响这一行，绝不把搜索本身变成失败。
+        """
+        targets = [item for item in items if item.page_count <= 0]
+        if not targets or not channel.supports_page_count:
+            return
+        try:
+            await asyncio.wait_for(
+                channel.fill_page_counts(targets), timeout=max(1.0, budget)
+            )
+        except asyncio.TimeoutError:
+            logger.info(
+                f"[{PLUGIN_NAME}] {channel.display_name} 补页数超过 {budget:.0f} 秒，"
+                "未补到的条目按「页数未知」展示"
+            )
+        except Exception as exc:  # 补数据失败只影响这一行，不能让搜索整体失败
+            logger.warning(
+                f"[{PLUGIN_NAME}] {channel.display_name} 补页数失败（已忽略）：{exc}"
+            )
+
+    def _page_count_budget(self) -> float:
+        """补页数的总时限：比单渠道搜索超时小一档，别把「搜索」拖成「搜索 + 补数」。"""
+        timeout = max(1, int(getattr(self.settings, "search_timeout", 10)))
+        return float(max(2, min(SEARCH_PAGE_COUNT_BUDGET, timeout - 2)))
+
+    async def _fill_visible_page_counts(self, session: _SearchSession) -> None:
+        """给**马上要发的这一页**补页数；每个渠道各自一个总时限，互不拖累。
+
+        只补这一页、不补整页缓冲：补页数是为了让人一眼看清这本有多长，翻到下一页时
+        再补下一页的就够了。补数走渠道自己的实现，失败只让那一行少一个页数。
+        """
+        size = self._page_size(session)
+        start = (session.page - 1) * size
+        visible = session.entries[start : session.page * size]
+        if not visible:
+            return
+        budget = self._page_count_budget()
+        by_channel: dict[str, list[SearchItem]] = {}
+        for channel_name, item in visible:
+            if item.page_count > 0:
+                continue
+            by_channel.setdefault(channel_name, []).append(item)
+        if not by_channel:
+            return
+        await asyncio.gather(
+            *(
+                self._fill_page_counts(self.channels[name], items, budget)
+                for name, items in by_channel.items()
+                if name in self.channels
+            )
         )
 
     def _timeout_outcome(
@@ -561,6 +621,7 @@ class SearchService:
 
         session.page = target
         session.stored_at = time.monotonic()
+        await self._fill_visible_page_counts(session)
         return self._render_session(session)
 
     def resolve_index(
@@ -705,6 +766,7 @@ class SearchService:
         self._store_session(session_id, session)
         # 第一页也要补满：上游一页可能比展示页小，不补会把后面的条目挤到翻页之外
         await self._ensure_entries(session, self._page_size(session))
+        await self._fill_visible_page_counts(session)
         return self._render_session(session, extra=self._note_lines([outcome]))
 
     async def render_all(
@@ -733,6 +795,7 @@ class SearchService:
             return self._bounded("\n".join(lines))
         self._store_session(session_id, session)
         await self._ensure_entries(session, self._page_size(session))
+        await self._fill_visible_page_counts(session)
         return self._render_session(session, extra=extra)
 
     @staticmethod
@@ -755,6 +818,9 @@ class SearchService:
         lines = [title, ""]
         for offset, (channel_name, item) in enumerate(visible):
             channel = self.channels.get(channel_name)
+            if offset:
+                # 一条两行、条目之间空一行：否则 ID 行会贴在下一本的标题下面
+                lines.append("")
             lines.extend(
                 self._format_item(
                     start + offset + 1,
@@ -817,23 +883,21 @@ class SearchService:
         title = self._clip(raw_title, _TITLE_LIMIT)
         if not title:
             title = f"{channel.display_name if channel else item.channel} 作品"
-        meta_parts: list[str] = []
         author = self._clip(getattr(item, "author", ""), _AUTHOR_LIMIT)
-        if author:
-            meta_parts.append(author)
-        page_count = int(getattr(item, "page_count", 0) or 0)
-        if page_count > 0:
-            meta_parts.append(f"{page_count}P")
-        meta = f"（{' · '.join(meta_parts)}）" if meta_parts else ""
-        comic_id = str(getattr(item, "comic_id", ""))
         tag = ""
         if show_channel:
             name = channel.display_name if channel else item.channel
             tag = f"[{name}] "
         mark = f" · {AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
-        # 序号用「1、」而不是「1.」：长消息会被平台转成图片，文转图模板把「1.」当 Markdown
-        # 有序列表，一旦中间插进说明或空行，后面的条目就会从 1 重新编号；与搜图、榜单同一种写法
-        return [f"{index}、{tag}{title}{meta} · ID：{comic_id}{mark}"]
+        return render_item(
+            index,
+            title,
+            tag=tag,
+            author=author,
+            comic_id=str(getattr(item, "comic_id", "")),
+            page_count=int(getattr(item, "page_count", 0) or 0),
+            mark=mark,
+        )
 
     @staticmethod
     def _note_lines(outcomes: list[SearchOutcome]) -> str:
@@ -870,7 +934,14 @@ class SearchService:
 
     @staticmethod
     def _bounded(text: str) -> str:
-        """超长时截掉中间的结果行，保住标题与结尾的下载/翻页提示。"""
+        """超长时截掉中间的结果行，保住标题与结尾的下载/翻页提示。
+
+        按整条截：条目是「标题行 + ID 行」两行，只留下标题行的那一条等于让用户看到
+        一本抄不出 ID 的作品。
+        """
         return truncate_keep_tail(
-            text, SEARCH_MAX_TEXT_CHARS, "…（结果过长，已截断）"
+            text,
+            SEARCH_MAX_TEXT_CHARS,
+            "…（结果过长，已截断）",
+            starts_group=starts_item,
         )

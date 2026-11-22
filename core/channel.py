@@ -35,6 +35,7 @@ from ..domain import (
     PluginSettings,
     RankingPage,
     RankingUnsupportedError,
+    SearchItem,
     SearchPage,
     SearchQuery,
     SearchUnsupportedError,
@@ -386,6 +387,24 @@ class BaseChannel(ABC):
         并在 `SearchPage.note` 里说明降级方式，避免用户误以为做了精确筛选。
         """
         raise SearchUnsupportedError(f"{self.display_name} 暂不支持搜索")
+
+    # ---- 搜索结果补页数：可选能力，默认不补 ----
+    @property
+    def supports_page_count(self) -> bool:
+        """搜索结果能否补出页数。
+
+        有些站点的搜索接口只回标题（JM、Hanime1），列表里于是有的条目带页数、有的不带。
+        实现了 `fill_page_counts()` 的渠道会由搜索服务在展示前补一次；没实现的渠道
+        保持原样——它们本来就在搜索结果里给了页数，或者上游根本不提供。
+        """
+        return type(self).fill_page_counts is not BaseChannel.fill_page_counts
+
+    async def fill_page_counts(self, items: list[SearchItem]) -> None:
+        """就地给搜索结果补页数；补不到的条目保持 ``page_count == 0``。
+
+        默认什么都不做。实现方要自己控制成本：只处理缺页数的条目、并发有限、
+        整轮有总时限，且**任何失败都只让那一行少一个页数**，不能把搜索本身搞失败。
+        """
 
     # ---- 排行榜：可选能力，默认不支持 ----
     @property

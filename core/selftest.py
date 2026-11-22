@@ -1248,6 +1248,46 @@ def test_wiring() -> None:
 
 
 
+def test_page_count_capability() -> None:
+    """补页数只由「真实现了 fill_page_counts」的渠道开启，且实现方必须自己兜住失败。
+
+    搜索服务按 `supports_page_count` 决定要不要多打一轮详情。这个开关若靠手填类属性，
+    渠道漏写就会「以为补了、其实没有」；这里确认它由方法覆盖情况决定，并确认实现方
+    在补数失败时不会把异常抛给搜索。
+    """
+    import inspect
+
+    from astrbot_plugin_comic_parser.core.channel import BaseChannel  # noqa: PLC0415
+    from astrbot_plugin_comic_parser.core.registry import (  # noqa: PLC0415
+        build_channels,
+    )
+
+    settings = PluginSettings.from_config({})
+    channels = build_channels(settings)
+    providers = sorted(name for name, ch in channels.items() if ch.supports_page_count)
+    check(
+        "补页数：至少有一个渠道实现了它（守卫没空转）",
+        bool(providers),
+        str(providers),
+    )
+    # 开关必须由方法覆盖推导，不能靠类属性手填
+    for name, ch in channels.items():
+        expected = type(ch).fill_page_counts is not BaseChannel.fill_page_counts
+        if ch.supports_page_count != expected:
+            check(f"补页数：{name} 的开关与方法覆盖一致", False, str(ch.supports_page_count))
+            break
+    else:
+        check("补页数：开关与方法覆盖一致", True, "")
+
+    # 实现方必须自己接住异常：补数失败只该让那一行少个页数
+    unsafe: list[str] = []
+    for name in providers:
+        source = inspect.getsource(type(channels[name]).fill_page_counts)
+        if "except" not in source:
+            unsafe.append(name)
+    check("补页数：实现方自己兜住失败", not unsafe, str(unsafe))
+
+
 def test_channel_wiring() -> None:
     """六处接线一致性：注册表 / 命令 / schema 模板 / default_options 必须同一个渠道集合。
 
@@ -2740,13 +2780,14 @@ def test_ranking_boards_declared() -> None:
 
 
 def test_result_rendering() -> None:
-    """搜索与榜单结果行的格式：序号用「1、」、超长标题截断但仍保留 ID。
+    """搜索 / 搜图 / 榜单的结果行格式：标题一行、ID 一行，序号用「1、」。
 
     序号写成「1.」时，长消息被平台转成图片后会被当成 Markdown 有序列表，中间插一行
     说明就重新从 1 编号（v0.8.1 修过一次）。ID 是用户回序号下载之外的第二条路，
-    任何情况下都不能被截掉。
+    三处列表统一放在单独一行、页数跟在它后面，任何情况下都不能被截掉。
     """
     from astrbot_plugin_comic_parser.core.ranking import RankingService  # noqa: PLC0415
+    from astrbot_plugin_comic_parser.core.result_line import starts_item  # noqa: PLC0415
     from astrbot_plugin_comic_parser.core.search import SearchService  # noqa: PLC0415
     from astrbot_plugin_comic_parser.core.registry import build_channels  # noqa: PLC0415
     from astrbot_plugin_comic_parser.domain import RankingItem, SearchItem  # noqa: PLC0415
@@ -2759,23 +2800,124 @@ def test_result_rendering() -> None:
     item = SearchItem(
         channel="jmcomic", comic_id="123456", title="测试标题", author="作者", page_count=42
     )
-    line = search._format_item(1, item, channels.get("jmcomic"), False)[0]
-    check("渲染：搜索行用「1、」而非「1.」", line.startswith("1、"), line[:12])
-    check("渲染：搜索行含作者与页数", "作者" in line and "42P" in line, line)
-    check("渲染：搜索行含 ID", "ID：123456" in line, line)
+    lines = search._format_item(1, item, channels.get("jmcomic"), False)
+    check("渲染：搜索条目是两行（标题 + ID）", len(lines) == 2, str(len(lines)))
+    check("渲染：搜索标题行用「1、」而非「1.」", lines[0].startswith("1、"), lines[0][:12])
+    check("渲染：搜索标题行含作者", "作者" in lines[0], lines[0])
+    check(
+        "渲染：搜索 ID 行含 ID 与页数",
+        "ID：123456" in lines[1] and "42P" in lines[1],
+        lines[1],
+    )
+    check(
+        "渲染：ID 行跟在标题行之后、带缩进",
+        lines[1].startswith("　") and "ID：" in lines[1],
+        repr(lines[1][:6]),
+    )
 
-    rline = ranking._format_item(1, RankingItem(channel="jmcomic", comic_id="999", title="榜单作品"))
-    check("渲染：榜单行用「1、」", rline.startswith("1、"), rline[:12])
-    check("渲染：榜单行含 ID", "ID：999" in rline, rline)
+    rlines = ranking._format_item(
+        1, RankingItem(channel="jmcomic", comic_id="999", title="榜单作品")
+    )
+    check("渲染：榜单条目是两行", len(rlines) == 2, str(len(rlines)))
+    check("渲染：榜单标题行用「1、」", rlines[0].startswith("1、"), rlines[0][:12])
+    check("渲染：榜单 ID 行含 ID", "ID：999" in rlines[1], rlines[1])
 
-    # 超长标题：截断但不丢 ID
+    # 超长标题：截断但不丢 ID（ID 在自己的行上，永远不会被标题挤掉）
     long_title = "这是一个非常非常长的标题" * 8
-    long_line = search._format_item(
+    long_lines = search._format_item(
         1, SearchItem(channel="jmcomic", comic_id="1", title=long_title),
         channels.get("jmcomic"), False,
-    )[0]
-    check("渲染：超长标题被截断", len(long_line) < len(long_title), f"len={len(long_line)}")
-    check("渲染：超长标题仍保留 ID", "ID：1" in long_line, long_line[-20:])
+    )
+    check(
+        "渲染：超长标题被截断",
+        len(long_lines[0]) < len(long_title),
+        f"len={len(long_lines[0])}",
+    )
+    check("渲染：超长标题仍保留 ID", "ID：1" in long_lines[1], long_lines[1][-20:])
+
+    # 没页数时只省略页数，不占位、不留空括号
+    bare = search._format_item(
+        2, SearchItem(channel="jmcomic", comic_id="77", title="无页数"),
+        channels.get("jmcomic"), False,
+    )
+    check(
+        "渲染：缺页数时 ID 行不出现页数占位",
+        bare[1] == "　ID：77",
+        bare[1],
+    )
+
+    # 截断按整条：只剩标题行的那一条要被整条丢掉，不能留下抄不出 ID 的半条
+    check("渲染：行首判断认得条目开头", starts_item("1、标题") and not starts_item("　ID：1"), "")
+    text = "标题\n\n" + "\n\n".join(f"{i}、条目{i}\n　ID：{i}" for i in range(1, 200))
+    trimmed = search._bounded(text)
+    tail = trimmed.splitlines()[-3:]
+    check(
+        "渲染：截断不会留下只有标题的半条",
+        not starts_item(tail[0]) or "ID：" in tail[1],
+        " / ".join(tail),
+    )
+
+
+def test_image_search_rendering() -> None:
+    """搜图结果与搜索、榜单同一套版式：ID 单独一行，页数跟在 ID 后，中文不重复标语言。
+
+    搜图以前把 ID 藏进「下载：/nh <ID>」里，与搜索结果各写一套；用户看到的是一堆
+    格式不同的列表。语言标签也有两个坑：整页都是中文时逐条重复「简体中文」是噪音，
+    上游没给语言时说「其他语言」又会被读成「这是非中文版本」。
+    """
+    from astrbot_plugin_comic_parser.core.image_search.service import (  # noqa: PLC0415
+        ImageSearchHit,
+        render_report,
+    )
+
+    def report(hits: list, **kwargs: object) -> str:
+        return render_report(
+            hits,
+            elapsed=1.0,
+            strict=False,
+            command_for=lambda hit: f"/nh {hit.comic_id}",
+            **kwargs,
+        )
+
+    cn = ImageSearchHit(
+        source="nhentai", comic_id="512345", title="中文版", language="zh",
+        page_count=42, score=82.0,
+    )
+    en = ImageSearchHit(
+        source="nhentai", comic_id="9", title="English", language="en",
+        page_count=36, score=61.0,
+    )
+
+    lines = report([cn]).splitlines()
+    id_line = next((line for line in lines if "ID：" in line), "")
+    check("搜图：ID 单独一行", id_line.startswith("　ID：512345"), repr(id_line))
+    check("搜图：页数跟在 ID 后面", "42P" in id_line, id_line)
+    check(
+        "搜图：整页中文时不写语言",
+        "简体中文" not in report([cn]),
+        "",
+    )
+    mixed = report([cn, en])
+    check("搜图：混排时标出语言", "英语" in mixed, "")
+
+    # 上游没给语言：既不能标「其他语言」，也不该留个空段
+    unknown = ImageSearchHit(source="nhentai", comic_id="7", title="无语言", score=70.0)
+    unknown_lines = report([unknown])
+    check("搜图：缺语言时不写「其他语言」", "其他语言" not in unknown_lines, "")
+    check(
+        "搜图：缺页数时 ID 行不留占位",
+        next(
+            (line for line in unknown_lines.splitlines() if "ID：" in line), ""
+        ) == "　ID：7 · 相似度 70%",
+        next((line for line in unknown_lines.splitlines() if "ID：" in line), ""),
+    )
+
+    # 下载命令仍在，且跟在 ID 行之后（用户照着发就行）
+    check(
+        "搜图：仍给出可直接发送的下载命令",
+        any("下载：/nh 512345" in line for line in lines),
+        "",
+    )
 
 
 def test_filename_edge_cases() -> None:
@@ -3312,6 +3454,7 @@ def main() -> int:
     test_domain_fallback()
     test_wiring()
     test_channel_wiring()
+    test_page_count_capability()
     test_channel_boundaries()
     test_config_sync()
     test_changelog_folding()
@@ -3340,6 +3483,7 @@ def main() -> int:
     test_channel_isolation()
     test_ranking_boards_declared()
     test_result_rendering()
+    test_image_search_rendering()
     test_filename_edge_cases()
     test_pack_formats_produce_valid_output()
     test_cover_picking()

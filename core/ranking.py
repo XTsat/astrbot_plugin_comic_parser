@@ -39,12 +39,21 @@ from ..domain.constants import (
 from ..utils import truncate_keep_tail
 from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
+from .result_line import render_item, starts_item
 
 _WHITESPACE = re.compile(r"\s+")
 # 标题/作者的展示上限：榜单里的标题常带整段宣传语，原样发出去会刷屏。
 # 60 字是折中：Hanime1 这类「[社团] 日文原名 | 中文译名」的标题在 40 字时几乎只剩社团名
 _TITLE_LIMIT = 60
 _AUTHOR_LIMIT = 16
+
+
+def _starts_group(line: str) -> bool:
+    """截断时判断「这一行起了一条结果」：条目标题行，或聚合榜的渠道小标题。
+
+    渠道小标题下面一条都没留住时，光秃秃一行【渠道名】比没有更迷惑，也一起丢掉。
+    """
+    return starts_item(line) or line.startswith("【")
 
 
 def parse_board(raw: str) -> str | None:
@@ -853,7 +862,11 @@ class RankingService:
                 body.append(f"【{channel.display_name}】")
             for item in channel_page.items:
                 total += 1
-                body.append(self._format_item(start_index + total - 1, item))
+                if body and body[-1] != "" and not body[-1].startswith("【"):
+                    # 一条两行、条目之间空一行：否则 ID 行会贴在下一本的标题下面。
+                    # 渠道小标题与第一条之间不空行，小标题要贴着自己的条目
+                    body.append("")
+                body.extend(self._format_item(start_index + total - 1, item))
             if aggregate and channel_page.note:
                 body.append(f"ℹ️ {channel_page.note}")
             if aggregate:
@@ -905,20 +918,18 @@ class RankingService:
             return f"翻页：{' · '.join(parts)}"
         return "最后一页了：想看别的档位可以换时间窗" if page > 1 else ""
 
-    def _format_item(self, index: int, item: RankingItem) -> str:
+    def _format_item(self, index: int, item: RankingItem) -> list[str]:
         raw_title = item.title or item.display_title
         title = self._clip(raw_title, _TITLE_LIMIT) or "（无标题作品）"
-        meta_parts: list[str] = []
-        author = self._clip(item.author, _AUTHOR_LIMIT)
-        if author:
-            meta_parts.append(author)
-        if item.page_count > 0:
-            meta_parts.append(f"{item.page_count}P")
-        meta = f"（{' · '.join(meta_parts)}）" if meta_parts else ""
         mark = f" · {AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
-        # 序号用「1、」而不是「1.」：长消息会被平台转成图片，文转图模板把「1.」当 Markdown
-        # 有序列表，聚合榜在渠道之间插了【渠道名】，每个渠道的列表都从 1 重新编号
-        return f"{index}、{title}{meta} · ID：{item.comic_id}{mark}"
+        return render_item(
+            index,
+            title,
+            author=self._clip(item.author, _AUTHOR_LIMIT),
+            comic_id=item.comic_id,
+            page_count=item.page_count,
+            mark=mark,
+        )
 
     @staticmethod
     def _note_lines(outcomes: list[RankingOutcome], skip: set[str] | None = None) -> str:
@@ -957,7 +968,14 @@ class RankingService:
 
     @staticmethod
     def _bounded(text: str) -> str:
-        """超长时截掉中间的名次行，保住标题与结尾的下载/翻页提示。"""
+        """超长时截掉中间的名次行，保住标题与结尾的下载/翻页提示。
+
+        按整条截：条目是「标题行 + ID 行」两行，只留下标题行的那一条等于让用户看到
+        一本抄不出 ID 的作品。
+        """
         return truncate_keep_tail(
-            text, RANKING_MAX_TEXT_CHARS, "…（榜单过长，已截断）"
+            text,
+            RANKING_MAX_TEXT_CHARS,
+            "…（榜单过长，已截断）",
+            starts_group=_starts_group,
         )
