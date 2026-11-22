@@ -112,15 +112,19 @@ astrbot_plugin_comic_parser/
     │   │   ├── option.py        #   jmcomic 惰性 import + option 构建
     │   │   ├── progress.py      #   下载会话状态、进度上报、重载中断
     │   │   └── constants.py     #   渠道私有常量（域名清单、请求超时/重试默认值）
-    │   └── nhentai/             # nhentai 渠道
-    │       ├── __init__.py      #   只导出 NhentaiChannel
-    │       ├── channel.py       #   BaseChannel 实现：解析 ID → 元信息 → 下载
-    │       ├── api.py          #   官方 API v2 客户端（元信息主路径，纯 JSON）
-    │       ├── site.py          #   作品页解析、页面抓取兜底、图床地址拼接
-    │       ├── downloader.py    #   图片并发下载、重试、图床风控兜底
-    │       ├── progress.py      #   下载会话状态、进度日志、重载中断
-    │       ├── constants.py     #   渠道私有常量（域名、超时/重试/并发默认值）
-    │       └── schema.json      #   本渠道配置模板副本（以 _conf_schema.json 为准）
+    │   ├── nhentai/             # nhentai 渠道
+    │   │   ├── __init__.py      #   只导出 NhentaiChannel
+    │   │   ├── channel.py       #   BaseChannel 实现：解析 ID → 元信息 → 下载
+    │   │   ├── api.py          #   官方 API v2 客户端（元信息主路径，纯 JSON）
+    │   │   ├── site.py          #   作品页解析、页面抓取兜底、图床地址拼接
+    │   │   ├── downloader.py    #   图片并发下载、重试、图床风控兜底
+    │   │   ├── progress.py      #   下载会话状态、进度日志、重载中断
+    │   │   ├── constants.py     #   渠道私有常量（域名、超时/重试/并发默认值）
+    │   │   └── schema.json      #   本渠道配置模板副本（以 _conf_schema.json 为准）
+    │   ├── picacg/              # 哔咔漫画渠道（需要账号登录，图址走签名接口）
+    │   ├── ehentai/             # E-Hentai 渠道（唯一自带整本体积的渠道）
+    │   ├── hanime1/             # Hanime1 渠道（漫画区，供源与 nhentai 同源）
+    │   └── wnacg/               # 紳士漫畫渠道（图址带签名，合辑分章）
     ├── packer.py                # **统一打包与加密**：zip / pdf / long_img / none
     ├── task.py                  # 单次任务编排：元信息 → 下载 → 打包
     ├── group_file.py            # 群文件交付：找群文件夹 → 传文件 → 成败与落点
@@ -472,7 +476,7 @@ async def on_message(
 | `/comic 排行 [日榜\|周榜\|月榜\|总榜]`（也认 `rank`、`榜`） | 全部（受白名单/黑名单约束） | 一次取所有支持排行榜的渠道；缺档时自动改看最近一档并注明 |
 | `<渠道命令> 排行 [时间窗]` | 全部（受白名单/黑名单约束） | 只看一个渠道的榜单 |
 | `/<渠道命令> <ID 或链接> 封面`（也认 `cover`） | 全部（受白名单/黑名单约束） | 只发封面图，不下载整本 |
-| `/<渠道命令> <ID 或链接> 简介`（也认 `信息`、`详情`、`info`） | 全部（受白名单/黑名单约束） | 只回标题、作者、页数、章节数与标签，不下载整本 |
+| `/<渠道命令> <ID 或链接> 简介`（也认 `信息`、`详情`、`info`） | 全部（受白名单/黑名单约束） | 只回标题、作者、页数、体积、章节数与标签，不下载整本。E-Hentai 报真实大小，其余渠道按「页数 × 单张体积」估算并标「约」（见 `core/estimate.py`） |
 | `/comic <序号>`（渠道命令同理） | 全部（受白名单/黑名单约束） | 下载最近一次搜索结果或榜单里对应编号的那一本 |
 | `/comic 下一页`（也认 `next`；上一页用 `上一页` 或 `prev`） | 全部（受白名单/黑名单约束） | 翻最近一次列表的下一页；搜索编号跨页连续，榜单每页重新从 1 开始 |
 | `<下载命令> <格式词>` | 全部（受白名单/黑名单约束） | 单次指定打包格式（`zip`/`pdf`/`long_img`/`none`），不改全局配置 |
