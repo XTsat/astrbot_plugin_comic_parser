@@ -42,6 +42,7 @@ from ..domain import (
 )
 from ..domain.constants import DRAIN_TIMEOUT
 from ..domain.models import ChannelSelfcheck
+from .estimate import http_size
 from .domain_race import (
     CACHE,
     DomainTiming,
@@ -405,6 +406,32 @@ class BaseChannel(ABC):
         默认什么都不做。实现方要自己控制成本：只处理缺页数的条目、并发有限、
         整轮有总时限，且**任何失败都只让那一行少一个页数**，不能把搜索本身搞失败。
         """
+
+    # ---- 抽样估体积：可选能力，默认不抽样 ----
+    @property
+    def supports_size_sample(self) -> bool:
+        """能否为「下载前体积估算」抽样量单张体积。
+
+        覆盖了 `sample_image_urls` 的渠道才会在打开「抽样实测体积」时真的下一两张图；
+        没覆盖的渠道只按「页数 × 单张体积」估——它们的图址要么得先翻整本才拿得到，
+        要么站点本身给了真实体积（如 E-Hentai）。
+        """
+        return type(self).sample_image_urls is not BaseChannel.sample_image_urls
+
+    async def sample_image_urls(self, comic_id: str) -> list[str]:
+        """取这本作品前几张图的地址，供抽样量体积；拿不到时返回空列表。
+
+        默认返回空列表（= 不抽样）。实现方只该做「拿到前 N 张地址」这一件事：
+        不要顺手翻完整本，也不要下载图片——量体积由上层统一做。
+        """
+        return []
+
+    async def sample_image_size(self, url: str) -> int:
+        """量一张图有多少字节；默认走通用的 HEAD / Range 问法。
+
+        渠道的图床需要特殊请求头（Referer、UA）时覆盖它，把同一套头带过去。
+        """
+        return await http_size(url, proxy=self.resolve_proxy()[0])
 
     # ---- 排行榜：可选能力，默认不支持 ----
     @property

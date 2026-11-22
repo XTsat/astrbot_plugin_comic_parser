@@ -19,6 +19,10 @@ class ComicMeta:
     # 拿不到就留 0，展示层按 0 省略。
     page_count: int = 0  # 图片张数，0 表示渠道未提供
     chapter_count: int = 0  # 章节数，0 表示渠道未提供（单章本通常记 1）
+    # 整本体积：分两个字段，**真实值和估算值绝不能混**——真实值不该被说成约数，
+    # 估算值也不该被当成准数（用户拿它判断流量与磁盘，说错就是误导）。
+    size_bytes: int = 0  # 渠道自己真知道的体积（如 E-Hentai 的 gdata 给 filesize）
+    size_sampled_bytes: int = 0  # 抽样实测推算的体积：比固定公式准，但仍是估算
     tags: list[str] = field(default_factory=list)
 
     @property

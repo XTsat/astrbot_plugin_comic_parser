@@ -2858,6 +2858,176 @@ def test_result_rendering() -> None:
     )
 
 
+def test_sample_isolation() -> None:
+    """体积抽样必须与下载队列隔离：不排队、不占下载并发、不进任务登记表。
+
+    「简介」本来就是「先看一眼」的轻操作，抽样只是它顺手多量一两张图。如果抽样挤进
+    下载队列，别人一下载，看简介就要排队；反过来抽样占了下载信号量，也会让下载排队。
+    这里静态确认：抽样走自己的锁，且 `_handle_info_only` 里不碰下载信号量/任务登记。
+    """
+    import inspect
+
+    module = __import__(f"{PACKAGE}.main", fromlist=["ComicParserPlugin"])
+
+    source = inspect.getsource(module.ComicParserPlugin._handle_info_only)
+    check(
+        "抽样隔离：简介不占下载信号量",
+        "_semaphore" not in source,
+        "",
+    )
+    check(
+        "抽样隔离：简介不进下载任务登记表",
+        "_begin_running" not in source and "_running[" not in source,
+        "",
+    )
+    check(
+        "抽样隔离：抽样走自己的锁",
+        "_sample_lock" in source,
+        "",
+    )
+    init_source = inspect.getsource(module.ComicParserPlugin.__init__)
+    check(
+        "抽样隔离：插件初始化时建了独立锁",
+        "_sample_lock" in init_source,
+        "",
+    )
+
+
+def test_size_estimate() -> None:
+    """下载前体积估算：真实值精确展示、估算值必须标「约」、抽样失败退回固定值。
+
+    体积是用户判断「要不要下」的依据之一（手机流量、小磁盘），所以三条不能错：
+    ① 渠道给了真值就原样报，不能加「约」；② 抽样推算出来的仍然是估算，必须加「约」——
+    它比固定公式准，但绝不是准数；③ 抽样任何一步失败都不能让「看简介」本身失败。
+    """
+    import asyncio
+
+    from astrbot_plugin_comic_parser.core.estimate import (  # noqa: PLC0415
+        estimate_bytes,
+        per_image_kb,
+        refine_with_samples,
+        size_line,
+    )
+    from astrbot_plugin_comic_parser.domain import ComicMeta  # noqa: PLC0415
+    from astrbot_plugin_comic_parser.domain.constants import (  # noqa: PLC0415
+        DEFAULT_ESTIMATE_IMAGE_KB,
+        ESTIMATE_IMAGE_KB_BY_CHANNEL,
+    )
+
+    settings = PluginSettings.from_config({})
+
+    # ① 真实值：精确展示，不加「约」
+    real = ComicMeta(
+        channel="ehentai", comic_id="1", page_count=90, size_bytes=59 * 1024 * 1024
+    )
+    check("体积：真实值原样展示、不加「约」", size_line(real, settings) == "59.0 MB", size_line(real, settings))
+    check("体积：真实值标记为不估算", estimate_bytes(real, settings)[1] is False, "")
+
+    # ② 估算：按「页数 × 单张体积」，且必须带「约」
+    guess = ComicMeta(channel="jmcomic", comic_id="2", page_count=100)
+    text = size_line(guess, settings)
+    check("体积：估算值带「约」", text.startswith("约 "), text)
+    check(
+        "体积：估算按渠道单张体积算",
+        estimate_bytes(guess, settings)[0]
+        == 100 * ESTIMATE_IMAGE_KB_BY_CHANNEL["jmcomic"] * 1024,
+        text,
+    )
+    check(
+        "体积：没有页数时整段省略",
+        size_line(ComicMeta(channel="jmcomic", comic_id="3"), settings) == "",
+        "",
+    )
+
+    # 渠道默认值 vs 用户显式配置：改了配置就一律按配置算
+    tuned = PluginSettings.from_config({"download": {"estimate_image_kb": 900}})
+    check(
+        "体积：用户改了配置就全渠道按它算",
+        per_image_kb("jmcomic", tuned) == 900 and per_image_kb("ehentai", tuned) == 900,
+        f"{per_image_kb('jmcomic', tuned)}/{per_image_kb('ehentai', tuned)}",
+    )
+    check(
+        "体积：默认配置时用渠道自己的经验值",
+        per_image_kb("jmcomic", settings) == ESTIMATE_IMAGE_KB_BY_CHANNEL["jmcomic"],
+        str(per_image_kb("jmcomic", settings)),
+    )
+    check(
+        "体积：没列到的渠道回落到通用默认值",
+        per_image_kb("unknown-channel", settings) == DEFAULT_ESTIMATE_IMAGE_KB,
+        str(per_image_kb("unknown-channel", settings)),
+    )
+
+    # ③ 抽样：成功时写入推算值、仍标「约」；失败时保持原样
+    sampling = PluginSettings.from_config(
+        {"download": {"estimate_sample_enabled": True, "estimate_sample_count": 3}}
+    )
+
+    async def urls(_comic_id: str) -> list[str]:
+        return ["u1", "u2", "u3"]
+
+    async def size_of(_url: str) -> int:
+        return 400_000
+
+    sampled = ComicMeta(channel="nhentai", comic_id="4", page_count=20)
+    total = asyncio.run(
+        refine_with_samples(sampled, sampling, urls_for=urls, size_of=size_of)
+    )
+    check("体积：抽样拿到样本字节", total == 1_200_000, str(total))
+    check(
+        "体积：抽样结果写进推算字段、真实值字段保持为空",
+        sampled.size_sampled_bytes > 0 and sampled.size_bytes == 0,
+        f"sampled={sampled.size_sampled_bytes} real={sampled.size_bytes}",
+    )
+    check("体积：抽样推算值仍标「约」", size_line(sampled, sampling).startswith("约 "), size_line(sampled, sampling))
+
+    async def boom(_url: str) -> int:
+        raise RuntimeError("网络炸了")
+
+    broken = ComicMeta(channel="nhentai", comic_id="5", page_count=20)
+    check(
+        "体积：抽样失败返回 0 且不改动元信息",
+        asyncio.run(
+            refine_with_samples(broken, sampling, urls_for=urls, size_of=boom)
+        )
+        == 0
+        and broken.size_sampled_bytes == 0,
+        "",
+    )
+    check(
+        "体积：抽样失败后仍能退回固定值展示",
+        size_line(broken, sampling).startswith("约 "),
+        size_line(broken, sampling),
+    )
+    check(
+        "体积：没开抽样时一次都不请求",
+        asyncio.run(
+            refine_with_samples(
+                ComicMeta(channel="nhentai", comic_id="6", page_count=10),
+                settings,
+                urls_for=urls,
+                size_of=size_of,
+            )
+        )
+        == 0,
+        "",
+    )
+
+    # 渠道能力：有真值的渠道不需要抽样，其余渠道应当能抽样
+    from astrbot_plugin_comic_parser.core.registry import build_channels  # noqa: PLC0415
+
+    channels = build_channels(settings)
+    check(
+        "体积：有真实体积的 E-Hentai 不需要抽样",
+        not channels["ehentai"].supports_size_sample,
+        "",
+    )
+    check(
+        "体积：其余渠道都能抽样（守卫没空转）",
+        sum(1 for ch in channels.values() if ch.supports_size_sample) >= 4,
+        str([n for n, ch in channels.items() if ch.supports_size_sample]),
+    )
+
+
 def test_image_search_rendering() -> None:
     """搜图结果与搜索、榜单同一套版式：ID 单独一行，页数跟在 ID 后，中文不重复标语言。
 
@@ -3484,6 +3654,8 @@ def main() -> int:
     test_ranking_boards_declared()
     test_result_rendering()
     test_image_search_rendering()
+    test_size_estimate()
+    test_sample_isolation()
     test_filename_edge_cases()
     test_pack_formats_produce_valid_output()
     test_cover_picking()

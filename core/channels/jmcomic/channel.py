@@ -232,6 +232,55 @@ class JMComicChannel(BaseChannel):
         self._album_cache()[comic_id] = album
         return _album_meta(self.name, album)
 
+    # ---- 抽样估体积 ----
+    async def sample_image_urls(self, comic_id: str) -> list[str]:
+        """取第一章的前几张图地址：相册详情已在缓存里，只需要多查一次章节详情。
+
+        JM 的图址不是「相册 ID + 页码」拼出来的：每章的图片清单在章节详情里，而且 URL
+        还带一个随更新变化的 `v` 参数。所以这里必须真查一次章节详情（比整本相册详情轻），
+        拿到前几张的完整地址就停手。
+        """
+        album = self._album_cache().get(comic_id)
+        if album is None:
+            return []
+        episodes = list(getattr(album, "episode_list", []) or [])
+        if not episodes:
+            return []
+        jmcomic = import_jmcomic()
+        if jmcomic is None:
+            return []
+        photo_id = str(episodes[0][0])
+        option = await asyncio.to_thread(
+            build_option,
+            self,
+            jmcomic,
+            Path(tempfile.gettempdir()),
+            impl="api",
+            for_search=True,
+            retry_times=1,
+            request_timeout=SEARCH_DETAIL_TIMEOUT,
+        )
+        try:
+            return await asyncio.to_thread(
+                self._sample_urls_sync, jmcomic, option, photo_id
+            )
+        except Exception as exc:  # noqa: BLE001 - 抽样失败只退回固定值
+            logger.info(
+                f"[{PLUGIN_NAME}] {self.display_name} {comic_id} 取图址失败，"
+                f"本次按固定单张体积估算：{exc}"
+            )
+            return []
+
+    @staticmethod
+    def _sample_urls_sync(jmcomic: Any, option: Any, photo_id: str) -> list[str]:
+        """同步取一章的前几张图地址（调用方负责丢进线程）。"""
+        client = option.new_jm_client()
+        photo = client.get_photo_detail(photo_id)
+        urls: list[str] = []
+        for index in range(min(10, len(photo.page_arr))):
+            urls.append(photo.create_image_detail(index).download_url)
+        return urls
+
     # ---- 域名测速择优 ----
     async def _ranked_domains(
         self, jmcomic: Any, comic_id: str, work_dir: Path

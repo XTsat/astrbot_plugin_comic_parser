@@ -35,6 +35,7 @@ from ....domain import (
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, sanitize_filename, split_link
 from ...domain_race import probe_url
+from ...estimate import http_size
 from ...channel import (
     SELFCHECK_SAMPLE_BYTES,
     BaseChannel,
@@ -147,6 +148,9 @@ class PicacgChannel(BaseChannel):
         super().__init__(options, settings)
         # 登录态在插件生命周期内复用，避免每次下载都重新登录一次
         self._token = ""
+        # fetch_meta 解析过的（详情, 章节清单）：抽样估体积直接复用，
+        # 否则一本 50 章的作品光抽样就要把章节列表重翻一遍
+        self._meta_cache: dict[str, tuple[dict[str, Any], list[dict[str, Any]]]] = {}
 
     # ---- 客户端 ----
     async def selfcheck(self, timeout: float = 15.0) -> ChannelSelfcheck:
@@ -239,7 +243,50 @@ class PicacgChannel(BaseChannel):
         async with self._session() as client:
             comic = await client.fetch_comic(comic_id)
             episodes = await client.fetch_episodes(comic_id)
+        self._meta_cache[comic_id] = (comic, episodes)
         return self._meta(comic_id, comic, episodes)
+
+    # ---- 抽样估体积 ----
+    async def sample_image_urls(self, comic_id: str) -> list[str]:
+        """取第一章的前几张图地址：需要登录，且图址要先查章节图片清单。
+
+        哔咔的图址在「章节 → 图片」接口里，一次只回一章；抽样只取第一章够用——
+        各章清晰度一致，量平均单张体积不需要跨章。
+        """
+        if not self.opt_str("account") or not self.opt_str("password"):
+            return []
+        try:
+            # 章节清单优先用 fetch_meta 刚取到的那份：一本几十章的作品，
+            # 重翻一遍章节列表只为量张图不值当
+            cached = self._meta_cache.get(comic_id)
+            episodes = cached[1] if cached is not None else []
+            async with self._session() as client:
+                if not episodes:
+                    episodes = await client.fetch_episodes(comic_id)
+                if not episodes:
+                    return []
+                order = _as_int(episodes[0].get("order"), 1)
+                pages = await client.fetch_pages(comic_id, order)
+        except Exception as exc:  # noqa: BLE001 - 抽样失败只退回固定值
+            logger.info(
+                f"[{PLUGIN_NAME}] {self.display_name} {comic_id} 取图址失败，"
+                f"本次按固定单张体积估算：{exc}"
+            )
+            return []
+        urls: list[str] = []
+        for page in pages[:10]:
+            url = image_url(page.get("media") or {})
+            if url:
+                urls.append(url)
+        return urls
+
+    async def sample_image_size(self, url: str) -> int:
+        """哔咔图床走签名直链，带 UA 与 Referer 才不会被当成盗链。"""
+        return await http_size(
+            url,
+            proxy=self._proxy(),
+            headers={"User-Agent": USER_AGENT, "Referer": BASE_URL},
+        )
 
     # ---- 章节 ----
     async def fetch_chapters(self, comic_id: str) -> list[ChapterEntry]:

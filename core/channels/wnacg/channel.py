@@ -42,6 +42,7 @@ from ....domain import (
 from ....domain.models import ChannelSelfcheck
 from ....domain.constants import PLUGIN_NAME
 from ....utils import split_link
+from ...estimate import http_size
 from ...channel import (
     BaseChannel,
     CancelToken,
@@ -270,6 +271,35 @@ class WnacgChannel(BaseChannel):
             image_count=totals.success,
             failed_images=totals.failed,
             chapters_label=chapters_label,
+        )
+
+    # ---- 抽样估体积 ----
+    async def sample_image_urls(self, comic_id: str) -> list[str]:
+        """抓一次图址页取前几张：详情页本身没有图址，这是拿到图片地址的最短路径。
+
+        合辑取第 1 章——量平均单张体积不需要跨章节，各章清晰度一致。
+        """
+        try:
+            async with self._site() as site:
+                album = self._albums.get(comic_id)
+                if album is None:
+                    album = await self._load_album(site, comic_id)
+                gallery_id = album.chapter_ids[0][0] if album.chapter_ids else comic_id
+                document = await site.fetch_page(gallery_path(gallery_id))
+        except ChannelError as exc:
+            logger.info(
+                f"[{PLUGIN_NAME}] {self.display_name} {comic_id} 取图址失败，"
+                f"本次按固定单张体积估算：{exc}"
+            )
+            return []
+        return parse_gallery_images(document)[:10]
+
+    async def sample_image_size(self, url: str) -> int:
+        """图床按 Referer 校验来源，缺了会拿到防盗链页。"""
+        return await http_size(
+            url,
+            proxy=self._proxy(),
+            headers={"User-Agent": USER_AGENT, "Referer": "https://www.wnacg.com/"},
         )
 
     # ---- 封面 ----

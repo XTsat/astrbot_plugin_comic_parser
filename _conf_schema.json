@@ -652,6 +652,34 @@
           "max": 200,
           "step": 10
         }
+      },
+      "estimate_image_kb": {
+        "type": "int",
+        "description": "估算单张体积（KB）",
+        "hint": "没拿到真实体积时按「页数 × 这个数」估算整本大小；按各站常见清晰度填，E-Hentai 原图约 5400、JM 约 260。只影响简介与下载开始提示里的「约 xx MB」，不影响实际下载",
+        "default": 320,
+        "slider": {
+          "min": 50,
+          "max": 8000,
+          "step": 10
+        }
+      },
+      "estimate_sample_enabled": {
+        "type": "bool",
+        "description": "抽样实测体积",
+        "hint": "开启后先真下前几张图量出平均单张体积，再乘页数，比固定值准；代价是估算时多下一次图（约一两秒）",
+        "default": false
+      },
+      "estimate_sample_count": {
+        "type": "int",
+        "description": "抽样张数",
+        "hint": "抽样实测时下几张来量平均体积；1 张容易被个别大图带偏，3 张是折中",
+        "default": 3,
+        "slider": {
+          "min": 1,
+          "max": 10,
+          "step": 1
+        }
       }
     }
   },

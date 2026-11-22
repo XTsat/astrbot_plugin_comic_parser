@@ -72,6 +72,7 @@ from .core.channel import (
     ProgressCallback,
 )
 from .core.domain_race import CACHE as DOMAIN_RACE_CACHE
+from .core.estimate import refine_with_samples, size_line
 from .core.image_search import (
     ImageSearchClient,
     ImageSearchError,
@@ -602,6 +603,10 @@ class ComicParserPlugin(Star):
         )
         self._register_panel_apis()
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_tasks)
+        # 体积抽样单独一条通道：它不属于下载队列，也不该跟下载抢并发。
+        # 全局只允许一轮抽样在跑——同一时刻几个人连着发「简介」时，排队量体积
+        # 总比几轮同时打图床（还各自带着下载）更容易招来风控
+        self._sample_lock = asyncio.Lock()
         # 正在跑的任务：排队提示与「前面下到哪」都读它
         self._running: dict[int, _RunningTask] = {}
         self._task_seq = 0
@@ -2480,11 +2485,25 @@ class ComicParserPlugin(Star):
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
+        # 体积：E-Hentai 这类渠道自己有真值就直接报，其余按「页数 × 单张体积」估算并标「约」。
+        # 打开「抽样实测」时先真下前几张量一下，比固定值准；测不成也照样退回估算。
+        # 抽样走自己的一条通道（`_sample_lock`），不进下载队列、也不占下载并发：
+        # 「简介」本来就不排队，抽样更不该因为别人在下载而被顶掉或反过来拖慢下载
+        async with self._sample_lock:
+            await refine_with_samples(
+                meta,
+                self.settings,
+                urls_for=getattr(channel, "sample_image_urls", None),
+                size_of=getattr(channel, "sample_image_size", None),
+            )
         lines = [f"📖 {channel.display_name} · {meta.display_title}"]
         if meta.author:
             lines.append(f"作者：{meta.author}")
         if meta.page_count:
             lines.append(f"页数：{meta.page_count}")
+        size_text = size_line(meta, self.settings)
+        if size_text:
+            lines.append(f"体积：{size_text}")
         if meta.chapter_count > 1:
             lines.append(f"章节：{meta.chapter_count} 章")
         if meta.tags:

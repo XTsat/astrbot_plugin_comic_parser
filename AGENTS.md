@@ -85,6 +85,7 @@ astrbot_plugin_comic_parser/
     ├── registry.py              # 渠道注册表（新增渠道的六处接线见 §2.2）
     ├── search.py                # 搜索编排：单渠道超时、聚合、缓存、翻页与结果渲染
     ├── result_line.py           # 列表条目排版：标题一行、ID 一行，搜索/搜图/榜单共用
+    ├── estimate.py              # 下载前体积估算：真实值优先，否则按页数 × 单张体积（可抽样实测）
     ├── search_query.py          # 搜索条件解析：`tag:x -tag:y` → 结构化条件，各站各自翻译
     ├── ranking.py               # 排行榜：单渠道超时、全渠道聚合、缓存、翻页、序号与文字渲染
     ├── ranking_card.py          # 榜单卡片：把一页榜单画成一张可发送的图（Pillow）
@@ -154,7 +155,7 @@ AstrBot 插件有两种主流架构风格，**新建项目时二选一，并在�
 | 层 | 目录 | 本项目实际内容 |
 |---|---|---|
 | 命令层 | `main.py` | Star 子类、命令注册、准入、进度节流、发送与清理 |
-| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py` / `search_query.py`（搜索编排与条件解析）、`result_line.py`（列表条目统一排版）、`ranking.py` / `ranking_card.py`（榜单聚合与卡片）、`probe.py` / `health.py` / `stats.py` / `janitor.py`（测试、自检、统计、清理四条维护链路）、`cover.py`（封面挑选与打码交付）、`progress.py`（跨渠道进度）、`domain_race.py`（域名测速择优）、`panel.py`（面板业务）、`nsfw/`（检测与打码）、`image_search/`（搜图：图片 → 作品 ID + 可发送的下载指令） |
+| 业务层 | `core/` | `channel.py`（渠道抽象）、`registry.py`（注册表）、`channels/<渠道名>/`（每个渠道一个文件夹）、`packer.py`（统一打包加密）、`task.py`（单任务编排）、`group_file.py`（群文件交付）、`guard.py`（白黑名单 + 防抖）、`search.py` / `search_query.py`（搜索编排与条件解析）、`result_line.py`（列表条目统一排版）、`estimate.py`（下载前体积估算）、`ranking.py` / `ranking_card.py`（榜单聚合与卡片）、`probe.py` / `health.py` / `stats.py` / `janitor.py`（测试、自检、统计、清理四条维护链路）、`cover.py`（封面挑选与打码交付）、`progress.py`（跨渠道进度）、`domain_race.py`（域名测速择优）、`panel.py`（面板业务）、`nsfw/`（检测与打码）、`image_search/`（搜图：图片 → 作品 ID + 可发送的下载指令） |
 | 工具层 | `utils/` | `filename.py`（文件名清洗）、`files.py`（落盘与断点识别）、`font.py`（渲染字体）、`format.py`（体积单位）、`link.py`（链接拆主机名/路径、域名归属）、`pack_format.py`（末尾格式词）、`title.py`（标题小标记） |
 | 定义层 | `domain/` | `constants.py`、`config.py`、`models.py`、`errors.py` |
 
@@ -357,6 +358,7 @@ class MyPlugin(Star):
 | `download.max_concurrent_tasks` / `download.timeout` / `download.retry_times` | int | 调度（`core/task.py`） |
 | `download.segment_timeout` / `download.resume_ttl` | int / int | 分段超时与断点保留时长（`core/task.py`） |
 | `download.chapter_default_range` / `download.chapter_list_limit` | string / int | 分章节：默认范围与目录显示条数（`domain/chapters.py`、`main.py`） |
+| `download.estimate_image_kb` / `download.estimate_sample_enabled` / `download.estimate_sample_count` | int / bool / int | 下载前体积估算：单张体积、是否抽样实测、抽样张数（`core/estimate.py`） |
 | `cover.send` / `cover.caption` / `cover.recall_seconds` | bool / bool / int | 封面发送、独立说明与自动撤回（`core/cover.py`） |
 | `cover.censor.*`（`enable`/`style`/`block`/`padding`/`full_area`/`retry_strong`） | bool / string / int / int / float / bool | 封面打码（`core/nsfw/censor.py`） |
 | `cover.model.*`（`preset`/`auto_download`/`download_url`/`threshold`/`imgsz`） | string / bool / string / float / int | 检测模型档位与权重（`core/nsfw/weights.py`） |

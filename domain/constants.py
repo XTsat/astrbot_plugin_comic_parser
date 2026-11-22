@@ -27,6 +27,26 @@ DEFAULT_RESUME_TTL: Final = 7200
 # 代价是异常退出留下的临时目录要手动清
 DEFAULT_CLEAN_TEMP_ON_START: Final = False
 
+# 下载前的体积估算：只有 E-Hentai 的接口直接给真实体积，其余渠道只能按「页数 × 单张体积」估。
+# 单张体积默认取各站实测中位数（KB）：JM 偏小（长图压缩率高）、E-Hentai 原图最大。
+# 这是「大概多大」的量级参考，不是承诺——要看更准就打开「抽样实测」实际下一两张。
+DEFAULT_ESTIMATE_IMAGE_KB: Final = 320
+# 各渠道的单张体积默认值（KB）；没列到的渠道用 DEFAULT_ESTIMATE_IMAGE_KB。
+# 来源：各渠道可行性分析里的实测样本（JM 约 200–300 KB、nhentai 约 300–600 KB、
+# E-Hentai 原图约 5.4 MB、Hanime1 约 300 KB、紳士漫畫约 1.5 MB、哔咔约 400 KB）
+ESTIMATE_IMAGE_KB_BY_CHANNEL: Final = {
+    "jmcomic": 260,
+    "nhentai": 420,
+    "picacg": 400,
+    "hanime1": 320,
+    "wnacg": 1500,
+    "ehentai": 5400,
+}
+# 抽样实测：打开后真下前几张量平均单张体积，再乘页数。取 3 张是折中——
+# 1 张容易被个别大图带偏，5 张以上又多等一轮；整轮有总时限，超时就退回默认值
+DEFAULT_ESTIMATE_SAMPLE_ENABLED: Final = False
+DEFAULT_ESTIMATE_SAMPLE_COUNT: Final = 3
+
 # 取消下载后等下载线程真正停手的上限（秒）：线程池里的下载不会被 asyncio 取消打断，
 # 不等它退出就报「已保存 N 张」，用户紧接着 /comic retry 就会和后台线程抢同一个目录
 DRAIN_TIMEOUT: Final = 30.0

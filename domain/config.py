@@ -14,6 +14,9 @@ from .constants import (
     COVER_CENSOR_STYLES,
     DEFAULT_CHAPTER_LIST_LIMIT,
     DEFAULT_CHAPTER_RANGE,
+    DEFAULT_ESTIMATE_IMAGE_KB,
+    DEFAULT_ESTIMATE_SAMPLE_COUNT,
+    DEFAULT_ESTIMATE_SAMPLE_ENABLED,
     DEFAULT_CLEAN_TEMP_ON_START,
     DEFAULT_COVER_CAPTION,
     DEFAULT_COVER_CENSOR,
@@ -175,6 +178,10 @@ class PluginSettings:
     # 章节：不写范围时默认下哪几章（空 = 整本），以及列章节目录时最多显示多少条
     chapter_default_range: str = DEFAULT_CHAPTER_RANGE
     chapter_list_limit: int = DEFAULT_CHAPTER_LIST_LIMIT
+    # 下载前体积估算：没拿到真实体积时按「页数 × 单张体积」估；抽样开启时真下几张再算
+    estimate_image_kb: int = DEFAULT_ESTIMATE_IMAGE_KB
+    estimate_sample_enabled: bool = DEFAULT_ESTIMATE_SAMPLE_ENABLED
+    estimate_sample_count: int = DEFAULT_ESTIMATE_SAMPLE_COUNT
     # 下载前测速（探测）：独立成一组，四项都可调
     probe_enabled: bool = DEFAULT_PROBE_ENABLED
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
@@ -406,6 +413,27 @@ class PluginSettings:
                 download.get("chapter_list_limit"),
                 DEFAULT_CHAPTER_LIST_LIMIT,
                 minimum=0,
+            ),
+            # 单张体积给下限 10 KB、上限 20 MB：配成 0 会让估算恒为 0，配成天文数字会算出荒唐值
+            estimate_image_kb=min(
+                _as_int(
+                    download.get("estimate_image_kb"),
+                    DEFAULT_ESTIMATE_IMAGE_KB,
+                    minimum=10,
+                ),
+                20 * 1024,
+            ),
+            estimate_sample_enabled=_as_bool(
+                download.get("estimate_sample_enabled"),
+                DEFAULT_ESTIMATE_SAMPLE_ENABLED,
+            ),
+            estimate_sample_count=min(
+                _as_int(
+                    download.get("estimate_sample_count"),
+                    DEFAULT_ESTIMATE_SAMPLE_COUNT,
+                    minimum=1,
+                ),
+                10,
             ),
             # 「下载前测速」搬进 probe 分组；老配置的 download.domain_race 继续认，
             # 否则升级后用户原本关掉的测速会悄悄变回开启

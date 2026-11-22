@@ -978,6 +978,9 @@ class EHentaiChannel(BaseChannel):
             author=meta.author,
             page_count=meta.filecount,
             chapter_count=1,
+            # E-Hentai 的 gdata 直接给整本体积，是六个渠道里唯一有真值的：
+            # 填进来后简介显示精确大小，不再走「页数 × 单张」的估算
+            size_bytes=meta.filesize,
             tags=meta.tags,
         )
 

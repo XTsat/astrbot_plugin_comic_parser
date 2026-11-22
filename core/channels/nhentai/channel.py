@@ -38,6 +38,7 @@ from ...channel import BaseChannel, CancelToken, ProgressCallback, split_option_
 from ...progress import ProgressHeartbeat
 from ...search_query import fallback_note, plain_search_text
 from ...channel import SELFCHECK_SAMPLE_BYTES
+from ...estimate import http_size
 from ...domain_race import ProbeFn, http_probe, probe_url
 from .api import NhentaiApi
 from .constants import (
@@ -147,6 +148,48 @@ class NhentaiChannel(BaseChannel):
         parsed = await self._load_gallery(comic_id)
         self._parsed[comic_id] = parsed
         return self._build_meta(comic_id, parsed)
+
+    # ---- 抽样估体积 ----
+    async def sample_image_urls(self, comic_id: str) -> list[str]:
+        """取前几张图的地址：`fetch_meta` 刚解析过整本，图址直接就能拼，不用再请求。
+
+        只在缓存还在时给出地址——缓存不在说明这次没走「简介」那条路，重新解析整本
+        只为估个体积不值得，返回空列表让上层退回固定值。
+        """
+        parsed = self._parsed.get(comic_id)
+        if parsed is None or not parsed.page_paths:
+            return []
+        image_base = await self._sample_image_base()
+        return build_image_urls(image_base, parsed.page_paths[:10])
+
+    async def _sample_image_base(self) -> str:
+        """抽样专用的图床地址：直接用第一个候选，不跑测速。
+
+        `_image_base` 会为「挑最快图床」并发读每个候选 128 KB 样本（nhentai 有 4 个镜像，
+        一轮就是半兆）。整本下载值得为挑图床付这笔钱，但抽样只为量个平均体积——
+        随便哪个镜像拿到的都是同一张图，为它跑一轮测速纯属浪费流量，还会和正在进行的
+        下载抢连接。所以这里只取清单第一个，测速留给真正的下载。
+        """
+        configured = split_option_list(self.options.get("image_domains"))
+        if configured:
+            return configured[0].rstrip("/")
+        try:
+            servers = await self._api(await self._site_domains()).image_servers()
+        except ChannelError as exc:
+            logger.info(
+                f"[{PLUGIN_NAME}] 抽样取图床清单失败，退回默认图床：{exc}"
+            )
+            return default_image_base()
+        servers = [item.rstrip("/") for item in servers if item]
+        return servers[0] if servers else default_image_base()
+
+    async def sample_image_size(self, url: str) -> int:
+        """图床校验 Referer 与 UA：缺了部分节点直接 403，所以这里带头再问。"""
+        return await http_size(
+            url,
+            proxy=self._proxy(),
+            headers={"User-Agent": USER_AGENT, "Referer": "https://nhentai.net/"},
+        )
 
     # ---- 下载 ----
     async def download(

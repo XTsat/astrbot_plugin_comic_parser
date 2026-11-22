@@ -34,6 +34,7 @@ from ....domain import (
 from ....domain.models import ChannelSelfcheck
 from ....domain.constants import PLUGIN_NAME
 from ....utils import host_matches, split_link
+from ...estimate import http_size
 from ...channel import (
     BaseChannel,
     CancelToken,
@@ -171,6 +172,44 @@ class Hanime1Channel(BaseChannel):
         parsed = await self._load_detail(comic_id)
         self._parsed[comic_id] = parsed
         return self._build_meta(comic_id, parsed)
+
+    # ---- 抽样估体积 ----
+    async def sample_image_urls(self, comic_id: str) -> list[str]:
+        """取前几张图的地址：详情页解析结果还在缓存里时直接拼，不再多抓一次页面。
+
+        阅读页才会给齐每页扩展名，而抓阅读页只为估个体积不划算；这里用详情页已有的
+        扩展名（拿不到就按 `.jpg`）拼前几张，够量平均体积了。
+        """
+        parsed = self._parsed.get(comic_id)
+        if parsed is None:
+            return []
+        suffixes = parsed.extensions or [".jpg"] * max(1, parsed.page_count)
+        if not parsed.media_id or not suffixes:
+            return []
+        image_base = await self._sample_image_base(parsed)
+        return build_image_urls(image_base, parsed.media_id, suffixes[:10])
+
+    async def _sample_image_base(self, parsed: ParsedComic) -> str:
+        """抽样专用的图床地址：用页面自己给的基地址（没有就用第一个内置镜像），不跑测速。
+
+        `_resolve_image_base` 会为「挑最快图床」并发读每个候选的样本，整本下载值得，
+        但抽样只为量平均体积——同一张图在哪个镜像上大小都一样，为它跑一轮测速纯属
+        浪费流量，还会和正在跑的下载抢连接。
+        """
+        if parsed.image_base:
+            return parsed.image_base
+        configured = self.opt_list("image_domains")
+        if configured:
+            return configured[0]
+        return f"https://{IMAGE_HOST_FALLBACKS[0]}/galleries/{parsed.media_id}/"
+
+    async def sample_image_size(self, url: str) -> int:
+        """图床校验 Referer：缺了会拿到 403 的错误页而不是图片。"""
+        return await http_size(
+            url,
+            proxy=self._proxy(),
+            headers={"User-Agent": DEFAULT_USER_AGENT, "Referer": "https://hanime1.me/"},
+        )
 
     # ---- 下载 ----
     async def download(
