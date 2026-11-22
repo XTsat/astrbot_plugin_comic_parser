@@ -36,6 +36,7 @@ def render_item(
     author: str = "",
     comic_id: str = "",
     page_count: int = 0,
+    size_text: str = "",
     extras: Sequence[str] = (),
     mark: str = "",
 ) -> list[str]:
@@ -52,6 +53,8 @@ def render_item(
         author: 作者；空串表示上游没给，不占位。
         comic_id: 作品 ID；空串表示没有可展示的 ID，只出标题行。
         page_count: 作品页数；0 表示上游没给，不占位。
+        size_text: 已格式化好的体积（如 ``约 25.4 MB``）；空串表示不占位。
+            它由调用方算好传进来，因为「真实值还是估算值」只有渠道自己知道。
         extras: ID 行后面还要跟的信息（语言、相似度），按顺序排。
         mark: 标题行尾的小标记（如 AI 生成）。
 
@@ -67,5 +70,7 @@ def render_item(
     detail = [f"{ID_LABEL}{comic_id}"]
     if page_count > 0:
         detail.append(f"{page_count}P")
+    if size_text:
+        detail.append(size_text)
     detail.extend(part for part in extras if part)
     return [head, f"{INDENT}{SEPARATOR.join(detail)}"]

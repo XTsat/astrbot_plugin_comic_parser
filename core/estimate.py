@@ -77,6 +77,26 @@ def size_line(meta: ComicMeta, settings: PluginSettings) -> str:
     return f"约 {format_size(size)}" if estimated else format_size(size)
 
 
+def size_text_for(
+    channel: str, page_count: int, settings: PluginSettings
+) -> str:
+    """列表里用的体积文本：按渠道的单张基准乘页数，带「约」。
+
+    搜索结果与搜图结果都只有页数、没有真实体积（唯一有真值的 E-Hentai 也只在自己的
+    详情接口里给），所以列表里的体积一律是估算——统一带「约」，不假装精确。
+    页数未知时返回空串，调用方据此整段省略，不写「大小未知」占位。
+
+    Args:
+        channel: 渠道名，决定单张体积基准。
+        page_count: 作品页数；<= 0 表示上游没给。
+        settings: 全局配置（用户可覆盖单张体积）。
+    """
+    if page_count <= 0:
+        return ""
+    size = page_count * per_image_kb(channel, settings) * 1024
+    return f"约 {format_size(size)}"
+
+
 async def refine_with_samples(
     meta: ComicMeta,
     settings: PluginSettings,

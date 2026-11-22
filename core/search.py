@@ -42,6 +42,7 @@ from ..domain.constants import (
 from ..utils import truncate_keep_tail
 from ..utils.title import AI_MARK_BADGE, has_ai_mark
 from .channel import BaseChannel, search_proxy_override
+from .estimate import size_text_for
 from .result_line import render_item, starts_item
 from .search_query import parse_search_query
 
@@ -889,13 +890,17 @@ class SearchService:
             name = channel.display_name if channel else item.channel
             tag = f"[{name}] "
         mark = f" · {AI_MARK_BADGE}" if has_ai_mark(raw_title) else ""
+        page_count = int(getattr(item, "page_count", 0) or 0)
         return render_item(
             index,
             title,
             tag=tag,
             author=author,
             comic_id=str(getattr(item, "comic_id", "")),
-            page_count=int(getattr(item, "page_count", 0) or 0),
+            page_count=page_count,
+            # 体积跟在页数后面：两者是同一个判断（「这本多大」）的两个刻度。
+            # 搜索接口只给页数，所以这里一律是估算，统一带「约」
+            size_text=size_text_for(item.channel, page_count, self.settings),
             mark=mark,
         )
 

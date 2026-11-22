@@ -1841,6 +1841,7 @@ class ComicParserPlugin(Star):
             elapsed=elapsed,
             strict=strict,
             command_for=self._download_command_for,
+            settings=self.settings,
             dropped=max(0, found - len(selected)),
             title_limit=self.settings.image_search_title_limit,
         )

@@ -2858,6 +2858,57 @@ def test_result_rendering() -> None:
     )
 
 
+def test_list_size_text() -> None:
+    """列表里的体积：搜索与搜图都要有，且必须与页数一起出现在 ID 行。
+
+    体积是「这本多大」的直接答案，藏在「简介」里等于没有——用户是在列表上做
+    「下不下」的决定。三条不能错：① 有页数就必须有体积；② 估算值一律带「约」，
+    不假装精确；③ 页数未知时整段省略，不写「大小未知」占位。
+    """
+    from astrbot_plugin_comic_parser.core.estimate import (  # noqa: PLC0415
+        size_text_for,
+    )
+    from astrbot_plugin_comic_parser.core.result_line import render_item  # noqa: PLC0415
+
+    settings = PluginSettings.from_config({})
+
+    # ① 有页数就有体积，且带「约」
+    text = size_text_for("jmcomic", 194, settings)
+    check("列表体积：有页数就有体积", bool(text), text)
+    check("列表体积：估算值带「约」", text.startswith("约 "), text)
+    check(
+        "列表体积：页数未知时整段省略",
+        size_text_for("jmcomic", 0, settings) == "",
+        "",
+    )
+
+    # ② 版式：页数与体积都在 ID 行，顺序是 ID → 页数 → 体积 → 其它
+    lines = render_item(
+        1,
+        "标题",
+        comic_id="123456",
+        page_count=194,
+        size_text="约 49.3 MB",
+        extras=("简体中文",),
+    )
+    check("列表体积：仍是两行", len(lines) == 2, str(lines))
+    detail = lines[1]
+    check(
+        "列表体积：ID 行依次是 ID、页数、体积、其它",
+        detail.index("ID：") < detail.index("194P") < detail.index("约 49.3 MB")
+        < detail.index("简体中文"),
+        detail,
+    )
+
+    # ③ 没传体积时不占位（榜单这类没有体积数据的列表不受影响）
+    plain = render_item(1, "标题", comic_id="9", page_count=14)
+    check(
+        "列表体积：没传体积时不占位",
+        plain[1] == "　ID：9 · 14P",
+        plain[1],
+    )
+
+
 def test_sample_isolation() -> None:
     """体积抽样必须与下载队列隔离：不排队、不占下载并发、不进任务登记表。
 
@@ -3046,6 +3097,7 @@ def test_image_search_rendering() -> None:
             elapsed=1.0,
             strict=False,
             command_for=lambda hit: f"/nh {hit.comic_id}",
+            settings=PluginSettings.from_config({}),
             **kwargs,
         )
 
@@ -3656,6 +3708,7 @@ def main() -> int:
     test_image_search_rendering()
     test_size_estimate()
     test_sample_isolation()
+    test_list_size_text()
     test_filename_edge_cases()
     test_pack_formats_produce_valid_output()
     test_cover_picking()

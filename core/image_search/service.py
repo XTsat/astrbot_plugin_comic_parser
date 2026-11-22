@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...domain import PluginSettings
+from ..estimate import size_text_for
 from ..result_line import INDENT, render_item
 from .constants import (
     CHINESE_LANGS,
@@ -238,6 +239,7 @@ def render_report(
     elapsed: float,
     strict: bool,
     command_for: Callable[[ImageSearchHit], str],
+    settings: PluginSettings,
     dropped: int = 0,
     title_limit: int = TITLE_LIMIT,
 ) -> str:
@@ -248,6 +250,7 @@ def render_report(
         elapsed: 上游耗时（秒），0 表示没拿到。
         strict: 是否严格模式（只影响抬头文案）。
         command_for: 把命中翻译成下载指令的回调；返回空串表示本插件无对应渠道。
+        settings: 全局配置；列表里的体积按它的单张体积基准估算。
         dropped: 因阈值/条数被截掉的条数，用于提示用户「还有更多」。
         title_limit: 标题展示的字数上限（配置项），0 表示不截断。
     """
@@ -281,6 +284,8 @@ def render_report(
                 badge=f"{flag} ",
                 comic_id=hit.comic_id,
                 page_count=hit.page_count,
+                # 搜图上游只给页数、不给体积，所以这里一律按该来源的单张基准估算
+                size_text=size_text_for(hit.channel, hit.page_count, settings),
                 extras=(
                     hit.language_label if show_language else "",
                     f"相似度 {hit.score:.0f}%",
