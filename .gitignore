@@ -24,6 +24,9 @@ models/*.part
 # DSH 视觉工具的临时产物目录（截图/裁剪/热力图），纯本地产物
 .dsh-vision-router/
 
+# DSH 会话收件目录（聊天里收到的图片等），纯本地产物
+.dsh-inbox/
+
 # 无人值守运行的过程稿：本地留存、不入库
 .runs/
 RUN_LOG.md

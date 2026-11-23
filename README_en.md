@@ -271,7 +271,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 |--------|------|---------|-------------|
 | Send cover after download (`send`) | bool | false | Send one cover image before the packed file after every successful download |
 | Send cover caption separately (`caption`) | bool | false | Send one extra message after the cover image with this run's detection results only (explicitness and share covered, plus the threshold when nothing was detected; whole-cover censoring / re-censored after the platform rejected it); title, author and pages are already in the download summary. Independent of "Send download summary" |
-| Recall the cover after (`recall_seconds`) | int | 0 | Seconds to wait before each cover image is recalled automatically; 0 keeps it. Only the image is recalled — the caption and the packed file stay. Uses the protocol's `delete_msg`, so it needs a OneBot (aiocqhttp) endpoint; deployments that return no message ID simply do not recall, and say so in the log |
+| Recall the cover after (`recall_seconds`) | int | 0 | Seconds to wait before each cover image is recalled automatically; 0 keeps it. Only the image is recalled — the caption and the packed file stay. Uses the protocol's `delete_msg`, so it needs a OneBot (aiocqhttp) endpoint. When the endpoint returns no message ID, the plugin finds the message again in the conversation history by matching the image itself; if it cannot tell which image was the cover, it skips the recall rather than deleting one of the bot's other messages |
 
 **Censoring**
 

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shutil
 import json
 import time
@@ -355,6 +356,10 @@ async def set_progress_reaction(event: AstrMessageEvent, status: str) -> bool:
 _RECALL_TIMEOUT = 10.0
 # 认「刚发出的那条消息」时往回看几条：末尾几条够用，又不会翻出一堆历史
 _RECALL_HISTORY_COUNT = 5
+# 刚发出的消息不会立刻进历史（实测：发送后第一次查 count=5 拿不到刚发的那条，
+# 约 1.5 秒后才出现）。没认到就按这些间隔（秒）重问，首轮立刻问。
+# 少了重试，第一次查询只会看到更早的消息，于是「撤掉旧消息、封面留着」。
+_RECALL_LOOKUP_WAITS = (0.0, 1.5, 3.0)
 
 
 def _as_message_id(value: object) -> str:
@@ -409,14 +414,77 @@ def extract_message_id(resp: object) -> str:
     return ""
 
 
+def _message_images(item: dict[str, Any]) -> list[str]:
+    """取一条历史消息里的图片标识：文件名（协议端给的是内容 md5）与 URL 都收进来。
+
+    只为了「确认这条是不是我刚发的那张图」——图片段不一定带文件名，所以两种都留着，
+    调用方拿本地文件的 md5 去比对任意一个命中即可。
+    """
+    marks: list[str] = []
+    segments = item.get("message")
+    if isinstance(segments, list):
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            if str(segment.get("type") or "") != "image":
+                continue
+            data = segment.get("data")
+            if not isinstance(data, dict):
+                continue
+            for key in ("file", "path", "url"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    marks.append(value.strip())
+    return marks
+
+
+def _message_matches_image(item: dict[str, Any], fingerprint: str) -> bool:
+    """这条历史消息是不是我刚发出去的那张图：按内容 md5 认。
+
+    ``fingerprint`` 是本地封面文件的 md5。QQ 的图片段 ``file`` 字段就是服务端算好的
+    内容 md5（``e27c5e66...jpg``），所以比字符串前缀即可，不必再下载比对。拿不到
+    指纹（读文件失败）时返回 False——认不准就不撤回，总好过撤掉别人的消息。
+    """
+    if not fingerprint:
+        return False
+    for mark in _message_images(item):
+        if fingerprint in mark.lower():
+            return True
+    return False
+
+
+def image_fingerprint(path: Path) -> str:
+    """算出本地图片的 md5：协议端给图片算的 ``file`` 名就是这个值。"""
+    try:
+        digest = hashlib.md5()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest().lower()
+    except OSError as exc:
+        logger.debug(f"[{PLUGIN_NAME}] 定时撤回：算不出封面指纹，跳过: {exc}")
+        return ""
+
+
 async def find_latest_self_message(
-    call_action: Callable[..., Awaitable[Any]], *, group_id: str, user_id: str
+    call_action: Callable[..., Awaitable[Any]],
+    *,
+    group_id: str,
+    user_id: str,
+    fingerprint: str = "",
 ) -> str:
     """从会话历史里认出「刚发的那一条」，返回它的消息 id。
 
     ``event.send`` 不一定会把消息 id 交回来，而撤回只认 id，所以退一步问协议端要最近几条
     消息。只认发送者是机器人自己的那几条：宁可这一张不撤回，也绝不能把用户刚发的消息删掉。
+
+    给了 ``fingerprint``（本地封面文件的 md5）时还要再对一遍图片内容：机器人自己发的东西
+    不止封面（视频、合并转发、群文件、日报图…），只按发送者取「最后一条自己的消息」会把
+    它们当成封面撤掉——这正是「封面没撤回、别的消息却消失了」的成因。没给指纹就不猜：
+    认不准是哪一张时返回空，让调用方跳过这次撤回。
     """
+    if not fingerprint:
+        return ""
     try:
         login = await asyncio.wait_for(
             call_action("get_login_info"), timeout=_RECALL_TIMEOUT
@@ -457,8 +525,12 @@ async def find_latest_self_message(
         if not sender_id:
             # 有的协议端不带 sender，只把发送者放在消息顶层的 user_id
             sender_id = _as_message_id(item.get("user_id"))
-        if sender_id and sender_id == self_id:
-            return _as_message_id(item.get("message_id"))
+        if not sender_id or sender_id != self_id:
+            continue
+        # 必须图片内容对得上：对不上说明这条自己的消息是视频/合并转发之类，不是那张封面
+        if not _message_matches_image(item, fingerprint):
+            continue
+        return _as_message_id(item.get("message_id"))
     return ""
 
 
@@ -475,10 +547,14 @@ class AutoRecall:
         target = _as_message_id(message_id)
         if delay <= 0 or not target:
             return False
-        task = asyncio.create_task(self._recall_later(call_action, target, int(delay)))
+        self.spawn(self._recall_later(call_action, target, int(delay)))
+        return True
+
+    def spawn(self, coro: Awaitable[None]) -> None:
+        """把一个「到点撤回」的协程挂进来；插件重载时随其余任务一起取消。"""
+        task = asyncio.create_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
-        return True
 
     async def _recall_later(
         self,
@@ -2568,7 +2644,8 @@ class ComicParserPlugin(Star):
             yield event.plain_result("❌ 取不到封面：渠道返回的图片打不开")
             return
         sent_id = await self._send_cover(event, result)
-        if sent_id is not None:
+        # 空串表示「发出去了但拿不到 id」：撤回已在后台定位（见 _send_cover），别在这里重发
+        if sent_id:
             self._recall_cover_later(event, sent_id)
         # 只有开了打码才敢自动加糊：用户主动关掉打码时，不能再擅自把图糊掉
         if (
@@ -2583,7 +2660,7 @@ class ComicParserPlugin(Star):
                 strong = None
             if strong is not None:
                 sent_id = await self._send_cover(event, strong)
-                if sent_id is not None:
+                if sent_id:
                     self._recall_cover_later(event, sent_id)
         if use_reaction:
             await self._react(event, "done" if sent_id is not None else "fail")
@@ -2621,7 +2698,9 @@ class ComicParserPlugin(Star):
 
         message_id = await self._send_cover(event, result)
         if message_id is not None:
-            self._recall_cover_later(event, message_id)
+            if message_id:
+                self._recall_cover_later(event, message_id)
+            # 空串 = 发出去了但 id 在后台定位中（见 _send_cover），说明照发
             await self._send_cover_caption(event, outcome, result)
             return
 
@@ -2641,7 +2720,8 @@ class ComicParserPlugin(Star):
         if retry_id is None:
             logger.warning(f"[{PLUGIN_NAME}] 封面整张打码后仍未被平台接受，本次跳过")
             return
-        self._recall_cover_later(event, retry_id)
+        if retry_id:
+            self._recall_cover_later(event, retry_id)
         await self._send_cover_caption(event, outcome, strong)
 
     async def _send_cover(
@@ -2666,11 +2746,28 @@ class ComicParserPlugin(Star):
         message_id = extract_message_id(resp)
         # 撤回是唯一需要消息 id 的地方：关着就别为一个用不上的 id 多问协议端一次
         if not message_id and self.settings.cover_recall_seconds > 0:
-            message_id = await self._lookup_cover_message_id(event)
+            # 定位要在后台慢慢来（协议端回推有延迟、要重试几次），不能把后面的
+            # 封面说明与文件投递堵在这里；认到之后自己排撤回。
+            self.auto_recall.spawn(self._recall_cover_by_lookup(event, result.path))
+            return ""
         return message_id
 
-    async def _lookup_cover_message_id(self, event: AstrMessageEvent) -> str:
-        """退路：``event.send`` 没把消息 id 交回来时，问协议端要最近几条消息认出这一条。"""
+    async def _recall_cover_by_lookup(
+        self, event: AstrMessageEvent, cover_path: Path
+    ) -> None:
+        """后台定位这张封面的消息 id，认到就排撤回；认不到就放过这次。"""
+        message_id = await self._lookup_cover_message_id(event, cover_path)
+        self._recall_cover_later(event, message_id)
+
+    async def _lookup_cover_message_id(
+        self, event: AstrMessageEvent, cover_path: Path | None = None
+    ) -> str:
+        """退路：``event.send`` 没把消息 id 交回来时，问协议端要最近几条消息认出这一条。
+
+        认出「这一条」必须靠图片内容：机器人同一时间还会发视频、合并转发、群文件、
+        日报图，只按「最后一条自己的消息」认会把它们当成封面撤掉。``cover_path``
+        是刚发出去的那张图，用它算 md5 去对历史里的图片段。
+        """
         call_action = _event_call_action(event)
         if call_action is None:
             return ""
@@ -2679,9 +2776,32 @@ class ComicParserPlugin(Star):
         except Exception as exc:  # 协议端没有 sender 时认不出来，就当这次撤回放弃
             logger.debug(f"[{PLUGIN_NAME}] 取发送者失败，跳过撤回消息定位: {exc}")
             return ""
-        return await find_latest_self_message(
-            call_action, group_id=_event_group_id(event), user_id=sender_id
+        fingerprint = image_fingerprint(cover_path) if cover_path is not None else ""
+        if not fingerprint:
+            # 认不准是哪一张就不撤回：宁可这张留着，也不能删掉自己的别的消息
+            logger.debug(f"[{PLUGIN_NAME}] 定时撤回：没有封面指纹，放弃定位")
+            return ""
+        group_id = _event_group_id(event)
+        # 刚发出的消息不一定马上进历史（协议端回推有延迟）：没认到就再问一两次。
+        # 只认图片内容对得上的那条，所以多问几次也不会把视频/合并转发当封面撤掉。
+        for attempt, wait in enumerate(_RECALL_LOOKUP_WAITS):
+            if wait:
+                await asyncio.sleep(wait)
+            found = await find_latest_self_message(
+                call_action,
+                group_id=group_id,
+                user_id=sender_id,
+                fingerprint=fingerprint,
+            )
+            if found:
+                return found
+            logger.debug(
+                f"[{PLUGIN_NAME}] 定时撤回：第 {attempt + 1} 次没认到这张封面，稍后再试"
+            )
+        logger.debug(
+            f"[{PLUGIN_NAME}] 定时撤回：{len(_RECALL_LOOKUP_WAITS)} 次都没在历史里认到这张封面"
         )
+        return ""
 
     def _recall_cover_later(self, event: AstrMessageEvent, message_id: str) -> None:
         """给刚发出的封面排一次撤回；没开、没 id、协议端不支持时安静跳过。"""

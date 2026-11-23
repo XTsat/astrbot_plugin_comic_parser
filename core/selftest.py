@@ -3248,6 +3248,106 @@ def test_pack_formats_produce_valid_output() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_cover_recall_identity() -> None:
+    """封面撤回只认「图片内容对得上的那条」，不能取「最后一条自己的消息」。
+
+    真实事故：封面发出后拿不到消息 id，退路去问历史。刚发出的消息要过一会儿才进历史，
+    第一次查到的其实是更早的几条，于是挑中机器人先前发的视频——视频被撤掉，封面留着。
+    用户看到的就是「该撤回的没撤回」。这里守住两件事：历史里混着自己的视频/合并转发
+    时仍然只认封面，以及认不准时宁可放弃也不能撤别的。
+    """
+    import asyncio
+    import importlib
+
+    module = importlib.import_module(f"{PACKAGE}.main")
+    me = "10000"
+    cover_md5 = "e27c5e6604065324b56144a0c7f6b163"
+
+    def msg(mid: str, sender: str, kind: str, file: str = "") -> dict:
+        if kind == "image":
+            segs = [{"type": "image", "data": {"file": file}}]
+        elif kind == "video":
+            segs = [{"type": "video", "data": {"file": "x.mp4"}}]
+        else:
+            segs = [{"type": "text", "data": {"text": "t"}}]
+        return {
+            "message_id": mid,
+            "sender": {"user_id": sender},
+            "message": segs,
+        }
+
+    class FakeAction:
+        def __init__(self, messages: list[dict]) -> None:
+            self.messages = messages
+
+        async def __call__(self, action: str, **params: object) -> object:
+            if action == "get_login_info":
+                return {"data": {"user_id": me}}
+            if action in ("get_group_msg_history", "get_friend_msg_history"):
+                return {"data": {"messages": list(self.messages)}}
+            raise AssertionError(action)
+
+    # 自己的视频排在封面之后（历史上更新的那条）：只按发送者取会撤掉视频
+    messages = [
+        msg("318861552", me, "image", f"{cover_md5}.jpg"),
+        msg("-1635800936", me, "video"),
+        msg("-999", "20000", "text"),
+    ]
+    got = asyncio.run(
+        module.find_latest_self_message(
+            FakeAction(messages),
+            group_id="100001",
+            user_id="20000",
+            fingerprint=cover_md5,
+        )
+    )
+    check("撤回：自己的视频排在后面也只认封面", got == "318861552", repr(got))
+
+    # 没有指纹（认不准是哪一张）：返回空，绝不猜
+    got = asyncio.run(
+        module.find_latest_self_message(
+            FakeAction(messages), group_id="100001", user_id="20000", fingerprint=""
+        )
+    )
+    check("撤回：没有指纹时放弃而不是猜", got == "", repr(got))
+
+    # 历史里根本没有这张封面：放弃，不能拿别的消息顶上
+    only_other = [msg("-1635800936", me, "video")]
+    got = asyncio.run(
+        module.find_latest_self_message(
+            FakeAction(only_other),
+            group_id="100001",
+            user_id="20000",
+            fingerprint=cover_md5,
+        )
+    )
+    check("撤回：历史里没有这张封面时放弃", got == "", repr(got))
+
+    # 别人发的同一张图不算：撤回只认机器人自己发的
+    others = [msg("555", "30000", "image", f"{cover_md5}.jpg")]
+    got = asyncio.run(
+        module.find_latest_self_message(
+            FakeAction(others),
+            group_id="100001",
+            user_id="20000",
+            fingerprint=cover_md5,
+        )
+    )
+    check("撤回：别人发的同一张图不认", got == "", repr(got))
+
+    # 负 id 是合法的（协议端给自己发的消息用负数），不能被过滤掉
+    negative = [msg("-1635800936", me, "image", f"{cover_md5}.jpg")]
+    got = asyncio.run(
+        module.find_latest_self_message(
+            FakeAction(negative),
+            group_id="100001",
+            user_id="20000",
+            fingerprint=cover_md5,
+        )
+    )
+    check("撤回：负数消息 id 照样认", got == "-1635800936", repr(got))
+
+
 def test_cover_picking() -> None:
     """封面挑选：优先够大的图、都是小图时退回第一张、空目录返回 None。
 
@@ -3712,6 +3812,7 @@ def main() -> int:
     test_filename_edge_cases()
     test_pack_formats_produce_valid_output()
     test_cover_picking()
+    test_cover_recall_identity()
     test_stats_counting_and_persistence()
     test_domain_exports_complete()
     test_config_type_matches_parser()
