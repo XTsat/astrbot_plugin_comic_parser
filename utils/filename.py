@@ -112,3 +112,25 @@ def build_package_name(
     head = _fit_bytes(head, budget)
     tail = _fit_bytes(tail, budget - len(head.encode("utf-8")))
     return (head + password_text + tail).strip(" ._") or "comic"
+
+
+def build_fallback_name(
+    comic_id: str,
+    short_id: str = "",
+    password: str = "",
+    template: str = DEFAULT_FILENAME_TEMPLATE,
+    custom_template: str = "",
+) -> str:
+    """上传被平台按文件名拦截时改用的中性基名：只留 `[ID]`，密码段按模板保留，去掉标题。
+
+    QQ 群文件会对文件名做内容审查，标题里带敏感词会让整次上传被拒（-134）。这里给出
+    一个不含标题、只带 ID（模板用到密码段时再加 `(密码)`）的名字用于重试；模板本身是
+    「仅标题」这类没有 ID 占位符的，同样退成只含 ID 的中性名。
+    """
+    pattern = resolve_template(template, custom_template)
+    ident = (short_id or comic_id).strip()
+    if not ident:
+        return ""
+    suffix = f"({_clean(password)})" if password and "{password}" in pattern else ""
+    # 上限放小：ID 本身够短，中性名不需要沿用标题那套长名字的空间
+    return sanitize_filename(f"[{ident}]{suffix}", limit=60)

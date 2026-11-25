@@ -3187,6 +3187,45 @@ def test_filename_edge_cases() -> None:
     )
     check("文件名：没设密码时密码段整体去掉", "()" not in plain_name, plain_name)
 
+    # 平台按文件名拦截时的中性名：去掉标题、只留 ID，密码段按模板保留
+    neutral = fn.build_fallback_name(
+        comic_id="1190297",
+        short_id="1190297",
+        password="jm",
+        template="custom",
+        custom_template="[{id_short}]{title}({password})  ",
+    )
+    check("文件名：中性名去掉标题保留ID与密码", neutral == "[1190297](jm)", neutral)
+    neutral_nopw = fn.build_fallback_name(
+        comic_id="1190297",
+        short_id="1190297",
+        password="jm",
+        template="id_short_title",
+    )
+    check("文件名：模板不含密码段时不写密码", neutral_nopw == "[1190297]", neutral_nopw)
+    neutral_title_only = fn.build_fallback_name(
+        comic_id="1190297",
+        short_id="1190297",
+        password="jm",
+        template="title_only",
+    )
+    check("文件名：仅标题模板退成仅ID", neutral_title_only == "[1190297]", neutral_title_only)
+
+    # 协议端错误码要翻成具体原因：群里失败时要能说清楚为什么没传上去
+    from astrbot_plugin_comic_parser.core import group_file as gf  # noqa: PLC0415
+
+    check(
+        "群文件：-134 说明多与文件名敏感词有关",
+        "敏感词" in gf._reason_for_code(-134, "code=-134 msg=文件上传失败（-134）"),
+        "",
+    )
+    check("群文件：-139 说明被禁言", "禁言" in gf._reason_for_code(-139, ""), "")
+    check(
+        "群文件：-303 说明文件名含非法字符",
+        "字符" in gf._reason_for_code(-303, ""),
+        "",
+    )
+
 
 def test_pack_formats_produce_valid_output() -> None:
     """三种打包格式都要产出**能打开**的文件，而不只是「返回成功」。

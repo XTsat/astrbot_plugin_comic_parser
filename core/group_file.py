@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,10 @@ class GroupFileResult:
     folder: str = ""
     created: bool = False
     error: str = ""
+    # 协议端返回的原始错误码（如 QQ 的 -134 / -139 / -303）；拿不到时为 None
+    code: int | None = None
+    # 是否是用中性文件名（只留 ID）重试才成功的
+    used_fallback: bool = False
 
     @property
     def location(self) -> str:
@@ -67,10 +72,13 @@ class GroupFileUploader:
         path: Path,
         folder_name: str = "",
         create_folder: bool = True,
+        name: str = "",
     ) -> GroupFileResult:
         """把 `path` 传到群 `group_id` 的群文件里。
 
-        只有「文件已不存在」和「上传本身失败」算失败；文件夹相关的任何问题都降级为传根目录。
+        `name` 是给协议端的显示文件名（留空用 `path.name`）；平台按文件名拦截时由调用方
+        传一个中性名重试，本机路径不用改。只有「文件已不存在」和「上传本身失败」算失败；
+        文件夹相关的任何问题都降级为传根目录。
         """
         if not path.is_file():
             return GroupFileResult(False, error="要上传的文件已经不在了，重发一次命令即可")
@@ -93,7 +101,7 @@ class GroupFileUploader:
                     self._folders[cache_key] = folder_id
 
         result = await self._upload_once(
-            call_action, group_id, path, folder_id, folder_label, created
+            call_action, group_id, path, folder_id, folder_label, created, name
         )
         if result.ok or not from_cache:
             return result
@@ -107,7 +115,7 @@ class GroupFileUploader:
         if folder_id:
             self._folders[cache_key] = folder_id
         return await self._upload_once(
-            call_action, group_id, path, folder_id, folder_label, created
+            call_action, group_id, path, folder_id, folder_label, created, name
         )
 
     # ---- 文件夹 ----
@@ -218,11 +226,12 @@ class GroupFileUploader:
         folder_id: str,
         folder_label: str,
         created: bool,
+        name: str = "",
     ) -> GroupFileResult:
         params: dict[str, Any] = {
             "group_id": _as_group_id(group_id),
             "file": str(path),
-            "name": path.name,
+            "name": name or path.name,
         }
         if folder_id:
             params["folder"] = folder_id
@@ -239,20 +248,28 @@ class GroupFileUploader:
                 error=f"上传超过 {int(GROUP_FILE_UPLOAD_TIMEOUT)} 秒没完成",
             )
         except Exception as exc:  # 协议端拒绝、路径读不到、权限不足都在这里
-            # 原始异常（英文、可能带路径）只进日志，用户侧统一给一句能行动的话
-            logger.warning(f"[{PLUGIN_NAME}] 上传群文件失败: {_describe(exc)}")
+            # 原始异常（英文、可能带路径）只进日志；用户侧给出可检索的具体原因与错误码
+            raw = _describe(exc)
+            code = _extract_code(raw)
+            logger.warning(f"[{PLUGIN_NAME}] 上传群文件失败: {raw}")
             return GroupFileResult(
                 False,
                 folder=folder_label,
                 created=created,
-                error="协议端拒绝了这次上传",
+                error=_reason_for_code(code, raw),
+                code=code,
             )
 
         failure = _failure_text(resp)
         if failure:
+            code = _extract_code(failure)
             logger.warning(f"[{PLUGIN_NAME}] 上传群文件失败: {failure}")
             return GroupFileResult(
-                False, folder=folder_label, created=created, error=failure
+                False,
+                folder=folder_label,
+                created=created,
+                error=_reason_for_code(code, failure),
+                code=code,
             )
         return GroupFileResult(True, folder=folder_label, created=created)
 
@@ -293,6 +310,29 @@ def _failure_text(resp: Any) -> str:
         return wording.strip()
     logger.warning(f"[{PLUGIN_NAME}] 上传群文件被协议端拒绝（retcode={retcode}）")
     return "协议端拒绝了这次上传"
+
+
+# 协议端把 QQ 的原始错误码塞在文案里（如 `code=-134`），抽出来才好给用户一个具体原因
+_CODE_PATTERN = re.compile(r"code\s*=\s*(-?\d+)")
+_CODE_REASONS: dict[int, str] = {
+    -134: "平台拒绝上传（-134 文件上传失败，常见于文件名含敏感词或文件被判定违规）",
+    -139: "机器人当前在本群被禁言，不能上传文件（-139）",
+    -303: "文件名含平台不允许的字符（-303 文件名称格式错误）",
+}
+
+
+def _extract_code(text: str) -> int | None:
+    match = _CODE_PATTERN.search(text or "")
+    return int(match.group(1)) if match else None
+
+
+def _reason_for_code(code: int | None, raw: str = "") -> str:
+    """把协议端错误码翻成用户能看懂、能据此行动的具体原因。"""
+    if code in _CODE_REASONS:
+        return _CODE_REASONS[code]
+    if code is not None:
+        return f"上传失败（协议端返回 code={code}）"
+    return (raw or "").strip() or "协议端拒绝了这次上传"
 
 
 def _as_group_id(group_id: str) -> Any:

@@ -1,6 +1,11 @@
 """通用工具层：不感知业务语义，可被任何上层复用。"""
 
-from .filename import build_package_name, resolve_template, sanitize_filename
+from .filename import (
+    build_fallback_name,
+    build_package_name,
+    resolve_template,
+    sanitize_filename,
+)
 from .files import find_existing_image, write_image_atomically
 from .font import cjk_available, load_font
 from .format import format_size, truncate_keep_tail
@@ -14,6 +19,7 @@ from .title import AI_MARK_BADGE, has_ai_mark
 
 __all__ = [
     "AI_MARK_BADGE",
+    "build_fallback_name",
     "build_package_name",
     "cjk_available",
     "describe_pack_format",

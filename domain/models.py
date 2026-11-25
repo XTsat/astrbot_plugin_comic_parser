@@ -178,6 +178,8 @@ class PackResult:
     encrypted: bool
     error: str | None = None
     note: str = ""  # 非致命提示（个别页无法解码已跳过等），写进结果摘要给用户看
+    # 上传被平台按文件名拦截时用的中性基名（只留 ID，密码段按模板保留）。空串表示不适用
+    safe_base: str = ""
 
 
 @dataclass(slots=True)

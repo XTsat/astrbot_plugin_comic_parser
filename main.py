@@ -2846,25 +2846,57 @@ class ComicParserPlugin(Star):
             yield event.plain_result(summary or f"已保存到本地：{outcome.source_dir}")
             return
 
-        upload = await self._upload_group_file(event, sendable)
+        neutral_name = self._neutral_file_name(outcome, sendable)
+        upload = await self._upload_group_file(event, sendable, neutral_name)
 
         if upload is not None and upload.ok:
-            # 群里已经出现这条文件消息了，不再补一句「已存入群文件」；只剩可选的下载摘要
-            if summary:
-                yield event.plain_result(summary)
+            # 群里已经出现这条文件消息了，不再补发文件；只用摘要说明结果
+            note = ""
+            if upload.used_fallback and neutral_name:
+                note = f"（原标题含平台限制内容，群文件已改用 {neutral_name} 上传）"
+            text = "\n".join(part for part in (summary, note) if part)
+            if text:
+                yield event.plain_result(text)
             return
 
-        lines = [summary] if summary else []
         if upload is not None:
-            lines.append(f"⚠️ 群文件没传上去（{upload.error}），改为直接发文件")
+            # 群文件上传失败、换中性文件名重试也没成：把具体原因讲清楚，别再含糊地说「改为直接发文件」
+            reason = upload.error or "未知原因"
+            retried = (
+                f"（已改用中性文件名 {neutral_name} 重试仍失败）" if neutral_name else ""
+            )
+            head = f"{summary}\n" if summary else ""
+            yield event.plain_result(f"{head}⚠️ 群文件没传上去：{reason}{retried}")
+            # 部分协议端「发文件消息」和「传群文件」是两条链路；这里再用中性名试一次直传。
+            # 同源（如 QQ）时会再失败，只记日志，不重复刷屏。
+            try:
+                await event.send(
+                    MessageChain(
+                        [Comp.File(name=neutral_name or sendable.name, file=str(sendable))]
+                    )
+                )
+            except Exception as exc:
+                logger.warning(f"[{PLUGIN_NAME}] 群文件改用中性名直传也失败: {exc}")
+            return
+
+        # 不适用群文件（关闭 / 私聊 / 协议端不支持）：按原文件名直接发
+        lines = [summary] if summary else []
         chain = [Comp.Plain("\n".join(lines))] if lines else []
         chain.append(Comp.File(name=sendable.name, file=str(sendable)))
         yield event.chain_result(MessageChain(chain).chain)
 
+    def _neutral_file_name(self, outcome: DownloadOutcome, sendable: Path) -> str:
+        """平台按文件名拦截时用的中性文件名：`[ID]` + 原扩展名（密码段已按模板保留）。"""
+        base = (outcome.pack.safe_base or "").strip() or sendable.stem
+        return f"{base}{sendable.suffix}" if base else sendable.name
+
     async def _upload_group_file(
-        self, event: AstrMessageEvent, path: Path
+        self, event: AstrMessageEvent, path: Path, fallback_name: str = ""
     ) -> GroupFileResult | None:
-        """按配置把成品传进当前群的群文件；返回 None 表示这次不适用（关闭 / 私聊 / 协议端不支持）。"""
+        """按配置把成品传进当前群的群文件；返回 None 表示这次不适用（关闭 / 私聊 / 协议端不支持）。
+
+        第一次用原文件名；被平台按文件名拦截时，再用 `fallback_name`（中性名）重试一次。
+        """
         if not self.settings.upload_to_group_file:
             return None
         if event.get_platform_name() not in _ONEBOT_PLATFORMS:
@@ -2885,11 +2917,31 @@ class ComicParserPlugin(Star):
             path,
             self.settings.group_file_folder,
             self.settings.group_file_create_folder,
+            path.name,
         )
         if result.ok:
             logger.info(
                 f"[{PLUGIN_NAME}] 已上传群文件：{result.location} / {path.name}"
             )
+            return result
+        if fallback_name and fallback_name != path.name:
+            logger.info(
+                f"[{PLUGIN_NAME}] 群文件上传失败（{result.error}），改用中性文件名重试：{fallback_name}"
+            )
+            retry = await self.group_files.upload(
+                call_action,
+                group_id,
+                path,
+                self.settings.group_file_folder,
+                self.settings.group_file_create_folder,
+                fallback_name,
+            )
+            if retry.ok:
+                retry.used_fallback = True
+                logger.info(
+                    f"[{PLUGIN_NAME}] 已用中性文件名上传群文件：{retry.location} / {fallback_name}"
+                )
+            return retry
         return result
 
     # ==================== 内部工具 ====================

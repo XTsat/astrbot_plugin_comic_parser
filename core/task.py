@@ -38,7 +38,7 @@ from ..domain.constants import (
     PLUGIN_NAME,
     RESUME_DIRNAME,
 )
-from ..utils import build_package_name, format_size
+from ..utils import build_fallback_name, build_package_name, format_size
 from .channel import (
     INTERRUPT_RELOAD,
     BaseChannel,
@@ -536,7 +536,16 @@ class DownloadTask:
             return self._keep_local(downloaded, base_name)
 
         packer = Packer(self.pack_format, self.settings.pack_password)
-        return packer.pack(downloaded.source_dir, base_name, self.temp_root)
+        result = packer.pack(downloaded.source_dir, base_name, self.temp_root)
+        # 群文件上传被平台按文件名拦截时，用这个中性基名重试（只留 ID、密码段按模板）
+        result.safe_base = build_fallback_name(
+            comic_id=meta.comic_id,
+            short_id=self.channel.short_id(meta.comic_id),
+            password=self.settings.pack_password,
+            template=self.settings.filename_template,
+            custom_template=self.settings.filename_custom,
+        )
+        return result
 
     def _keep_local(self, downloaded: DownloadedComic, base_name: str) -> PackResult:
         """仅本地保存：把图片目录搬到长期保存目录，而不是留在临时目录里被清掉。"""
