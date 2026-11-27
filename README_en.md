@@ -100,7 +100,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 ### Download channels
 
 <details>
-<summary>JM (Jinman Tiantang) channel options (10)</summary>
+<summary>JM (Jinman Tiantang) channel options (11)</summary>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -114,6 +114,7 @@ A JM field search can only target one field at a time. When extra keywords, mult
 | Concurrent chapters (`max_concurrent_photos`) | int | 3 | Chapters downloaded in parallel |
 | Concurrent images (`max_concurrent_images`) | int | 5 | Images downloaded in parallel per chapter |
 | Use proxy (`use_proxy`) | bool | false | Uses the proxy chain plugin proxy → AstrBot proxy → direct; JM has domestic mirrors, so usually no proxy is needed |
+| Retry directly when no images (`direct_fallback`) | bool | true | The site decides whether to hand out the image list based on the egress IP: over a proxy you may get the metadata but not a single image. When on, such an empty result is retried once without the proxy, for this download only |
 
 </details>
 
@@ -214,11 +215,12 @@ A JM field search can only target one field at a time. When extra keywords, mult
 |--------|------|---------|-------------|
 | Whitelist sessions (`whitelist`) | list | empty | When non-empty, only these sessions may download or search; takes priority over the blacklist |
 | Blacklist sessions (`blacklist`) | list | empty | These sessions cannot use download or search commands |
-| Comic ID blacklist (`id_blacklist`) | list | empty | One entry per line: a bare ID such as `123456` (blocks that ID on every channel), `channel:ID` such as `jm:123456` (blocks it on that channel only) or a work link (the site is taken from the link). Hits are blocked according to "blacklist scope" |
-| Blacklist scope (`id_blacklist_actions`) | list | see default value | Checkboxes: download / info / cover, tick what the blacklist should block. Download and cover are ticked by default; tick "info" yourself. Clearing every box suspends the block |
+| Comic ID blacklist (`id_blacklist`) | list | empty | One entry per line: `123456` blocks that ID on every channel; `jm:123456` blocks it on that channel only; a work link works too |
+| Blacklist scope (`id_blacklist_actions`) | list | see default value | Checkboxes: download / info / cover, tick what the blacklist blocks; download and cover are ticked by default |
+| Blacklist reply (`id_blacklist_message`) | text | see default value | The sentence sent when a hit is blocked; replace it entirely. `{id}` is the work ID, `{action}` the blocked operation (download / info / cover), `{channel}` the channel name |
 | Debounce seconds (`debounce_interval`) | int | 60 | Ignores repeated requests for the same comic within this window; 0 disables it |
 
-> There is one shared comic ID blacklist rather than one per channel: IDs do not collide between sites, so a single list covers everything, and `channel:ID` is only needed when the same ID must be blocked on one site only (`jm`, `nh`, `pica`, `hm`, `ssmh`, `eh` all work as the channel name). Which of the three actions gets blocked is decided by "blacklist scope": download and cover by default, while info (and the chapter list) stays available until you tick it.
+> One shared list covers every channel; use `channel:ID` only when the same ID must be blocked on one site (`jm`, `nh`, `pica`, `hm`, `ssmh`, `eh`).
 
 ### Download and network
 

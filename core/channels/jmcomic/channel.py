@@ -21,7 +21,9 @@ from ....domain import (
     ComicMeta,
     DownloadCancelled,
     DownloadError,
+    DownloadPaused,
     DownloadedComic,
+    PluginError,
     RankingItem,
     RankingPage,
     RankingUnsupportedError,
@@ -86,6 +88,18 @@ _RANKING_CATEGORY = "0"
 
 # 已知图片文件头：图床偶尔以 200 回错误页/HTML，原样交给面板只会显示一张裂图
 _IMAGE_SIGNATURES: tuple[bytes, ...] = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF8")
+
+
+class _EmptyImageList(DownloadError):
+    """元信息正常但站方一张图都没下发。
+
+    与「图片全部下载失败」分开：那是网络抖，这是站方根本没给图片清单（按出口 IP 决定），
+    所以值得换条线路重试一次；带上页数是为了给用户看清「本子本身是好的」。
+    """
+
+    def __init__(self, page_count: int) -> None:
+        super().__init__("站方没有下发图片清单")
+        self.page_count = page_count
 
 
 def _looks_like_image(payload: bytes) -> bool:
@@ -192,6 +206,7 @@ class JMComicChannel(BaseChannel):
             "max_concurrent_photos": 3,
             "max_concurrent_images": 5,
             "use_proxy": False,
+            "direct_fallback": True,
         }
 
     # ---- ID 解析 ----
@@ -349,6 +364,72 @@ class JMComicChannel(BaseChannel):
         chapter_indexes, chapters_label = await self._resolve_chapters(
             jmcomic, option, comic_id, chapters
         )
+
+        async def attempt(use_option: Any) -> DownloadedComic:
+            return await self._download_once(
+                jmcomic,
+                use_option,
+                comic_id,
+                chapter_indexes,
+                chapters_label,
+                on_progress,
+                cancel,
+            )
+
+        try:
+            return await attempt(option)
+        except _EmptyImageList as empty:
+            empty_photos = empty
+            proxied = bool(self.resolve_proxy(default_enabled=False)[0])
+            # 本来就直连：没有第二条线路可换，别再劝人关代理
+            if not proxied:
+                raise DownloadError(
+                    self._empty_image_hint(empty_photos, direct_tried=True)
+                ) from None
+            if not self.opt_bool("direct_fallback", True):
+                raise DownloadError(self._empty_image_hint(empty_photos)) from None
+            logger.warning(
+                f"[{PLUGIN_NAME}] {self.display_name} {comic_id} 代理下没有图片清单"
+                f"（本子信息正常：{empty_photos.page_count} 页），改用直连重试一次"
+            )
+
+        direct_option = await asyncio.to_thread(
+            build_option, self, jmcomic, work_dir, domains=domains, force_direct=True
+        )
+        try:
+            comic = await attempt(direct_option)
+        except (DownloadCancelled, DownloadPaused):
+            raise
+        except _EmptyImageList:
+            raise DownloadError(
+                self._empty_image_hint(empty_photos, direct_tried=True)
+            ) from None
+        except PluginError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 直连这一趟的任何异常都归到同一条提示
+            logger.warning(
+                f"[{PLUGIN_NAME}] {self.display_name} {comic_id} 直连重试失败：{exc}"
+            )
+            raise DownloadError(
+                self._empty_image_hint(empty_photos, direct_tried=True)
+            ) from exc
+
+        logger.info(
+            f"[{PLUGIN_NAME}] {self.display_name} {comic_id} 改用直连后取到图片清单，下载成功"
+        )
+        return comic
+
+    async def _download_once(
+        self,
+        jmcomic: Any,
+        option: Any,
+        comic_id: str,
+        chapter_indexes: frozenset[int] | None,
+        chapters_label: str,
+        on_progress: ProgressCallback | None,
+        cancel: CancelToken | None,
+    ) -> DownloadedComic:
+        """跑一趟下载；换线路重试时整趟重来，因此单独拆成一个方法。"""
         loop = asyncio.get_running_loop()
 
         def report(state: ProgressState) -> None:
@@ -391,6 +472,27 @@ class JMComicChannel(BaseChannel):
                 return await asyncio.shield(future)
         finally:
             unregister_session(session)
+
+    def _empty_image_hint(
+        self, empty: _EmptyImageList, *, direct_tried: bool = False
+    ) -> str:
+        """图片清单为空时给用户的原因。
+
+        「一张图都没拿到」和「本子不存在」在用户眼里长得一样，但处理办法完全不同：
+        站方会按出口 IP 决定给不给图片清单（元信息照给、图片清单返回空），这种情况换条
+        线路就好；真下架的本子则无解。所以这里按「本子信息是否正常」和「是否已经试过直连」
+        分档说明，不再一律说成 ID 不存在。
+
+        消息里只留「为什么」，不再附「去关代理 / 去开开关」这类操作指引：开关本身带 hint，
+        自动改用直连默认还开着，多半一次就自愈，把步骤塞进群消息只是噪音。
+        """
+        detail = f"（本子信息正常：{empty.page_count} 页）" if empty.page_count > 0 else ""
+        if empty.page_count <= 0:
+            # 连本子信息都是 0 页：这不是线路问题，换代理也没用
+            return "没有可下载的图片：本子里页数为 0，可能已下架或仅登录可见"
+        if direct_tried:
+            return f"站方没给图片清单{detail}：直连也取不到，可能仅登录可见或站点故障"
+        return f"站方没给图片清单{detail}，多半是代理出口被限制"
 
     # ---- 章节 ----
     def _album_cache(self) -> dict[str, Any]:
@@ -1034,7 +1136,7 @@ class JMComicChannel(BaseChannel):
                     f"图片全部下载失败（{failed_images} 张图片、{failed_photos} 个章节失败），"
                     "请稍后重试，或在渠道配置里改用代理/自定义域名"
                 )
-            raise DownloadError("没有下载到任何图片，可能本子 ID 不存在或已被下架")
+            raise _EmptyImageList(int(getattr(album, "page_count", 0) or 0))
 
         meta = _album_meta(self.name, album)
         return DownloadedComic(

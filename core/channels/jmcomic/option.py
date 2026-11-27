@@ -40,6 +40,7 @@ def build_option(
     request_timeout: int | None = None,
     impl: str | None = None,
     for_search: bool = False,
+    force_direct: bool = False,
 ) -> Any:
     """把渠道配置翻译成 jmcomic 的 option。
 
@@ -52,6 +53,9 @@ def build_option(
 
     ``for_search`` 只影响搜索：jmcomic 的 API 客户端初始化时会先请求一次 ``/setting``
     拿 cookie，搜索再快也要多等这一趟；搜索本身不需要这份 cookie，塞一个空值跳过它。
+
+    ``force_direct`` 给「图片清单为空时改用直连重试」用：站方会按出口 IP 决定给不给
+    图片清单，这一趟必须绕开渠道开关、插件代理与宿主环境变量，才是真的直连。
     """
     client_type = channel.opt_str("client_type", "api")
     if impl is None:
@@ -97,7 +101,7 @@ def build_option(
     }
     # 代理按「渠道开关 → 插件代理 → AstrBot 本体代理」解析，开关关掉时是真直连；
     # 搜索超时后的自动代理重试由 core/channel.py 的 contextvar 覆盖，这里不用特殊分支
-    proxy = channel.resolve_proxy(default_enabled=False)[0]
+    proxy = "" if force_direct else channel.resolve_proxy(default_enabled=False)[0]
     if proxy:
         meta_data["proxies"] = proxy
     else:

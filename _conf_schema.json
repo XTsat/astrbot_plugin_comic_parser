@@ -102,6 +102,12 @@
             "description": "使用代理",
             "hint": "开启后走上方全局代理地址（全局代理留空时等于直连）；JM 有国内镜像，一般不用开",
             "default": false
+          },
+          "direct_fallback": {
+            "type": "bool",
+            "description": "取不到图片时自动改用直连",
+            "hint": "站方按出口 IP 决定给不给图片清单：走代理时可能查得到本子信息、却一张图都拿不到。开启后遇到这种「0 张图」会自动去掉代理再试一次，只影响这一次下载、不改配置",
+            "default": true
           }
         }
       },
@@ -460,7 +466,8 @@
         "retry_times": 5,
         "max_concurrent_photos": 3,
         "max_concurrent_images": 5,
-        "use_proxy": false
+        "use_proxy": false,
+        "direct_fallback": true
       },
       {
         "__template_key": "nhentai",
@@ -538,20 +545,20 @@
       "id_blacklist": {
         "type": "list",
         "description": "作品 ID 黑名单",
-        "hint": "一行一条：纯 ID（如 123456，所有渠道都拦）、渠道:ID（如 jm:123456，只拦该渠道）、或作品链接（按链接自动认站点）。命中的作品按下面「黑名单作用范围」勾选的项拦截；这里的会话黑名单管「谁在用」，这条管「哪一本」",
+        "hint": "一行一条，写 ID 即可（如 123456）；只拦某个站点写渠道:ID（如 jm:123456）；也可以贴作品链接",
         "default": []
       },
       "id_blacklist_actions": {
         "type": "list",
         "description": "黑名单作用范围",
-        "hint": "勾选哪几项就拦哪几项，可多选。默认勾选「下载整本」与「封面」：「简介」只是文字信息，需要时自己勾上；全部取消等于暂时不拦任何东西",
+        "hint": "拦哪几件事，可多选；一项都不勾＝不拦",
         "options": [
           "download",
           "info",
           "cover"
         ],
         "labels": [
-          "下载整本",
+          "下载",
           "简介",
           "封面"
         ],
@@ -560,6 +567,12 @@
           "download",
           "cover"
         ]
+      },
+      "id_blacklist_message": {
+        "type": "text",
+        "description": "黑名单拦截提示",
+        "hint": "命中黑名单时回的那句话，留空用默认。可用 {id} 作品 ID、{action} 被拦下的操作（下载/简介/封面）、{channel} 渠道名",
+        "default": "❌ {id} 在黑名单里，不提供{action}"
       },
       "debounce_interval": {
         "type": "int",
