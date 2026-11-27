@@ -726,6 +726,7 @@ table.dets td:last-child, table.dets th:last-child { text-align: right; font-var
 .form-rows > .form-sub:first-child { margin-top: 0; }
 /* 开关：文字跟着勾选状态走，左边标签列已经写了配置名 */
 .check-inline { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); cursor: pointer; }
+.check-group { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
 .check-inline > span { color: var(--muted); }
 .form-row > .help { font-size: var(--fs-sm); color: var(--muted); line-height: 1.6; }
 /* 窄屏：三列塌成一列，说明跟到控件下面 */

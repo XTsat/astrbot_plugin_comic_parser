@@ -344,6 +344,7 @@ class MyPlugin(Star):
 | `ranking.max_pages` / `.max_chapters` / `.cache_ttl` / `.cooldown` | int / int / int / int | 尺寸上限与缓存（`domain/config.py` 的 `ranking_size_ok`、`core/ranking.py`） |
 | `ranking.output` / `ranking.image.*`（`page_size`/`columns`/`show_author`/`show_id`） | string / int / int / bool / bool | 输出形态与卡片排版（`core/ranking_card.py`） |
 | `access.whitelist` / `access.blacklist` / `access.debounce_interval` | list / list / int | 准入（`core/guard.py`） |
+| `access.id_blacklist` / `access.id_blacklist_actions` | list / list | 作品 ID 黑名单与作用范围（`core/id_blacklist.py`） |
 | `channels` | template_list | 渠道模板；每个渠道一个模板，条目带 `__template_key` 标记归属 |
 
 顶层 key 是 `channels` / `access` / `download` / `packing` / `cover` / `probe` / `search` / `image_search` / `ranking` 九个分组（`channels` 是 `template_list`，其余是 `object`，WebUI 里各成一块区域；顺序即设置页里的展示顺序，渠道排在最前）；`domain/config.py` 只按当前分组读取，不为改名/换组做兼容回退——配置项改名或换组即视为破坏性变更，升级后老位置的值不再生效，需在 CHANGELOG 里写明要用户重设。

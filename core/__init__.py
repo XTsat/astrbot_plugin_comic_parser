@@ -9,6 +9,7 @@ from .domain_race import DomainTiming
 from .group_file import GroupFileResult, GroupFileUploader
 from .guard import AccessGuard
 from .health import HealthIssue, HealthReport, check as check_health
+from .id_blacklist import BlockedWork, IdBlacklist
 from .janitor import CleanupResult, cleanup_temp
 from .packer import Packer
 from .probe import (
@@ -51,6 +52,8 @@ from .task import DownloadOutcome, DownloadTask, active_work_dirs
 
 __all__ = [
     "AccessGuard",
+    "BlockedWork",
+    "IdBlacklist",
     "BaseChannel",
     "CancelToken",
     "CoverResult",

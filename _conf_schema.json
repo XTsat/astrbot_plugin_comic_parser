@@ -535,6 +535,32 @@
         "hint": "黑名单内的会话无法使用下载命令",
         "default": []
       },
+      "id_blacklist": {
+        "type": "list",
+        "description": "作品 ID 黑名单",
+        "hint": "一行一条：纯 ID（如 123456，所有渠道都拦）、渠道:ID（如 jm:123456，只拦该渠道）、或作品链接（按链接自动认站点）。命中的作品按下面「黑名单作用范围」勾选的项拦截；这里的会话黑名单管「谁在用」，这条管「哪一本」",
+        "default": []
+      },
+      "id_blacklist_actions": {
+        "type": "list",
+        "description": "黑名单作用范围",
+        "hint": "勾选哪几项就拦哪几项，可多选。默认勾选「下载整本」与「封面」：「简介」只是文字信息，需要时自己勾上；全部取消等于暂时不拦任何东西",
+        "options": [
+          "download",
+          "info",
+          "cover"
+        ],
+        "labels": [
+          "下载整本",
+          "简介",
+          "封面"
+        ],
+        "render_type": "checkbox",
+        "default": [
+          "download",
+          "cover"
+        ]
+      },
       "debounce_interval": {
         "type": "int",
         "description": "防抖秒数",

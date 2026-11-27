@@ -204,6 +204,7 @@ def check(
             )
 
     report.issues.extend(_channel_issues(channels))
+    report.issues.extend(_blacklist_issues(settings, channels))
     return report
 
 
@@ -257,6 +258,46 @@ def _requirement_reason(
         # 渠道级的缺失由 _channel_issues 按「是否启用」判定，这里不重复报
         return None
     return None
+
+
+def _blacklist_issues(
+    settings: Any, channels: Mapping[str, Any] | Iterable[Any]
+) -> list[HealthIssue]:
+    """作品黑名单写坏了没有：这类条目不会报错，只会静默不生效。
+
+    两种写法看起来都对、实际什么也不拦：前缀写成 `jmcomic1:123`（渠道名拼错）、
+    或者把作用范围全部取消勾选。前者用户在命令里根本看不出来，后者只是「黑名单关着」。
+    """
+    entries = list(getattr(settings, "id_blacklist", []) or [])
+    if not entries:
+        return []
+    from .id_blacklist import IdBlacklist  # 局部导入：health 与它互不依赖启动顺序
+
+    blacklist = IdBlacklist.from_settings(
+        settings, channels if isinstance(channels, Mapping) else {}
+    )
+    issues: list[HealthIssue] = []
+    if not blacklist.actions:
+        issues.append(
+            HealthIssue(
+                level=LEVEL_WARN,
+                title="作品 ID 黑名单没有作用范围",
+                impact="「黑名单作用范围」一项都没勾，黑名单里填的作品不会被拦",
+                fix="在插件配置里把要拦的项勾上（下载整本 / 简介 / 封面）",
+            )
+        )
+    if blacklist.unresolved:
+        broken = "、".join(blacklist.unresolved[:3])
+        more = "等" if len(blacklist.unresolved) > 3 else ""
+        issues.append(
+            HealthIssue(
+                level=LEVEL_WARN,
+                title=f"作品 ID 黑名单有 {len(blacklist.unresolved)} 条认不出渠道",
+                impact=f"这些条目可能拦不住作品：{broken}{more}",
+                fix="按「渠道:ID」或「作品链接」重填，渠道名可用 jm / nh / pica / hm / ssmh / eh",
+            )
+        )
+    return issues
 
 
 def _iter_channels(channels: Mapping[str, Any] | Iterable[Any]) -> list[Any]:

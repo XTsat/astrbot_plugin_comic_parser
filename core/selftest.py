@@ -122,9 +122,11 @@ from astrbot_plugin_comic_parser.core.stats import (  # noqa: E402
     OUTCOME_PAUSED,
     DownloadStats,
 )
-from astrbot_plugin_comic_parser.domain import PluginSettings  # noqa: E402
+from astrbot_plugin_comic_parser.domain import PluginError, PluginSettings  # noqa: E402
 from astrbot_plugin_comic_parser.domain.constants import (  # noqa: E402
     CLEAN_WORDS,
+    DEFAULT_ID_BLACKLIST_ACTIONS,
+    ID_BLACKLIST_ACTIONS,
     HEALTH_WORDS,
     HELP_WORDS,
     RANKING_WORDS,
@@ -2062,6 +2064,231 @@ def test_config_dirty_values() -> None:
     )
 
 
+def fake_blacklist_channel(
+    name: str, command: str, aliases: tuple[str, ...] = (), host: str = ""
+) -> SimpleNamespace:
+    """黑名单只用到渠道的名字、命令别名、ID 规范化与链接识别，其余一律不需要。"""
+    import re
+
+    def normalize_id(raw: str) -> str:
+        digits = re.findall(r"\d+", raw or "")
+        if not digits:
+            raise PluginError(f"无法从 {raw!r} 识别出 {name} 的作品 ID")
+        return digits[-1]
+
+    def match_link(text: str) -> str | None:
+        if not host or host not in (text or ""):
+            return None
+        digits = re.findall(r"\d+", text or "")
+        return digits[-1] if digits else None
+
+    return SimpleNamespace(
+        name=name,
+        command=command,
+        command_names=(command, *aliases),
+        display_name=name.upper(),
+        normalize_id=normalize_id,
+        match_link=match_link,
+    )
+
+
+def test_id_blacklist() -> None:
+    """作品 ID 黑名单：一份清单、三种作用范围，缺口是「拦了却没拦住」。
+
+    这类配置错了不会报错，只会在用户眼里表现为「我明明加了黑名单还是下得下来」，
+    所以这里逐条钉住：纯 ID 全渠道生效、渠道前缀（含别名）只拦该渠道、链接按站点归属、
+    作用范围全取消等于不拦、脏值回落默认、认不出的前缀能被自检点出来。
+    """
+    from astrbot_plugin_comic_parser.core.id_blacklist import IdBlacklist  # noqa: PLC0415
+
+    jm = fake_blacklist_channel("jmcomic", "jmcomic", ("jm",), host="18comic.vip")
+    nh = fake_blacklist_channel("nhentai", "nhentai", ("nh",), host="nhentai.net")
+    channels = {"jmcomic": jm, "nhentai": nh}
+
+    settings = PluginSettings.from_config({"access": {"id_blacklist": ["123456"]}})
+    blacklist = IdBlacklist.from_settings(settings, channels)
+    check(
+        "黑名单：默认拦下载与封面、不拦简介",
+        blacklist.blocked(jm, "123456", "download")
+        and blacklist.blocked(nh, "123456", "cover")
+        and not blacklist.blocked(jm, "123456", "info"),
+        str(blacklist.actions),
+    )
+    check(
+        "黑名单：纯 ID 拦所有渠道但不误伤别的 ID",
+        blacklist.blocked(nh, "123456", "download")
+        and not blacklist.blocked(jm, "123457", "download"),
+    )
+
+    settings = PluginSettings.from_config(
+        {"access": {"id_blacklist": ["jm:123456", "nh:654321"]}}
+    )
+    blacklist = IdBlacklist.from_settings(settings, channels)
+    check(
+        "黑名单：渠道前缀只拦该渠道",
+        blacklist.blocked(jm, "123456", "download")
+        and not blacklist.blocked(nh, "123456", "download"),
+    )
+    check(
+        "黑名单：前缀认命令别名（nh 即 nhentai）",
+        blacklist.blocked(nh, "654321", "download")
+        and not blacklist.blocked(jm, "654321", "download"),
+    )
+
+    scoped_link = PluginSettings.from_config(
+        {"access": {"id_blacklist": ["jm:https://18comic.vip/album/555111/"]}}
+    )
+    scoped = IdBlacklist.from_settings(scoped_link, channels)
+    check(
+        "黑名单：带前缀的链接也收敛到该渠道的规范 ID",
+        scoped.blocked(jm, "555111", "download")
+        and not scoped.blocked(nh, "555111", "download")
+        and not scoped.unresolved,
+        f"{scoped.entries} / {scoped.unresolved}",
+    )
+
+    settings = PluginSettings.from_config(
+        {
+            "access": {
+                "id_blacklist": ["https://18comic.vip/album/987654/"],
+            }
+        }
+    )
+    blacklist = IdBlacklist.from_settings(settings, channels)
+    check(
+        "黑名单：链接条目按链接自带的站点归属",
+        blacklist.blocked(jm, "987654", "download")
+        and not blacklist.blocked(nh, "987654", "download"),
+        str(blacklist.entries),
+    )
+
+    settings = PluginSettings.from_config(
+        {"access": {"id_blacklist": ["123456"], "id_blacklist_actions": []}}
+    )
+    blacklist = IdBlacklist.from_settings(settings, channels)
+    check(
+        "黑名单：作用范围全部取消时不拦任何事",
+        not any(blacklist.blocked(jm, "123456", action) for action in ID_BLACKLIST_ACTIONS),
+        str(blacklist.actions),
+    )
+
+    cover_settings = PluginSettings.from_config(
+        {"access": {"id_blacklist": ["123456"], "id_blacklist_actions": ["cover"]}}
+    )
+    cover_only = IdBlacklist.from_settings(cover_settings, channels)
+    check(
+        "黑名单：只勾封面时下载放行、封面照拦",
+        cover_only.blocked(jm, "123456", "cover")
+        and not cover_only.blocked(jm, "123456", "download"),
+        str(cover_only.actions),
+    )
+
+    dirty = PluginSettings.from_config(
+        {"access": {"id_blacklist": "123456", "id_blacklist_actions": "download"}}
+    )
+    check(
+        "黑名单：条目与作用范围写成字符串时回落默认",
+        dirty.id_blacklist == []
+        and dirty.id_blacklist_actions == list(DEFAULT_ID_BLACKLIST_ACTIONS),
+        f"{dirty.id_blacklist} / {dirty.id_blacklist_actions}",
+    )
+    cleaned = PluginSettings.from_config(
+        {"access": {"id_blacklist_actions": ["download", "nonsense", " COVER "]}}
+    )
+    check(
+        "黑名单：作用范围里不认识的取值被剔掉",
+        cleaned.id_blacklist_actions == ["download", "cover"],
+        str(cleaned.id_blacklist_actions),
+    )
+
+    broken = PluginSettings.from_config(
+        {
+            "access": {
+                "id_blacklist": [
+                    "jmcomic1:123456",
+                    "https://unknown.example.com/x/1",
+                    "123456",
+                ]
+            }
+        }
+    )
+    blacklist = IdBlacklist.from_settings(broken, channels)
+    check(
+        "黑名单：认不出渠道的条目会被点出来",
+        len(blacklist.unresolved) == 2,
+        str(blacklist.unresolved),
+    )
+    report = health_mod.check(broken, channels, probe=probe_all_present)
+    check(
+        "黑名单：自检报出认不出渠道的条目",
+        any("认不出渠道" in issue.title for issue in report.warnings),
+        str([issue.title for issue in report.issues]),
+    )
+    silent = PluginSettings.from_config(
+        {"access": {"id_blacklist": ["123456"], "id_blacklist_actions": []}}
+    )
+    report = health_mod.check(silent, channels, probe=probe_all_present)
+    check(
+        "黑名单：自检报出「没有作用范围」",
+        any("作用范围" in issue.title for issue in report.warnings),
+        str([issue.title for issue in report.issues]),
+    )
+    healthy = PluginSettings.from_config({"access": {"id_blacklist": ["jm:123456"]}})
+    report = health_mod.check(healthy, channels, probe=probe_all_present)
+    check(
+        "黑名单：正常配置不产生额外告警",
+        not [issue for issue in report.issues if "黑名单" in issue.title],
+        str([issue.title for issue in report.issues]),
+    )
+
+    main_src = (PLUGIN_ROOT / "main.py").read_text(encoding="utf-8")
+    check(
+        "黑名单：下载入口与下载后封面都查了一遍",
+        main_src.count("id_blacklist.blocked(") >= 2,
+        f"只出现 {main_src.count('id_blacklist.blocked(')} 次",
+    )
+
+    # 面板「设置」页要真给多选框：只丢一个文本框的话，用户在面板里改这项得手敲英文值
+    settings_js = (PLUGIN_ROOT / "views" / "panel" / "tabs" / "settings.js").read_text(
+        encoding="utf-8"
+    )
+    check(
+        "黑名单：面板设置页把带选项的列表画成多选框",
+        "data-multi" in settings_js
+        and 'item.type === "list" && Array.isArray(item.options)' in settings_js,
+        "settings.js 没有多选框分支",
+    )
+
+    # 拦截提示必须点名「哪本」与「去哪儿放行」：只回一句「被拦了」，用户和管理员都不知道改哪
+    import importlib  # noqa: PLC0415
+
+    main_module = importlib.import_module(f"{PACKAGE}.main")
+    blocked_settings = PluginSettings.from_config(
+        {"access": {"id_blacklist": ["123456"], "id_blacklist_actions": ["download"]}}
+    )
+    holder = SimpleNamespace(
+        id_blacklist=IdBlacklist.from_settings(blocked_settings, channels)
+    )
+    notice = main_module.ComicParserPlugin._blacklist_notice(
+        holder, jm, "123456", "download"
+    )
+    check(
+        "黑名单：拦截提示写明作品 ID 与放行位置",
+        isinstance(notice, str)
+        and "123456" in notice
+        and "作品 ID 黑名单" in notice
+        and "管理员" in notice,
+        str(notice),
+    )
+    check(
+        "黑名单：放行时不产生提示",
+        main_module.ComicParserPlugin._blacklist_notice(
+            holder, jm, "123457", "download"
+        )
+        is None,
+    )
+
+
 def test_changelog_wording() -> None:
     """CHANGELOG 的展开区只写用户能感知的变化，不出现内部实现细节。
 
@@ -2465,7 +2692,12 @@ def test_schema_integrity() -> None:
                     problems.append(
                         f"{path}: options {len(options)} 项 vs labels {len(labels)} 项"
                     )
-                if default is not None and default not in options:
+                if isinstance(default, list):
+                    # 多选框（list + options）的默认值是「选中的选项值列表」，逐项校验
+                    unknown = [item for item in default if item not in options]
+                    if unknown:
+                        problems.append(f"{path}: default {unknown!r} 不在 options 里")
+                elif default is not None and default not in options:
                     problems.append(f"{path}: default {default!r} 不在 options 里")
             if isinstance(value.get("items"), dict):
                 walk(value["items"], path)
@@ -3605,13 +3837,15 @@ def test_config_type_matches_parser() -> None:
                 continue
             break
 
+    # 一种 schema 类型可能有多个合法解析函数：`list` 既可能是自由填写的列表
+    # （`_as_str_list`），也可能是多选框（`_as_choice_list` 把值收敛到 options 内）
     expect = {
-        "int": "_as_int",
-        "float": "_as_float",
-        "bool": "_as_bool",
-        "string": "_as_str",
-        "text": "_as_str",
-        "list": "_as_str_list",
+        "int": {"_as_int"},
+        "float": {"_as_float"},
+        "bool": {"_as_bool"},
+        "string": {"_as_str"},
+        "text": {"_as_str"},
+        "list": {"_as_str_list", "_as_choice_list"},
     }
 
     def leaves(node: dict, prefix: str = "") -> list[tuple[str, str, str]]:
@@ -3653,7 +3887,7 @@ def test_config_type_matches_parser() -> None:
             continue
         matched += 1
         for field, parser in candidates:
-            if parser != want:
+            if parser not in want:
                 mismatches.append(f"{path}: 声明 {declared} 却用 {parser}")
 
     # 匹配数取决于「schema 的 key 与 config.py 的字段名能否对上」：
@@ -3828,6 +4062,7 @@ def main() -> int:
     test_no_secret_logging()
     test_readme_config_names()
     test_config_dirty_values()
+    test_id_blacklist()
     test_changelog_wording()
     test_exception_specificity()
     test_error_messages_actionable()

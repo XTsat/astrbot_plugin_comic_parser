@@ -399,6 +399,29 @@ LAST_REQUEST_KEEP: Final = 30
 # 记录涉及多少个会话：上限按会话数截断，避免长期运行堆积
 LAST_REQUEST_LIMIT: Final = 500
 
+# ---- 作品 ID 黑名单（按「哪一本」拦，与会话白/黑名单分开）----
+
+# 黑名单能拦的三件事。顺序即 WebUI 多选框里从左到右的顺序
+ID_BLACKLIST_ACTION_DOWNLOAD: Final = "download"
+ID_BLACKLIST_ACTION_INFO: Final = "info"
+ID_BLACKLIST_ACTION_COVER: Final = "cover"
+ID_BLACKLIST_ACTIONS: Final = (
+    ID_BLACKLIST_ACTION_DOWNLOAD,
+    ID_BLACKLIST_ACTION_INFO,
+    ID_BLACKLIST_ACTION_COVER,
+)
+ID_BLACKLIST_ACTION_LABELS: Final = {
+    ID_BLACKLIST_ACTION_DOWNLOAD: "下载整本",
+    ID_BLACKLIST_ACTION_INFO: "简介",
+    ID_BLACKLIST_ACTION_COVER: "封面",
+}
+# 默认拦下载与封面：黑名单的本意是「这本别给出去」，而封面是最容易被平台盯上的那张图；
+# 简介是纯文字、暴露面小，默认放行（要拦就在配置里勾上）
+DEFAULT_ID_BLACKLIST_ACTIONS: Final = (
+    ID_BLACKLIST_ACTION_DOWNLOAD,
+    ID_BLACKLIST_ACTION_COVER,
+)
+
 # 这条记录要存盘：插件重载会重建实例，只放内存里的话重载中断提示刚让你发 `/comic retry`，
 # 发过去却回「没有下载记录」
 LAST_REQUEST_FILENAME: Final = "last_request.json"

@@ -41,6 +41,7 @@ from .core import (
     DownloadTask,
     GroupFileResult,
     GroupFileUploader,
+    IdBlacklist,
     ProgressState,
     ModelWeights,
     OUTCOME_FAIL,
@@ -129,6 +130,10 @@ from .domain.constants import (
     RETRY_WORDS,
     HELP_WORDS,
     INFO_TAG_LIMIT,
+    ID_BLACKLIST_ACTION_COVER,
+    ID_BLACKLIST_ACTION_DOWNLOAD,
+    ID_BLACKLIST_ACTION_INFO,
+    ID_BLACKLIST_ACTION_LABELS,
     SITE_WORDS,
     STATUS_WORDS,
     SEARCH_MAX_KEYWORD_LENGTH,
@@ -604,6 +609,8 @@ class ComicParserPlugin(Star):
         self._recall_skip_logged = False
         self.channels = build_channels(self.settings)
         self._commands = command_map(self.channels)
+        # 作品黑名单要按渠道认 ID 与链接，所以排在渠道之后建
+        self.id_blacklist = IdBlacklist.from_settings(self.settings, self.channels)
         self.search_service = SearchService(self.channels, self.settings)
         self.ranking_service = RankingService(self.channels, self.settings)
         # 本会话最近一次列表是谁出的（search / ranking）：序号下载与翻页按它决定先问谁
@@ -1590,6 +1597,18 @@ class ComicParserPlugin(Star):
         ):
             yield result
 
+    def _blacklist_notice(
+        self, channel: BaseChannel, comic_id: str, action: str
+    ) -> str | None:
+        """这次请求被作品黑名单拦下时返回提示语，放行时返回 None。"""
+        if not self.id_blacklist.blocked(channel, comic_id, action):
+            return None
+        label = ID_BLACKLIST_ACTION_LABELS.get(action, action)
+        return (
+            f"❌ {channel.display_name} 的这本作品（ID：{comic_id}）在「作品 ID 黑名单」里，"
+            f"已拦下「{label}」；要放行请让管理员把它从黑名单里去掉"
+        )
+
     async def _handle_download(
         self,
         event: AstrMessageEvent,
@@ -1722,6 +1741,20 @@ class ComicParserPlugin(Star):
             yield event.plain_result(f"❌ {exc}")
             return
 
+        # 作品黑名单：按「哪一本」拦，下载整本 / 简介 / 封面三件事各自可在配置里开关。
+        # 放在取章节、看封面、看简介之前——章节目录也算「简介」那一类，
+        # 免得拦了下载却还漏出一份目录
+        if cover_only:
+            action = ID_BLACKLIST_ACTION_COVER
+        elif info_only or directives.want_chapters or chapter_list_only:
+            action = ID_BLACKLIST_ACTION_INFO
+        else:
+            action = ID_BLACKLIST_ACTION_DOWNLOAD
+        denied = self._blacklist_notice(channel, comic_id, action)
+        if denied:
+            yield event.plain_result(denied)
+            return
+
         # 章节：不写范围就用配置里的默认范围；不分章节的渠道只忽略「默认范围」，
         # 但用户在命令里明确写了「章节」时必须说清为什么用不了，别静默按整本下
         chapter_spec = chapters or self._default_chapter_spec()
@@ -1840,7 +1873,12 @@ class ComicParserPlugin(Star):
                     return
 
                 try:
-                    if self.settings.cover_send:
+                    # 黑名单勾了「封面」时整本照下、但不补发封面：
+                    # 「只想拦封面」的配置下下载本身是放行的，封面要单独判一次
+                    cover_blocked = self.id_blacklist.blocked(
+                        channel, comic_id, ID_BLACKLIST_ACTION_COVER
+                    )
+                    if self.settings.cover_send and not cover_blocked:
                         async for item in self._deliver_cover(event, outcome):
                             yield item
                     async for result in self._deliver(event, outcome):

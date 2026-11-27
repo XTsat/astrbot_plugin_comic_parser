@@ -81,6 +81,20 @@ export default {
         const max = slider.max !== undefined ? ` max="${slider.max}"` : "";
         return `<input type="number" ${common} value="${item.value ?? ""}" step="${step}"${min}${max} />`;
       }
+      // 带 options 的列表就是多选（如「黑名单作用范围」）：按选项渲染复选框，
+      // 值仍是选项值数组；没有 options 的列表才是一行一项的自由文本
+      if (item.type === "list" && Array.isArray(item.options) && item.options.length) {
+        const chosen = Array.isArray(item.value) ? item.value : [];
+        const boxes = item.options
+          .map((value, index) => {
+            const label = (item.option_labels || [])[index] || value;
+            return `<label class="check-inline"><input type="checkbox" value="${escapeHtml(
+              value,
+            )}"${chosen.includes(value) ? " checked" : ""} /> <span>${escapeHtml(label)}</span></label>`;
+          })
+          .join("");
+        return `<div class="check-group" data-multi="${escapeHtml(item.key)}">${boxes}</div>`;
+      }
       if (item.type === "list") {
         const text = Array.isArray(item.value) ? item.value.join("\n") : item.value || "";
         return `<textarea ${common} rows="2">${escapeHtml(text)}</textarea>`;
@@ -153,6 +167,13 @@ export default {
             .map((line) => line.trim())
             .filter(Boolean);
         } else values[key] = node.value;
+      }
+      // 多选框单独收：它们的复选框不带 data-key（否则会被当成布尔开关）
+      for (const group of container.querySelectorAll("[data-multi]")) {
+        values[group.dataset.multi] = Array.from(
+          group.querySelectorAll('input[type="checkbox"]:checked'),
+          (input) => input.value,
+        );
       }
       return values;
     }

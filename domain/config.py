@@ -31,6 +31,8 @@ from .constants import (
     DEFAULT_FILENAME_MAX_LENGTH,
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_GROUP_FILE_FOLDER,
+    DEFAULT_ID_BLACKLIST_ACTIONS,
+    ID_BLACKLIST_ACTIONS,
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_NSFW_AUTO_DOWNLOAD,
     DEFAULT_NSFW_IMGSZ,
@@ -150,12 +152,31 @@ def _as_str_list(raw: Any) -> list[str]:
     return [item.strip() for item in raw if isinstance(item, str) and item.strip()]
 
 
+def _as_choice_list(
+    raw: Any, allowed: tuple[str, ...], default: tuple[str, ...]
+) -> list[str]:
+    """多选框的值：只留认识的项，顺序按常量走。
+
+    用户把选项全取消（存成空列表）是合法的「暂时不拦任何东西」，不能回落成默认值；
+    只有类型写错（存成字符串、null）才回落到默认值。
+    """
+    if not isinstance(raw, list):
+        return list(default)
+    picked = {item.strip().lower() for item in raw if isinstance(item, str)}
+    return [choice for choice in allowed if choice in picked]
+
+
 @dataclass(slots=True)
 class PluginSettings:
     """全局设置。渠道私有配置留在 channels 里，由各渠道自行解释。"""
 
     whitelist: list[str] = field(default_factory=list)
     blacklist: list[str] = field(default_factory=list)
+    # 作品 ID 黑名单：与会话白/黑名单分开，管的是「哪一本」而不是「谁在用」
+    id_blacklist: list[str] = field(default_factory=list)
+    id_blacklist_actions: list[str] = field(
+        default_factory=lambda: list(DEFAULT_ID_BLACKLIST_ACTIONS)
+    )
     debounce_interval: int = 60
     download_dir: str = "downloads"
     pack_format: str = DEFAULT_PACK_FORMAT
@@ -356,6 +377,12 @@ class PluginSettings:
         return cls(
             whitelist=_as_str_list(access.get("whitelist")),
             blacklist=_as_str_list(access.get("blacklist")),
+            id_blacklist=_as_str_list(access.get("id_blacklist")),
+            id_blacklist_actions=_as_choice_list(
+                access.get("id_blacklist_actions"),
+                ID_BLACKLIST_ACTIONS,
+                DEFAULT_ID_BLACKLIST_ACTIONS,
+            ),
             debounce_interval=_as_int(
                 access.get("debounce_interval"), 60, minimum=0
             ),
