@@ -32,6 +32,7 @@ from .constants import (
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_GROUP_FILE_FOLDER,
     DEFAULT_ID_BLACKLIST_ACTIONS,
+    DEFAULT_ID_BLACKLIST_MESSAGE,
     ID_BLACKLIST_ACTIONS,
     DEFAULT_MAX_CONCURRENT_TASKS,
     DEFAULT_NSFW_AUTO_DOWNLOAD,
@@ -177,6 +178,8 @@ class PluginSettings:
     id_blacklist_actions: list[str] = field(
         default_factory=lambda: list(DEFAULT_ID_BLACKLIST_ACTIONS)
     )
+    # 命中黑名单时回的那句话：整句可替换，留空回落默认文案
+    id_blacklist_message: str = DEFAULT_ID_BLACKLIST_MESSAGE
     debounce_interval: int = 60
     download_dir: str = "downloads"
     pack_format: str = DEFAULT_PACK_FORMAT
@@ -382,6 +385,12 @@ class PluginSettings:
                 access.get("id_blacklist_actions"),
                 ID_BLACKLIST_ACTIONS,
                 DEFAULT_ID_BLACKLIST_ACTIONS,
+            ),
+            id_blacklist_message=(
+                _as_str(
+                    access.get("id_blacklist_message"), DEFAULT_ID_BLACKLIST_MESSAGE
+                )
+                or DEFAULT_ID_BLACKLIST_MESSAGE
             ),
             debounce_interval=_as_int(
                 access.get("debounce_interval"), 60, minimum=0

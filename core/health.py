@@ -283,7 +283,7 @@ def _blacklist_issues(
                 level=LEVEL_WARN,
                 title="作品 ID 黑名单没有作用范围",
                 impact="「黑名单作用范围」一项都没勾，黑名单里填的作品不会被拦",
-                fix="在插件配置里把要拦的项勾上（下载整本 / 简介 / 封面）",
+                fix="在插件配置里把要拦的项勾上（下载 / 简介 / 封面）",
             )
         )
     if blacklist.unresolved:

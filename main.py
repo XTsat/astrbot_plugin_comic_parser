@@ -130,10 +130,11 @@ from .domain.constants import (
     RETRY_WORDS,
     HELP_WORDS,
     INFO_TAG_LIMIT,
+    DEFAULT_ID_BLACKLIST_MESSAGE,
     ID_BLACKLIST_ACTION_COVER,
     ID_BLACKLIST_ACTION_DOWNLOAD,
     ID_BLACKLIST_ACTION_INFO,
-    ID_BLACKLIST_ACTION_LABELS,
+    ID_BLACKLIST_MESSAGE_LABELS,
     SITE_WORDS,
     STATUS_WORDS,
     SEARCH_MAX_KEYWORD_LENGTH,
@@ -1600,14 +1601,23 @@ class ComicParserPlugin(Star):
     def _blacklist_notice(
         self, channel: BaseChannel, comic_id: str, action: str
     ) -> str | None:
-        """这次请求被作品黑名单拦下时返回提示语，放行时返回 None。"""
+        """这次请求被作品黑名单拦下时返回提示语，放行时返回 None。
+
+        整句可由「黑名单拦截提示」替换，可用占位符 `{channel}` / `{id}` / `{action}`。
+        文案里写了不认识的占位符或花括号没配对时原样发出——一句提示的格式问题
+        不该把一次拦截变成异常。
+        """
         if not self.id_blacklist.blocked(channel, comic_id, action):
             return None
-        label = ID_BLACKLIST_ACTION_LABELS.get(action, action)
-        return (
-            f"❌ {channel.display_name} 的这本作品（ID：{comic_id}）在「作品 ID 黑名单」里，"
-            f"已拦下「{label}」；要放行请让管理员把它从黑名单里去掉"
-        )
+        template = self.settings.id_blacklist_message or DEFAULT_ID_BLACKLIST_MESSAGE
+        try:
+            return template.format(
+                channel=channel.display_name,
+                id=comic_id,
+                action=ID_BLACKLIST_MESSAGE_LABELS.get(action, action),
+            )
+        except (KeyError, IndexError, ValueError):
+            return template
 
     async def _handle_download(
         self,
@@ -1741,7 +1751,7 @@ class ComicParserPlugin(Star):
             yield event.plain_result(f"❌ {exc}")
             return
 
-        # 作品黑名单：按「哪一本」拦，下载整本 / 简介 / 封面三件事各自可在配置里开关。
+        # 作品黑名单：按「哪一本」拦，下载 / 简介 / 封面三件事各自可在配置里开关。
         # 放在取章节、看封面、看简介之前——章节目录也算「简介」那一类，
         # 免得拦了下载却还漏出一份目录
         if cover_only:

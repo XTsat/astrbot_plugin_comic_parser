@@ -126,6 +126,7 @@ from astrbot_plugin_comic_parser.domain import PluginError, PluginSettings  # no
 from astrbot_plugin_comic_parser.domain.constants import (  # noqa: E402
     CLEAN_WORDS,
     DEFAULT_ID_BLACKLIST_ACTIONS,
+    DEFAULT_ID_BLACKLIST_MESSAGE,
     ID_BLACKLIST_ACTIONS,
     HEALTH_WORDS,
     HELP_WORDS,
@@ -2267,17 +2268,18 @@ def test_id_blacklist() -> None:
         {"access": {"id_blacklist": ["123456"], "id_blacklist_actions": ["download"]}}
     )
     holder = SimpleNamespace(
-        id_blacklist=IdBlacklist.from_settings(blocked_settings, channels)
+        settings=blocked_settings,
+        id_blacklist=IdBlacklist.from_settings(blocked_settings, channels),
     )
     notice = main_module.ComicParserPlugin._blacklist_notice(
         holder, jm, "123456", "download"
     )
     check(
-        "黑名单：拦截提示写明作品 ID 与放行位置",
+        "黑名单：默认提示写明作品 ID 与拦下的操作",
         isinstance(notice, str)
         and "123456" in notice
-        and "作品 ID 黑名单" in notice
-        and "管理员" in notice,
+        and "黑名单" in notice
+        and "不提供下载" in notice,
         str(notice),
     )
     check(
@@ -2286,6 +2288,57 @@ def test_id_blacklist() -> None:
             holder, jm, "123457", "download"
         )
         is None,
+    )
+
+    custom_settings = PluginSettings.from_config(
+        {
+            "access": {
+                "id_blacklist": ["123456"],
+                "id_blacklist_actions": ["download"],
+                "id_blacklist_message": "{channel} 的 {id} 已被拦（{action}）",
+            }
+        }
+    )
+    custom_holder = SimpleNamespace(
+        settings=custom_settings,
+        id_blacklist=IdBlacklist.from_settings(custom_settings, channels),
+    )
+    custom_notice = main_module.ComicParserPlugin._blacklist_notice(
+        custom_holder, jm, "123456", "download"
+    )
+    check(
+        "黑名单：提示语可用占位符整句替换",
+        custom_notice == "JMCOMIC 的 123456 已被拦（下载）",
+        str(custom_notice),
+    )
+
+    broken_settings = PluginSettings.from_config(
+        {
+            "access": {
+                "id_blacklist": ["123456"],
+                "id_blacklist_actions": ["download"],
+                "id_blacklist_message": "{id} 被拦了 {oops}",
+            }
+        }
+    )
+    broken_holder = SimpleNamespace(
+        settings=broken_settings,
+        id_blacklist=IdBlacklist.from_settings(broken_settings, channels),
+    )
+    broken_notice = main_module.ComicParserPlugin._blacklist_notice(
+        broken_holder, jm, "123456", "download"
+    )
+    check(
+        "黑名单：自定义文案写了不认识的占位符也照发不崩",
+        broken_notice == "{id} 被拦了 {oops}",
+        str(broken_notice),
+    )
+    check(
+        "黑名单：拦截提示留空时回落默认文案",
+        PluginSettings.from_config(
+            {"access": {"id_blacklist_message": "   "}}
+        ).id_blacklist_message
+        == DEFAULT_ID_BLACKLIST_MESSAGE,
     )
 
 

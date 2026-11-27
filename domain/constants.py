@@ -410,8 +410,10 @@ ID_BLACKLIST_ACTIONS: Final = (
     ID_BLACKLIST_ACTION_INFO,
     ID_BLACKLIST_ACTION_COVER,
 )
-ID_BLACKLIST_ACTION_LABELS: Final = {
-    ID_BLACKLIST_ACTION_DOWNLOAD: "下载整本",
+# 提示文案里的 {action}：只给动作本身，「整本」这类范围词留给管理员按需加在模板里，
+# 这样「不提供{action}」对下载/简介/封面三种都读得通，勾选项上也是这三个名字
+ID_BLACKLIST_MESSAGE_LABELS: Final = {
+    ID_BLACKLIST_ACTION_DOWNLOAD: "下载",
     ID_BLACKLIST_ACTION_INFO: "简介",
     ID_BLACKLIST_ACTION_COVER: "封面",
 }
@@ -421,6 +423,9 @@ DEFAULT_ID_BLACKLIST_ACTIONS: Final = (
     ID_BLACKLIST_ACTION_DOWNLOAD,
     ID_BLACKLIST_ACTION_COVER,
 )
+# 命中黑名单时回的那句话：默认只说到「哪本 + 不提供什么」，管理员可整句替换。
+# 可用占位符 {channel} / {id} / {action}（见 main._blacklist_notice）
+DEFAULT_ID_BLACKLIST_MESSAGE: Final = "❌ {id} 在黑名单里，不提供{action}"
 
 # 这条记录要存盘：插件重载会重建实例，只放内存里的话重载中断提示刚让你发 `/comic retry`，
 # 发过去却回「没有下载记录」
